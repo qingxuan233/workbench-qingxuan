@@ -4,6 +4,23 @@ setlocal EnableExtensions
 title 清玄的工作台
 cd /d "%~dp0"
 
+rem ----------------------------------------------------------------
+rem  自提权（2026-11-02）：本机 explorer.exe 常驻管理员权限。工作台引擎
+rem  若以普通权限启动，DSH 交给 shell 去开文件会被 UIPI 拦下
+rem  （explorer.exe 返回 0xC0000142 ⇒ 界面报「无法打开配置文件」）。
+rem  所以先探测管理员身份，不是就以管理员重新拉起自己。
+rem  --elevated 标记用于防止提权失败时无限递归。
+rem ----------------------------------------------------------------
+if /i "%~1"=="--elevated" goto :elevated
+if "%WB_NO_ELEVATE%"=="1" goto :elevated
+net session >nul 2>&1
+if errorlevel 1 (
+  echo 正在请求管理员权限（本机 explorer 以管理员运行，工作台需要同级）...
+  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '--elevated' -Verb RunAs"
+  exit /b
+)
+:elevated
+
 rem ================================================================
 rem  启动器：只做三件事 —— 查依赖、拉起 Electron、用证据判断「到底起没起来」
 rem

@@ -1,5 +1,21 @@
 @echo off
 chcp 65001 >nul
+rem ------------------------------------------------------------
+rem  自提权（2026-11-02）：本机 explorer.exe 常驻管理员权限，
+rem  工作台引擎若以普通权限启动，DSH 的「打开配置文件」等功能
+rem  会被 UIPI 拦下（explorer.exe 返回 0xC0000142）。
+rem  因此这里先探测管理员身份，不是就以管理员重新拉起自己。
+rem  --elevated 标记用于防止提权失败时无限递归。
+rem ------------------------------------------------------------
+if /i "%~1"=="--elevated" goto :elevated
+if "%WB_NO_ELEVATE%"=="1" goto :elevated
+net session >nul 2>&1
+if errorlevel 1 (
+  echo 正在请求管理员权限（本机 explorer 以管理员运行，工作台需要同级）...
+  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList '--elevated' -Verb RunAs"
+  exit /b
+)
+:elevated
 rem ============================================================
 rem  根目录启动器：转交给 12-源码照搬\启动.bat
 rem
