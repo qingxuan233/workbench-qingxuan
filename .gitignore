@@ -56,3 +56,6 @@ _tmp/
 12-源码照搬/外壳/data/*
 !12-源码照搬/外壳/data/boot-animation.json
 !12-源码照搬/外壳/data/scene-tab-order.json
+
+# 引擎运行时会改写它（记录本机状态，如"公告已读"），不随仓库走；初始化会重置成 []
+12-源码照搬/引擎数据/.dsh/profiles/web/cordis.patch.yml

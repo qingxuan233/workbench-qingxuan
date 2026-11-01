@@ -1,2 +1,0 @@
-# 公开模板 patch：当前不挂任何本地插件（留空 ⇒ 引擎按 package.json 的 bundles 起）
-[]
