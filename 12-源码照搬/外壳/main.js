@@ -49,13 +49,14 @@ function rotateLog() {
 rotateLog();
 const SCENARIOS_DIR = path.join(__dirname, 'scenarios');
 
-// ---- 个人站场景：官网静态服务（<工作台> → http://127.0.0.1:SITE_PORT）----
-const SITE_DIR = '<工作台>';
+const WORKBENCH_ROOT = path.dirname(__dirname);
+// ---- 个人站场景：官网静态服务（WORKBENCH_ROOT → http://127.0.0.1:SITE_PORT）----
+const SITE_DIR = WORKBENCH_ROOT;
 // 2026-10-22：第二个预览源——DSH 社区站（本地目录，静态服务用 /__community/ 前缀直出，
 // 不跟官网同根，免得社区站的源码被当成官网页面发布出去）
-const COMMUNITY_DIR = '<工作台>';
+const COMMUNITY_DIR = WORKBENCH_ROOT;
 // 2026-10-22：个人站场景「本地文件」面板的浏览根 = 项目工程总目录（原来写死成官网目录）
-const SITE_BROWSE_DIR = '<工作台>';
+const SITE_BROWSE_DIR = WORKBENCH_ROOT;
 const SITE_PORT = 31238;
 let siteServer = null;
 
@@ -278,9 +279,9 @@ const CLI_BUILT = path.join(HARNESS_DIR, 'apps', 'cli', 'lib', 'bin.js');
 function serverSpawnEnv() {
   const env = Object.assign({}, process.env);
   env.Path = NPM_BIN + ';' + (env.Path || '');
-  // DSH_HOME 显式指向 D 盘项目目录（数据盘隔离：会话/存储/缓存绝不落 C 盘）。
-  // 不设置的话 dsh 默认用 <用户目录>\<user>\.dsh，导致历史会话在界面里"消失"。
-  env.DSH_HOME = process.env.DSH_CUSTOMER_HOME || path.join(HARNESS_DIR, '.dsh');
+  // DSH_HOME 显式指向独立数据目录（数据盘隔离：会话/存储/缓存绝不落 C 盘）。
+  // 不设置的话 dsh 默认用 用户目录\.dsh，导致历史会话在界面里"消失"。
+  env.DSH_HOME = process.env.DSH_CUSTOMER_HOME || path.join(path.dirname(__dirname), '引擎数据', '.dsh');
   return env;
 }
 
@@ -318,6 +319,26 @@ function resolveNodeExe() {
   }
   log('[boot] 未找到系统 node，将用 Electron 的 Node 模式直跑');
   return cachedNodeExe;
+}
+
+// 方式〇（推荐）：本机安装的 DSH 官方 CLI（dsh.cmd）
+function findDshCmd() {
+  const defaultPath = 'D:\\Programs\\DeepSeek Harness\\resources\\runtime\\cli\\bin\\dsh.cmd';
+  if (fs.existsSync(defaultPath)) return defaultPath;
+  if (process.env.DSH_CMD && fs.existsSync(process.env.DSH_CMD)) return process.env.DSH_CMD;
+  return null;
+}
+
+function spawnServerDshCmd() {
+  const dshCmd = findDshCmd();
+  const env = serverSpawnEnv();
+  log('[boot] dsh.cmd: ' + dshCmd + ' web --no-open --port ' + DSH_PORT);
+  return wireServerProc(spawn('cmd.exe', ['/c', `"${dshCmd}"`, 'web', '--no-open', '--port', DSH_PORT], {
+    cwd: HARNESS_DIR,
+    env: env,
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe']
+  }));
 }
 
 // 方式一（首选）：直跑构建产物（无 cmd / 无 pnpm / 无 tsx）
@@ -404,6 +425,10 @@ async function startServer() {
     return true;
   }
   const plans = [];
+  const dshCmd = findDshCmd();
+  if (dshCmd) {
+    plans.push({ label: 'DSH 官方 CLI', detail: 'dsh.cmd web --no-open --port ' + DSH_PORT, spawn: spawnServerDshCmd, budget: 45 });
+  }
   if (fs.existsSync(CLI_BUILT)) {
     plans.push({ label: '内置入口', detail: 'apps/cli/lib/bin.js（跳过 pnpm / tsx）', spawn: spawnServerDirect, budget: 45 });
   }
@@ -1470,7 +1495,7 @@ ipcMain.handle('site:open-file', async (e, relPath) => {
 // 为什么必须走主进程：渲染进程是 file:// 页面，fetch/XHR 读不了本地文件（图/视频能当子资源加载，
 // 文本不能），所以目录列表与正文都由这里读盘；路径一律相对 REVIEW_DIR 解析并夹在本目录内。
 // 只读：镜像是「<机主>-个人信息 / 我的知识库」的副本（技能 maben-profile 的默认只读约束），不提供任何写接口。
-const REVIEW_DIR = '<工作台>\\自我复盘';
+const REVIEW_DIR = path.join(WORKBENCH_ROOT, '自我复盘');
 const REVIEW_TEXT_EXT = /\.(md|markdown|txt|json|ya?ml|csv|log|ini|conf)$/i;
 const REVIEW_MAX_BYTES = 4 * 1024 * 1024;   // 单篇上限 4 MB：超了只回前 4 MB，够看且不会把面板卡死
 

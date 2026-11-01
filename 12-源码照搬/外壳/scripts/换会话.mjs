@@ -29,7 +29,8 @@ import { execFileSync } from 'node:child_process';
 
 const here = path.dirname(fileURLToPath(import.meta.url));      // …\工作台外壳\scripts
 const GUI = path.resolve(here, '..');                            // …\工作台外壳
-const DSH_HOME = process.env.DSH_HOME || '<工作台>\\引擎\\.dsh';
+const ROOT = path.resolve(GUI, '..');
+const DSH_HOME = process.env.DSH_HOME || path.join(ROOT, '引擎数据', '.dsh');
 const SESSIONS = path.join(here, 'sessions.mjs');
 
 // 面板 → 该场景的长期记忆（= 交接文件）。只有这些面板能自动交接。

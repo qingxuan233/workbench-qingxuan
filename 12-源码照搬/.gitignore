@@ -6,6 +6,12 @@ node_modules/
 _临时/
 发布/
 
+# 包管理器 / Electron 下载缓存（本机产物，体积大且与平台相关，绝不入库）
+.npm-cache/
+.npm/
+.electron-cache/
+*.tgz
+
 # 引擎数据（用户自己的，不入库）
 引擎数据/.dsh/sessions/
 引擎数据/.dsh/storages/

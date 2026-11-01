@@ -16,11 +16,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const HARNESS_DIR = process.env.DSH_HARNESS_DIR || '<工作台>\\引擎';
-const DSH_HOME = process.env.DSH_HOME || path.join(HARNESS_DIR, '.dsh');
-// 2026-10-16：默认工作区改成真目录（口径：说明\默认工作区.md）。⛔ 必须放**模块顶层** ——
-//   轮换(L257 附近)与 --stray(L544 附近)在**别的函数里**引用它们，放函数内会 ReferenceError（当天真踩过）。
-const DEFAULT_CWD = '<工作台>\\工作区';
+const HARNESS_DIR = process.env.DSH_HARNESS_DIR || path.join(path.dirname(root), '引擎数据');
+const DSH_HOME = process.env.DSH_CUSTOMER_HOME || path.join(path.dirname(root), '引擎数据', '.dsh');
+const DEFAULT_CWD = path.join(path.dirname(root), '工作区');
 const KEEP_CWD = process.argv.includes('--keep-cwd');
 
 function readJson(p) {

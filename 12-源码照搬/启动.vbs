@@ -1,6 +1,6 @@
 ' 启动.vbs —— 启动「淋雨家的工作台」（公开模板）
 Option Explicit
-Dim fso, sh, root, shellDir, engineData, electron
+Dim fso, sh, root, shellDir, engineData, electron, env
 Set fso = CreateObject("Scripting.FileSystemObject")
 Set sh = CreateObject("WScript.Shell")
 root = fso.GetParentFolderName(WScript.ScriptFullName)
