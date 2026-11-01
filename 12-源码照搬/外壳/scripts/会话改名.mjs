@@ -2,6 +2,7 @@
 // 用法：node 会话改名.mjs <sessionId> "<新标题>"
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const [sid, title] = process.argv.slice(2);
 if (!sid || !title) {
@@ -9,9 +10,11 @@ if (!sid || !title) {
   process.exit(2);
 }
 const BASE = process.env.DSH_GUI_BASE || 'http://127.0.0.1:' + (process.env.DSH_PORT || '3083');
-const DSH_HOME = process.env.DSH_HOME || '<盘根>:/DSH/引擎/.dsh';
+// ⚠ 2026-11-01：原来写死作者机路径占位符 ⇒ token 永远找不到。按本机目录推导。
+const ROOT_SHELL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const DSH_HOME = process.env.DSH_HOME || path.join(path.dirname(ROOT_SHELL), '引擎数据', '.dsh');
 // token 在「外壳」的 server.log 里（不是 引擎 目录）；两个位置都试
-const LOG = ['<盘根>:/DSH/外壳/server.log', path.join(path.dirname(DSH_HOME), 'server.log')]
+const LOG = [path.join(ROOT_SHELL, 'server.log'), path.join(path.dirname(DSH_HOME), 'server.log')]
   .find((p) => fs.existsSync(p)) || '';
 
 const toks = fs.existsSync(LOG)

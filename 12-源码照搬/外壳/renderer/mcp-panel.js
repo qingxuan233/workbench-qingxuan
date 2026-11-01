@@ -5,7 +5,17 @@
 //   写盘后配置即时重放 ⇒ 相关 MCP 卸载/拉起；面板会话可能断一次，刷新界面即接回（会话记录不丢）。
 (function () {
   'use strict';
-  var FILE = '<工作台>\\引擎\\.dsh\\profiles\\web\\cordis.patch.yml';
+  // ⚠ 2026-11-01：原来写死占位符（照搬时没替换）⇒ 换台机器后「写盘」永远落到不存在的目录。
+  //   改为按页面自身路径推导本机根（同 topbar-status.js 的做法）。
+  var ROOT = (function () {
+    try {
+      var q = decodeURIComponent(String(location.pathname || '')).replace(/^\//, '').replace(/\//g, '\\');
+      var m = q.match(/^(.*)\\外壳\\renderer\\/i);
+      if (m && m[1]) return m[1];
+    } catch (e) { /* ignore */ }
+    return '';
+  })();
+  var FILE = ROOT ? (ROOT + '\\引擎数据\\.dsh\\profiles\\web\\cordis.patch.yml') : '';
   var MB = '# >>> MCP 开关（界面右上角「MCP」图标 或 mcp-switch.mjs 管理：disabled: true = 关掉这个 MCP）>>>';
   var ME = '# <<< MCP 开关 <<<';
   // ⚠ tools / est 两个数字**只许照实测抄**，别手拍：

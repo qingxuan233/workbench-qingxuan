@@ -1,4 +1,2 @@
-# 公开模板 patch：只挂「启动动画」
-- insert:
-    - id: boot-anim-host
-      name: dsh-plugin-boot-anim
+# 公开模板 patch：当前不挂任何本地插件（留空 ⇒ 引擎按 package.json 的 bundles 起）
+[]

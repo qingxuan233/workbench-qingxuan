@@ -65,8 +65,9 @@ function listSessions() {
 //     两条叠加 ⇒ 把 139k/140k 的健康会话（实际 17%）标成 ⚠。**判据两处各算一套，就是虚警的来源。**
 //   ⇒ 现在只读 ctx.mjs 算好的 pct / win / line / projected，自己**不再算一条线**；读不到就干脆不标（宁可不报，
 //     也不用过期口径吓人）。
-const CTX_JS = path.join('<工作台>\\引擎', '.dsh', 'skills', 'context-overflow', 'ctx.mjs');
-const CTX = (() => {
+  // ⚠ 2026-11-01：原来写死「<工作台>\引擎\…」占位符 ⇒ 恒读不到、静默跳过。按本机根推导。
+  const CTX_JS = path.join(DSH_HOME, 'skills', 'context-overflow', 'ctx.mjs');
+  const CTX = (() => {
   try {
     const out = execFileSync(process.execPath, [CTX_JS, '--json', '--all'], { encoding: 'utf8', maxBuffer: 1 << 26, timeout: 60000 });
     const list = JSON.parse(out);
@@ -478,7 +479,7 @@ if (rotating && !STRAY) {
 //   ③ 旧会话改名「已归档 · X · 日期」+ **真归档**（带活动时自动 stopActivity 重试）
 //   ④ 给新会话写开场消息再打断（空会话不进侧边栏）
 //   ⑤ 把交接文档里的旧会话 id 换成新会话（新会话读到的就是它自己）
-// 记忆落点（零散会话唯一）：`<工作台>\引擎\场景记忆\其他会话临时项目信息交接文档\<会话名>-<YYYYMMDD-HHMM>.md`
+// 记忆落点（零散会话唯一）：`<记忆根>\其他会话临时项目信息交接文档\<会话名>-<YYYYMMDD-HHMM>.md`
 // 用法：
 //   node scripts\sessions.mjs --stray                                    列出所有零散会话（压力 + 交接文档）
 //   node scripts\sessions.mjs --rotate 华为电脑管家升级 --stray --dry      空跑看计划
@@ -497,10 +498,10 @@ if (rotating && STRAY) {
   let failed = false;
   const die = (msg) => { console.error('✗ ' + msg); failed = true; };
 
-  // ★2026-10-13★ 旧根 `<工作台>\引擎\场景记忆` 已搬到 `<工作台>\引擎\场景记忆`（旧根已删）。
-  //   这里是**转义写法**，搬家的文本扫描匹配不到 ⇒ 漏改；不改的话零散会话交接会写进已删的旧目录。
-  const STRAY_DIR = '<工作台>\\引擎\\场景记忆\\其他会话临时项目信息交接文档';
-  const baseOf = (t) => String(t || '')
+    // ⚠ 2026-11-01：原来写死占位符（照搬模板时未替换）⇒ 零散会话交接会写进已删的旧目录。
+    //   现在按本机真实记忆根推导：引擎数据\.dsh\场景记忆\其他会话临时项目信息交接文档
+    const STRAY_DIR = path.join(DSH_HOME, '场景记忆', '其他会话临时项目信息交接文档');
+    const baseOf = (t) => String(t || '')
     .replace(/^已归档\s*·\s*/, '')
     .replace(/\s*·\s*\d{4}-\d{2}-\d{2}\s*$/, '')
     .replace(/\s*[·・]\s*接手.*$/, '')

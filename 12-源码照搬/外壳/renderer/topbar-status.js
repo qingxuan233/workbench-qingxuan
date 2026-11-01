@@ -49,17 +49,14 @@
     { label: '记忆总索引', file: ROOT + '\\引擎数据\\.dsh\\场景记忆\\_总索引.md' },
     { label: '跨场景通知', file: ROOT + '\\引擎数据\\.dsh\\场景记忆\\_共享记忆\\_跨场景通知.md' }
   ];
-  // 常用文件夹（2026-10-21 宿主亲口指定的 6 个 + 2026-10-27 宿主加的第 7 个 `<工作台>`，别自作主张改）：
-  //   1 <资料库>  2 <视频工作流>  3 <视频素材>
-  //   4 <素材库>  5 <成品库>  6 <工作台>  7 <工作台>
-  // 注意 4 和 5 只差一个逗号（收录素材那个带逗号、成品那个不带），照抄，别"顺手统一"。
-  var FOLDERS = [    { label: '工作台目录', p: '<盘根>:\\客户工作台\\<客户>' },
-    { label: '本机 D 盘', p: '<盘根>:\\' },
-    { label: '桌面', p: '<用户目录>\\Public\\Desktop' },
-    { label: '文档', p: '<用户目录>\\Public\\Documents' }
-  ];
-
-  // ---------------------------------------------------------------- 小工具
+    // 常用文件夹：从本机根推导的工作台自身目录（2026-11-01 改）。
+    //   原先是作者机上 7 个私人目录（含 '<盘根>:\客户工作台\…' 这类占位符），换台机器点开只会报「找不到」。
+    //   现在这三项人人都用得上，且永远指对；要加自己的目录请在【场景 json】里配，别改这里。
+    var FOLDERS = [
+      { label: '工作台目录', p: ROOT },
+      { label: '场景记忆', p: ROOT + '\\引擎数据\\.dsh\\场景记忆' },
+      { label: '外壳脚本', p: ROOT + '\\外壳\\scripts' }
+    ];
   function el(tag, cls, txt) {
     var n = document.createElement(tag);
     if (cls) n.className = cls;
@@ -752,7 +749,7 @@
     else if (HELP.err) box.appendChild(el('div', 'tbs-pop-hint', '读不到：' + HELP.err));
     if (HELP.ready && !HELP.rows.length && !HELP.err) {
       box.appendChild(el('div', 'tbs-pop-hint', '还没有登记帮手。'));
-      box.appendChild(el('div', 'tbs-pop-hint', '用引擎侧 助手会话.mjs --add 登记（规矩见《标准化规范》§2.13）；目前只有<客户>有。'));
+      box.appendChild(el('div', 'tbs-pop-hint', '用引擎侧 助手会话.mjs --add 登记（规矩见《标准化规范》§2.13）。'));
     }
     WORK.dots = {};
     var order = [], groups = {};
@@ -1430,7 +1427,7 @@
     else if (HELP.err) box.appendChild(el('div', 'tbs-pop-hint', '读不到：' + HELP.err));
     if (HELP.ready && !HELP.rows.length && !HELP.err) {
       box.appendChild(el('div', 'tbs-pop-hint', '还没有登记帮手。'));
-      box.appendChild(el('div', 'tbs-pop-hint', '用引擎侧 助手会话.mjs --add 登记（规矩见《标准化规范》§2.13）；目前只有<客户>有。'));
+      box.appendChild(el('div', 'tbs-pop-hint', '用引擎侧 助手会话.mjs --add 登记（规矩见《标准化规范》§2.13）。'));
     }
     WORK.dots = {};
     var order = [], groups = {};

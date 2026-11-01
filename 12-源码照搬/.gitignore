@@ -36,6 +36,7 @@ _临时/
 外壳/data/sidebar-state.json
 外壳/data/boot-preview.json
 外壳/server.log
+外壳/server.err.log
 外壳/captures/
 
 # 记忆内部层（保留骨架，不提交个人内容）

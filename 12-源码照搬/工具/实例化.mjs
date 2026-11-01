@@ -158,8 +158,15 @@ if (!has('--apply')) {
 }
 
 // 写 工作台.json
+// fresh 只在「还有面板没绑上」时为 true（装好未绑 ⇒ 体检把未绑定算待办）。
+// 一旦全部绑上就置 false，A10 立刻恢复硬判：以后再有面板掉绑定就是错，不是待办。
+const allBound = scens.every((sc) => {
+  const id = (nextManifest.scenes[sc.id] || {}).sessionId;
+  return id && id !== '__待填__';
+});
+if (allBound) delete nextManifest.fresh;
 fs.writeFileSync(MANIFEST, JSON.stringify(nextManifest, null, 2) + '\n', 'utf8');
-say('\n✓ 已写 工作台.json');
+say('\n✓ 已写 工作台.json' + (allBound ? '（全部面板已绑定 ⇒ fresh 已清除）' : '（仍有面板未绑定 ⇒ 保持 fresh）'));
 
 // 写场景 json 的 sessionId（保持原有缩进风格：只替换字段值，不重排）
 let changed = 0;

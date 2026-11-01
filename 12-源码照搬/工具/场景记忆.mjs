@@ -109,7 +109,7 @@ function sceneOf(dirName) {
 /* ----------------------------------------------------- 记忆 v2 例外（集中清单） */
 // 2026-10-27（命令台 cmd-chat 报）：例外场景没有 `引擎\场景记忆\<场景>\` ⇒ 以前 check 直接 ENOENT 抛错，
 // 收工闸形同虚设。现在例外清单**只有一份**：工具同目录的 `场景记忆-例外.json`（别在代码里散落）。
-const TOOL_DIR = path.dirname(path.resolve(process.argv[1] || '<工作台>\\工具\\场景记忆.mjs'))
+const TOOL_DIR = path.dirname(path.resolve(process.argv[1] || __f2u(import.meta.url)))
 const EXCEPTION_FILE = path.join(TOOL_DIR, '场景记忆-例外.json')
 let _exceptions = null
 function readExceptions() {
@@ -141,7 +141,6 @@ function sec0Bytes(txt) {
 }
 /** 例外场景的 check：不按三文档校验，只验它声明的记忆根 + 定位卡。 */
 function cmdCheckException(arg, ex) {
-  if (ex.handler === 'oa') return cmdCheckOa()
   const problems = []
   const ok = []
   for (const r of ex.roots || []) {
@@ -171,7 +170,7 @@ function bindingBlock(id, ident, dirName, sceneJson) {
   const panels = (sceneJson?.panels || []).map((p) => `${p.id}:${p.type}${p.url ? '=' + p.url : p.sessionId ? '(会话)' : ''}`).join(' ｜ ')
   return `<!-- 场景绑定 BEGIN · 由 场景记忆.mjs 生成，⛔ 手改即校验失败 -->
 > **场景** \`${id}\` ｜ **面板** \`${ident?.panel || '?'}\` ｜ **会话** \`${ident?.sessionId || '?'}\`
-> **定位卡** \`${card ? path.relative('<工作台>', card) : '(缺)'}\` ｜ **卡指纹** \`sha256:${fp ? fp.slice(0, 16) : '(缺)'}…\` ｜ **盖章** ${stamp()}
+> **定位卡** \`${card ? path.relative(WORKBENCH_ROOT, card) : '(缺)'}\` ｜ **卡指纹** \`sha256:${fp ? fp.slice(0, 16) : '(缺)'}…\` ｜ **盖章** ${stamp()}
 > **地盘** \`${dirName}\`
 > **权限** 只写自己的记忆文件夹与本人资产；⛔ 不改别的场景、不重启引擎、不关 GUI
 > **专属技能** ${ident?.skill || '(无)'}
@@ -187,7 +186,7 @@ ${bindingBlock(id, ident, dir, sceneJson)}
 
 ## 怎么用
 - 开场第一份读的是**这张卡**：我是谁、在哪个面板、会话是哪条、定位卡是哪张、能碰什么。
-- 定位卡或场景 json 改了 ⇒ 立刻跑 \`node <工作台>\\工具\\场景记忆.mjs stamp --场景 ${name}\`，否则 \`场景记忆.mjs check\` 会报指纹过期。
+- 定位卡或场景 json 改了 ⇒ 立刻跑 \`node 工具\\场景记忆.mjs stamp --场景 ${name}\`，否则 \`场景记忆.mjs check\` 会报指纹过期。
 - 本文件由工具全量重写；要补充说明请写进 \`场景私有记忆.md\`，别写这里。
 `
   fs.writeFileSync(path.join(dir, '身份卡.md'), txt, 'utf8')
@@ -217,7 +216,7 @@ ${rows || '| — | — | — | — | — | — |'}
 - 渲染器：${[...new Set((p.panels || []).map((x) => x.type))].join(' / ') || '(无)'}
 
 ## 四、依赖与入口
-- 定位卡：${ident?.card ? '`' + path.relative('<工作台>', ident.card) + '`' : '(缺)'}
+- 定位卡：${ident?.card ? '`' + path.relative(WORKBENCH_ROOT, ident.card) + '`' : '(缺)'}
 - 专属技能：${ident?.skill || '(无)'}
 - 记忆文件夹：\`${dir}\`
 
@@ -406,57 +405,6 @@ function cmdHandover(arg) {
   return 0
 }
 
-/** <客户> OA：§2.4 例外，记忆是 E 盘目录里的多份文档，不按 `<场景>\场景私有记忆.md` 检查。 */
-function cmdCheckOa() {
-  const dir = '<盘根>:\\工作\\工程文件\\<客户>教育oa\\项目信息'
-  const problems = []
-  const ok = []
-  for (const f of ['README.md', '31_会话接手锚点.md', '项目记忆-langchen-oa.md']) {
-    if (fs.existsSync(path.join(dir, f))) ok.push(f)
-    else problems.push('缺文件 ' + f)
-  }
-  const anchorPath = path.join(dir, '31_会话接手锚点.md')
-  const anchor = fs.existsSync(anchorPath) ? fs.readFileSync(anchorPath, 'utf8') : ''
-  if (!anchor) {
-    problems.push('31_会话接手锚点.md 读不到')
-  } else {
-    const h = anchor.search(/^## (?:§〇|〇、)/m)
-    if (h < 0) {
-      problems.push('31 里没有 §〇/〇、当前交接 段')
-    } else {
-      const rest = anchor.slice(h)
-      const next = rest.indexOf('\n## ', 5)
-      const sec = next >= 0 ? rest.slice(0, next) : rest
-      const bytes = Buffer.byteLength(sec)
-      if (bytes > 4096) problems.push('§〇 超 4 KB（' + bytes + ' B）')
-      else ok.push('§〇 ' + bytes + ' B')
-    }
-    const ci = anchor.search(/^## 核心职责/m)
-    if (ci < 0) problems.push('31 里没有 ## 核心职责')
-    else {
-      const rest = anchor.slice(ci)
-      const next = rest.indexOf('\n## ', 5)
-      const sec = next >= 0 ? rest.slice(0, next) : rest
-      const n = (sec.match(/^- /gm) || []).length
-      if (n < 3) problems.push('核心职责只有 ' + n + ' 条（至少 3 条）')
-      else ok.push('核心职责 ' + n + ' 条')
-    }
-  }
-  try {
-    const pj = JSON.parse(fs.readFileSync(path.join(MEMROOT, '_共享记忆', '项目.json'), 'utf8'))
-    const p = (pj.projects || []).find((x) => x.id === 'langchen-oa')
-    const want = path.join(dir, '项目记忆-langchen-oa.md')
-    if (!p) problems.push('项目.json 里没有 langchen-oa')
-    else if (path.resolve(p.memory || '') !== path.resolve(want)) problems.push('项目.json memory 没指向 OA 项目记忆')
-    else ok.push('项目.json 路由一致')
-  } catch (e) {
-    problems.push('项目.json 读不到：' + e.message)
-  }
-  console.log(`\n<客户> OA（oa-ops）：${problems.length ? '✗' : '✓'} OA 例外（E 盘自有布局）`)
-  for (const s of ok) console.log('  ✓ ' + s)
-  for (const s of problems) console.log('  ✗ ' + s)
-  return problems.length ? 1 : 0
-}
 
 function cmdCheck(name) {
   const dir = path.join(MEMROOT, name)
@@ -621,7 +569,6 @@ if (cmd === 'stamp') process.exit(cmdStamp(findSceneDir(arg) || arg))
 if (cmd === '交接' || cmd === 'handover') process.exit(cmdHandover(arg))
 if (cmd === 'check') {
   const ex = exceptionOf(arg)
-  if (ex && ex.handler === 'oa') process.exit(cmdCheckOa())
   process.exit(cmdCheck(findSceneDir(arg) || arg))
 }
 console.error('未知命令：' + cmd)

@@ -95,7 +95,9 @@ const ASSERTIONS = [
     run(root, ctx) {
       const f = [];
       if (!exists(memRoot(root))) f.push({ path: memRoot(root), msg: '记忆根不存在' });
-      if (!exists(sessRoot(root))) f.push({ path: sessRoot(root), msg: '会话库不存在' });
+      // 会话库由引擎启动时创建。刚初始化、还没启动过 ⇒ 缺它是正常，算待办；
+    // 非 fresh 态还缺，说明数据根配歪了，那才是红。
+    if (!exists(sessRoot(root))) f.push({ path: sessRoot(root), msg: '会话库不存在（引擎还没启动过？）', todo: !!ctx.fresh });
       // 代码里把会话库拼成「.dsh\.dsh」的写法，见过一次就够（真实事故）
       // ⚠ 跳过本文件：它内含自检用的「坏样本」样本串，扫自己会误报。
       const codeFiles = [
@@ -273,7 +275,11 @@ const ASSERTIONS = [
         for (const p of harnessPanels(sc)) {
           const id = String(p.sessionId || '').trim();
           if (!id || id === '__待填__') {
-            f.push({ path: sc.__path, msg: `面板 ${p.id} 未绑定会话（跑 node 工具\\实例化.mjs）` });
+            f.push({
+              path: sc.__path,
+              msg: `面板 ${p.id} 未绑定会话（跑 node 工具\\实例化.mjs）`,
+              todo: !!ctx.fresh          // 装好还没绑会话 ⇒ 待办；绑了一半就是错
+            });
           }
         }
       }
@@ -417,13 +423,20 @@ export function checkKaiGong(file, sceneName) {
 
 // ── 运行 ─────────────────────────────────────────────────
 function runAll(root) {
-  const ctx = { scenes: scenes(root), mode: modeOf(root) };
+  // fresh = 「刚初始化、还没绑会话」的合法中间态：未绑定算待办，不算失败。
+  // 一旦 实例化.mjs --apply 绑完并清掉 fresh，A10 立刻恢复硬判。
+  let fresh = false;
+  try {
+    const mf = path.join(appRoot(root), '工作台.json');
+    if (exists(mf)) fresh = JSON.parse(readText(mf).replace(/^\uFEFF/, '')).fresh === true;
+  } catch { /* 清单坏了由 A13 报 */ }
+  const ctx = { scenes: scenes(root), mode: modeOf(root), fresh };
   const results = ASSERTIONS.map((a) => {
     let findings = [];
     try { findings = a.run(root, ctx) } catch (e) { findings = [{ path: root, msg: '断言自身抛错: ' + (e && e.message) }] }
-    return { id: a.id, title: a.title, layer: a.layer, ok: findings.length === 0, findings };
+    return { id: a.id, title: a.title, layer: a.layer, ok: findings.every((f) => f && f.todo), findings };
   });
-  return { root, mode: ctx.mode, results };
+  return { root, mode: ctx.mode, fresh, results };
 }
 
 // ── 反例验收 ──────────────────────────────────────────────
@@ -548,7 +561,7 @@ function makeFixture(root, o = {}) {
     const mf = path.join(root, '工作台.json');
     fs.mkdirSync(path.dirname(mf), { recursive: true });
     // badManifest：带上 UTF-8 BOM（PowerShell 5 的 Set-Content -Encoding UTF8 就会这么写）
-    fs.writeFileSync(mf, (o.badManifest ? '\uFEFF' : '') + JSON.stringify({ version: 1, dshPort: 3083 }, null, 1));
+    fs.writeFileSync(mf, (o.badManifest ? '\uFEFF' : '') + JSON.stringify({ version: 1, dshPort: 3083, fresh: !!o.fresh }, null, 1));
   }
   return root;
 }
@@ -592,6 +605,17 @@ function selfTest() {
     else { fail++; log.push(`  ✗ 坏样本 ${c.id} 未命中（${c.desc}）⇒ 该断言作废`) }
   }
 
+  // ③ fresh 态（装好但还没绑会话）：A10 必须降级为待办，而不是红
+  const freshRes = runAll(makeFixture(path.join(tmp, 'fresh'), { placeholder: true, fresh: true }));
+  const a10 = freshRes.results.find((r) => r.id === 'A10');
+  if (a10 && a10.ok && a10.findings.length > 0) { pass++; log.push('  ✓ fresh 态：未绑会话降级为待办（不误报红）') }
+  else { fail++; log.push('  ✗ fresh 态处理错：应为「绿 + 待办」，实际 ' + (a10 ? (a10.ok ? '无待办' : '红') : '缺 A10')) }
+  // ② 已覆盖反向情形：同一坏样本去掉 fresh ⇒ 必须红
+  const noFresh = runAll(makeFixture(path.join(tmp, 'nofresh'), { placeholder: true }));
+  const a10b = noFresh.results.find((r) => r.id === 'A10');
+  if (a10b && !a10b.ok) { pass++; log.push('  ✓ 非 fresh 态：未绑会话仍然报红（闸没松）') }
+  else { fail++; log.push('  ✗ 非 fresh 态未报红 ⇒ A10 闸被放水') }
+
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(log.join('\n'));
   console.log(`\n自检：${pass} 通过 · ${fail} 失败`);
@@ -615,21 +639,24 @@ if (IS_MAIN) {
   }
 
   const root = path.resolve(getArg('--root', DEFAULT_ROOT));
-  const { mode, results } = runAll(root);
+  const { mode, fresh, results } = runAll(root);
   const red = results.filter((r) => !r.ok);
+  const todo = results.filter((r) => r.ok && r.findings.length);
 
   if (argv.includes('--json')) {
-    console.log(JSON.stringify({ root, mode, results, red: red.length }, null, 2));
+    console.log(JSON.stringify({ root, mode, fresh, results, red: red.length, todo: todo.length }, null, 2));
     process.exit(red.length ? 1 : 0);
   }
 
   console.log(`体检 · ${root}`);
-  console.log(`模式：${mode}（${mode === 'instance' ? '有 工作台.json，按实例判' : '无 工作台.json，按模板判'}）\n`);
+  console.log(`模式：${mode}（${mode === 'instance' ? '有 工作台.json，按实例判' : '无 工作台.json，按模板判'}）${fresh ? ' · 初始化态（未绑会话算待办）' : ''}\n`);
   for (const r of results) {
-    console.log(`${r.ok ? '✓' : '✗'} ${r.id} [${r.layer}] ${r.title}`);
+    const isTodo = r.ok && r.findings.length > 0;
+    console.log(`${isTodo ? '⚠' : (r.ok ? '✓' : '✗')} ${r.id} [${r.layer}] ${r.title}`);
     for (const f of r.findings) console.log(`    · ${path.relative(root, f.path) || f.path}：${f.msg}`);
   }
-  console.log(`\n汇总：${results.length} 条断言 · ${results.length - red.length} 绿 · ${red.length} 红`);
+  console.log(`\n汇总：${results.length} 条断言 · ${results.length - red.length} 绿 · ${red.length} 红${todo.length ? ` · ${todo.length} 待办` : ''}`);
+  if (todo.length) console.log('待办不是错误：装好之后按提示建会话，然后 node 工具\\实例化.mjs --apply。');
   if (red.length) console.log('提示：体检只报告不修；修完再跑，直到转绿。');
   process.exit(red.length ? 1 : 0);
 }
