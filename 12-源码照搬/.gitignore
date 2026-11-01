@@ -17,7 +17,7 @@ _临时/
 引擎数据/.dsh/storages/
 引擎数据/.dsh/profiles/web/*
 !引擎数据/.dsh/profiles/web/cordis.yml
-!引擎数据/.dsh/profiles/web/cordis.patch.yml
+# cordis.patch.yml 不跟踪：引擎运行时会写本机状态（公告已读之类）
 !引擎数据/.dsh/profiles/web/package.json
 !引擎数据/.dsh/profiles/web/pnpm-workspace.yaml
 引擎数据/.dsh/.credentials.yaml
