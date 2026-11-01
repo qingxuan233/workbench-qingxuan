@@ -16,6 +16,8 @@ _临时/
 引擎数据/.dsh/sessions/
 引擎数据/.dsh/storages/
 引擎数据/.dsh/profiles/web/*
+# headless 是引擎按需从内置模板落盘出来的运行时骨架（恢复自 2026-11-01 清理），不入库
+引擎数据/.dsh/profiles/headless/
 !引擎数据/.dsh/profiles/web/cordis.yml
 # cordis.patch.yml 不跟踪：引擎运行时会写本机状态（公告已读之类）
 !引擎数据/.dsh/profiles/web/package.json
