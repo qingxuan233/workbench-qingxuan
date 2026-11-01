@@ -95,6 +95,7 @@ if (seedIt) {
     sessionId: newId, mode: 'queue', content: [{ type: 'text', text: seedTxt }],
   } });
   await new Promise((r) => setTimeout(r, 10000));   // 太早取消 = 这轮没真开始 = 会话仍是空 = 侧边栏看不到
+
   const cx = await rpc('session/cancel', { request: { sessionId: newId } });
   say((pr.status === 200 ? '✓' : '✗ HTTP ' + pr.status) + ' 开场消息   ' + (cx.status === 200 ? '✓' : '✗ HTTP ' + cx.status) + ' 已打断（这轮不会动任何东西）');
 } else say('（--no-seed：没写开场消息，侧边栏可能要等它被打开过才显示）');

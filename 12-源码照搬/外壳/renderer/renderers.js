@@ -14718,9 +14718,15 @@ renderers.harness = (body, meta, head) => {
           (d.targets || []).some(t => { const tn = nz(t); return tn && liveN.indexOf(tn) >= 0; });
         const boundOk = !!(d.bound && d.bound.title && liveN === nz(d.bound.title));
         const ok = boundOk || okName;
+        // 侧栏行一条都读不到时（面板窄/分组折叠/应用还没渲染列表），标题证据必然失效 ——
+        // 这时如果引擎自己记的当前会话 id 就等于指定 id，**只把状态小字**改说"按存储核对"，
+        // 钉会话的动作照旧（下面 clickItem 仍然每轮尝试），不动"画面才是唯一判据"那条铁律。
+        const storeOk = !!(d.sessionId && d.stored && String(d.stored) === String(d.sessionId));
         const unbound = !d.sessionId && !d.sessionTitle && !(d.targets || []).length && !(d.bound && d.bound.title);
         pinTxt = unbound ? '○ 未绑定 · 面板自由选会话'
-          : (boundOk ? '✓ 已钉绑定' : (ok ? '✓ 已钉' : ('未切到 · ' + (live || '读不到当前会话'))));
+          : (boundOk ? '✓ 已钉绑定'
+            : (ok ? '✓ 已钉'
+              : (storeOk ? '✓ 已切到（存储核对）' : ('未切到 · ' + (live || '读不到当前会话')))));
         if (unbound) diag.title = '该面板未绑定任何会话（场景 json 里没写 sessionTitle / sessionId / pinTarget）\n' +
           '面板停在它当前显示的会话上，不会被自动切换，也不再去找侧栏。\n' +
           '要重新绑定：给该面板补 sessionTitle + sessionId，再切一次场景即可（改了就会立刻生效）。';
@@ -14733,6 +14739,8 @@ renderers.harness = (body, meta, head) => {
           '\n界面可识别会话行/选中行数：' + (d.rows == null ? '未知' : d.rows) +
           (d.matched ? ('\n已定位到会话行：' + d.matched + '（' + d.by + '）') : '\n未定位到目标会话行（分组折叠或列表未渲染）') +
           (d.cands && d.cands.length ? ('\n界面里能看到的会话/行：' + d.cands.join(' ｜ ')) : '\n界面里能看到的会话/行：（读不到）') +
+          (storeOk && !ok ? ('\n↑ 侧栏会话行这次没渲染出来（面板窄 / 分组折叠 / 列表还没出），但「应用存储」里的当前会话'
+            + '已经等于指定的 id ⇒ 引擎确实切到了这条会话，只是标题行没拿到证据（本行状态按存储核对）。') : '') +
           (wideTxt ? ('\n会话列铺满：' + wideTxt + '（列宽 / 可用宽；只差十几像素＝已铺满，差几百＝没铺上，多半引擎换版了）') : '') +
           '\n\n点击此处 = 忘掉记住的标题，重新按会话名匹配';
       }
@@ -17675,7 +17683,6 @@ renderers.neuron = (body, meta, head) => {
   const P = (window.app && window.app.paths) || {};
   const MEM_ROOT = P.memRoot || '';
   const ROOT = MEM_ROOT + '\\_共享记忆';
-  const META_DIR = MEM_ROOT;
   const SKILL_DIR = P.skillDir || (__WB_ROOT + '\\引擎数据\\.dsh\\skills');
   // 技能清单**不硬编码**（2026-10-27 审计①：硬编码 23 漏了 command / douyin）——运行时列技能目录，这份只当兜底
   const SKILL_FALLBACK = ['gui-workbench', 'harness-dev', 'context-overflow', 'workbuddy', 'webai-offload',
@@ -17834,8 +17841,12 @@ renderers.neuron = (body, meta, head) => {
       nodes.push(core);
 
       var docs = [
-        { id: 'doc-todo', label: '待办', path: META_DIR + '\\_待办.md', ang: 0 },
-        { id: 'doc-msg', label: '通知', path: META_DIR + '\\_跨场景通知.md', ang: Math.PI * 0.66 },
+        // 2026-11-01 修：这两份是**共享**文档，全仓唯一的写点在 场景记忆\_共享记忆\
+        //   （工具\发消息.mjs 往 _共享记忆\_跨场景通知.md 追加；topbar-status.js 的「跨场景通知」也指向那里）。
+        //   以前这里写成 META_DIR（= 场景记忆 根）⇒ 根上根本没有这两个文件 ⇒ 加载时校验一路判失效，
+        //   面板常驻「⛔ 路径失效 2」，点开详情是「文件不存在」，点「定位」也定位不到东西。
+        { id: 'doc-todo', label: '待办', path: ROOT + '\\_待办.md', ang: 0 },
+        { id: 'doc-msg', label: '通知', path: ROOT + '\\_跨场景通知.md', ang: Math.PI * 0.66 },
         { id: 'doc-conf', label: '冲突', path: ROOT + '\\冲突.md', ang: Math.PI * 1.33 }
       ];
       var jobs = [];

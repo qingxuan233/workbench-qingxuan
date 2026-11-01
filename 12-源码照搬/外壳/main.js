@@ -22,12 +22,15 @@ process.env.DSH_SHELL_DIR = __dirname;
 //   任务栏右键菜单里显示成「Electron」、图标退回 Electron 原子图标 ✗。提到顶部即可。
 //   配套：开始菜单/桌面那两条「工作台」快捷方式必须带同一个 AUMID（脚本 %TEMP%\set-lnk-aumid2.ps1 写过）。
 app.setAppUserModelId('deepseek.harness.gui.v2');   // 2026-10-13 换新身份：旧的 deepseek.harness.gui 已被 Windows 按身份缓存成原子图标，绕开它
-// 引擎目录：**优先按"与本工作台同级"推导**（换电脑 / 换盘符都不用改这行），推不出来才退回写死值。
-// 2026-10-10 为「换电脑一比一复制」加（见 项目信息.md §39）：只要引擎与工作台仍是同级目录，任何盘符都能跑。
+// 引擎目录：先看「与本工作台同级」的 引擎\，没有就空串。
+// ⚠ 2026-11-01：以前推不出来会**退回一个写死的同名路径**，于是 HARNESS_DIR 永远非空，
+//   「同级目录在不在」这个判断就永远为真，后面每一项「引擎在哪里」的单点都拿它当根拼出来，
+//   拼出的路径必然不存在（真实踩到：内置入口 `引擎\apps\cli\lib\bin.js` 一直在启动计划里空跑）。
+//   现在推不出来就是 ''：谁要用，先自己判断，别拿空串去 path.join。
 const HARNESS_DIR = (function () {
   const sibling = path.join(path.dirname(__dirname), '引擎');
   try { if (fs.existsSync(path.join(sibling, 'apps', 'cli'))) return sibling; } catch (e) { /* ignore */ }
-  return path.join(path.dirname(__dirname), '引擎');
+  return '';
 })();
 const NPM_BIN = path.join(os.homedir(), 'AppData', 'Roaming', 'npm');
 const PNPM_CMD = path.join(NPM_BIN, 'pnpm.cmd');
@@ -283,14 +286,29 @@ function sendBoot(patch) {
 }
 
 // 已构建的 CLI 入口：直接 node 跑它，可跳过 cmd.exe → pnpm → tsx 三层转译，明显加快引擎启动
-const CLI_BUILT = path.join(HARNESS_DIR, 'apps', 'cli', 'lib', 'bin.js');
+// ⚠ 2026-11-01：公开版把自带引擎删了，HARNESS_DIR 是 ''。这里以前无条件拼出 `引擎\apps\cli\lib\bin.js`，
+//   一个**永远不存在**的路径，却被当成「首选启动方式」写进启动计划（白等一轮超时）。
+//   现在：没有引擎目录就没有这个入口（null），由 spawnServerDirect 自己跳过。
+const CLI_BUILT = HARNESS_DIR ? path.join(HARNESS_DIR, 'apps', 'cli', 'lib', 'bin.js') : null;
+
+// DSH_HOME：数据根。环境变量优先，其次工作台自己的 引擎数据\.dsh。
+// 环境变量指向一个**不存在**的目录时，dsh 会在那里重建一份空数据（会话/记忆全"消失"），
+//   所以先确认它存在；不存在就退回工作台自己的数据根，并在日志里说清楚这次改用了谁。
+function dshHomeDir() {
+  const own = path.join(path.dirname(__dirname), '引擎数据', '.dsh');
+  const want = process.env.DSH_CUSTOMER_HOME;
+  if (!want) return own;
+  try { if (fs.statSync(want).isDirectory()) return want; } catch (e) { /* 不存在 */ }
+  log('[boot] DSH_CUSTOMER_HOME 指向的目录不存在，改用工作台自己的数据根：' + own);
+  return own;
+}
 
 function serverSpawnEnv() {
   const env = Object.assign({}, process.env);
   env.Path = NPM_BIN + ';' + (env.Path || '');
   // DSH_HOME 显式指向独立数据目录（数据盘隔离：会话/存储/缓存绝不落 C 盘）。
   // 不设置的话 dsh 默认用 用户目录\.dsh，导致历史会话在界面里"消失"。
-  env.DSH_HOME = process.env.DSH_CUSTOMER_HOME || path.join(path.dirname(__dirname), '引擎数据', '.dsh');
+  env.DSH_HOME = dshHomeDir();
   // 2026-11-01：引擎默认是受限模式，导致命令类工具全废。
   //   dsh 的 web profile 里写死了 `mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'`，
   //   而 Windows 的受限沙箱里，凡是要起子进程的工具（psh / glob / grep …）一律 EPERM：
@@ -394,6 +412,7 @@ function engineCwd() {
 }
 
 function spawnServerDirect() {
+  if (!CLI_BUILT) { log('[boot] 没有内置引擎目录（引擎\\apps\\cli 不存在），跳过内置入口'); return null }
   if (!fs.existsSync(CLI_BUILT)) { log('[boot] 内置入口不存在，跳过：' + CLI_BUILT); return null }
   const env = serverSpawnEnv();
   const nodeExe = resolveNodeExe();
@@ -481,7 +500,7 @@ async function startServer() {
   if (dshCmd) {
     plans.push({ label: 'DSH 官方 CLI', detail: 'dsh.cmd web --no-open --port ' + DSH_PORT, spawn: spawnServerDshCmd, budget: 45 });
   }
-  if (fs.existsSync(CLI_BUILT)) {
+  if (CLI_BUILT && fs.existsSync(CLI_BUILT)) {
     plans.push({ label: '内置入口', detail: 'apps/cli/lib/bin.js（跳过 pnpm / tsx）', spawn: spawnServerDirect, budget: 45 });
   }
   if (fs.existsSync(PNPM_CMD)) {
@@ -801,7 +820,15 @@ function createWindow(opts) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      webviewTag: true
+      webviewTag: true,
+      // 渲染层要「记忆根 / 技能根」去找文件（顶栏体检卡、神经元面板），preload 里读的是这两个环境变量。
+      // ⚠ DSH_HOME 只在**引擎子进程**的 env 里设过，主进程自己的 process.env 里从来没有 ⇒
+      //   preload 拿到的 memRoot / skillDir 一直是空串，界面侧所有按记忆根拼的路径都会退化成相对路径。
+      //   这里显式把主进程算好的真值传进去（沙箱化 preload 读得到的唯一通道就是 additionalArguments）。
+      additionalArguments: [
+        '--dsh-home=' + DSH_DATA_DIR,
+        '--dsh-skills=' + path.join(DSH_DATA_DIR, 'skills')
+      ]
     }
   };
   if (typeof bounds.x === 'number' && typeof bounds.y === 'number') { winOpts.x = bounds.x; winOpts.y = bounds.y; }
@@ -1080,8 +1107,10 @@ ipcMain.handle('app:version', () => {
   };
   return {
     gui: readVer(path.join(__dirname, 'package.json')),
-    engine: readVer(path.join(HARNESS_DIR, 'package.json')),
-    cli: readVer(path.join(HARNESS_DIR, 'apps', 'cli', 'package.json')),
+    // HARNESS_DIR 为空（没有 引擎\ 这一层）时，path.join('', 'package.json') 会读到**外壳自己**的
+    //   package.json，把外壳的版本当成引擎版本显示。所以空串一律给 null。
+    engine: HARNESS_DIR ? readVer(path.join(HARNESS_DIR, 'package.json')) : null,
+    cli: HARNESS_DIR ? readVer(path.join(HARNESS_DIR, 'apps', 'cli', 'package.json')) : null,
     engineDir: HARNESS_DIR,
     electron: process.versions.electron || '',
     chrome: process.versions.chrome || '',
@@ -3032,6 +3061,8 @@ function buildOaSystem(c) {
   L.push(oaProjectBrief());
   L.push('');
   // 项目主上下文（oa-context.md）：自动注入，助手直接掌握项目全貌，无需临时翻文件
+  // ⚠ 2026-11-01：「OA / 内部管理系统」模块在公开版里已剔除，`scenarios\oa-context.md` 从没进过仓库。
+  //   existsSync 兜着所以不会崩，但这是一条永远为假的路径 —— 保留判断，命令里注明它是可选件。
   try {
     const ctxPath = path.join(__dirname, 'scenarios', 'oa-context.md');
     if (fs.existsSync(ctxPath)) {
@@ -3627,8 +3658,12 @@ print(json.dumps({'ok': True, 'type': '${o.type}', 'list': rows, 'ts': __import_
 }));
 
 // ---- 插件 / 模型 面板（只读；数据全部来自项目文件夹，核心原则：不落 C 盘） ----
-const PLUGINS_DIR = path.join(HARNESS_DIR, '插件');
-const DSH_DATA_DIR = path.join(HARNESS_DIR, '.dsh');
+// ⚠ 2026-11-01：HARNESS_DIR 现在可能是 ''（公开版没有 引擎\ 这一层）。空串不能往 path.join 里塞——
+//   path.join('', '插件') 会得到**相对路径**，fs 再按进程 cwd 解析，于是"引擎的插件目录"静默变成了
+//   "当前工作目录下的 插件\"，读出一份不存在的清单还不报错。删引擎目录这条分支后必须给真值。
+//   引擎数据根的真值是 DSH_HOME（与 serverSpawnEnv 同源：引擎真正在用的那份数据就在那儿）。
+const PLUGINS_DIR = HARNESS_DIR ? path.join(HARNESS_DIR, '插件') : '';
+const DSH_DATA_DIR = dshHomeDir();
 const SETTINGS_PATH = path.join(DSH_DATA_DIR, 'settings.yaml');
 
 // 已安装插件清单：扫描 dsh 项目的「插件」目录（每个子目录一个插件，含 package.json 元信息）
@@ -3637,7 +3672,7 @@ ipcMain.handle('plugins:list', () => {
     pluginsDir: PLUGINS_DIR,
     dataDir: DSH_DATA_DIR,
     plugins: [],
-    builtinDir: path.join(HARNESS_DIR, 'packages'),
+    builtinDir: HARNESS_DIR ? path.join(HARNESS_DIR, 'packages') : '',
     builtinCount: 0
   };
   try {
@@ -3672,7 +3707,8 @@ ipcMain.handle('plugins:list', () => {
     }
     // 内置插件包数量（packages/client + packages/host 下的包）
     let n = 0;
-    for (const base of [path.join(HARNESS_DIR, 'packages', 'client'), path.join(HARNESS_DIR, 'packages', 'host')]) {
+    const pkgRoot = HARNESS_DIR ? path.join(HARNESS_DIR, 'packages') : '';
+    for (const base of pkgRoot ? [path.join(pkgRoot, 'client'), path.join(pkgRoot, 'host')] : []) {
       try {
         n += fs.readdirSync(base).filter(x => { try { return fs.statSync(path.join(base, x)).isDirectory(); } catch (e) { return false; } }).length;
       } catch (e) { /* ignore */ }
@@ -3958,7 +3994,8 @@ ipcMain.handle('remoteAccess:qr', async () => {
 // 引导第一步用的静态图：手机 WireGuard 配置二维码
 ipcMain.handle('remoteAccess:guideImage', async () => {
   try {
-    const p = path.join(HARNESS_DIR, '插件', '手机远程访问', 'runtime', '手机导入.png');
+    if (!PLUGINS_DIR) return '';   // 没有 引擎\ 这一层（公开版），插件图本来就不在
+    const p = path.join(PLUGINS_DIR, '手机远程访问', 'runtime', '手机导入.png');
     if (fs.existsSync(p)) return 'data:image/png;base64,' + fs.readFileSync(p).toString('base64');
   } catch (e) { /* 图缺失时前端会降级为文字说明 */ }
   return '';
@@ -4101,14 +4138,18 @@ ipcMain.handle('models:list', () => {
 //   **纯增量**：不动任何现有按钮 / IPC；渲染层在 renderer\topbar-status.js，读不到这组桥就不显示。
 //   为什么放主进程：只有这里能读文件、能 spawn 脚本（渲染层没有 fs）。
 // ===========================================================================
-const TOPBAR_CTX = path.join(HARNESS_DIR, '.dsh', 'skills', 'context-overflow', 'ctx.mjs');
-const TOPBAR_MEM = path.join(HARNESS_DIR, '场景项目信息');
-const TOPBAR_CARD = path.join(__dirname, 'scenarios', 'dsh-gui-context.md');
+//   顶栏「记忆」「上下文」两个入口原来按 引擎\.dsh\ 拼，删引擎目录后是死路径：
+//   现在统一走 DSH_DATA_DIR（= DSH_HOME，引擎真正在用的数据根）。
+const TOPBAR_CTX = path.join(DSH_DATA_DIR, 'skills', 'context-overflow', 'ctx.mjs');
+const TOPBAR_MEM = HARNESS_DIR ? path.join(HARNESS_DIR, '场景项目信息') : '';
+// ⚠ 2026-11-01：原来是 `scenarios\dsh-gui-context.md`（作者机的 GUI 改造定位卡，本仓库没有）
+//   ⇒ 那里读文件必抛异常，「谁在等我」永远是空的。现在改为按身份索引逐个场景的定位卡读，见 topbar:pending。
 const TOPBAR_BK = path.join(__dirname, 'data', 'backups');
 const TOPBAR_ROOT = path.dirname(__dirname);   // <工作台>
 
 // 跑 node 脚本：本体是 Electron，没有独立 node ⇒ 先试 ELECTRON_RUN_AS_NODE，失败再退回 PATH 上的 node
 function topbarRun(script, args, timeout) {
+  if (!script) return { ok: false, out: '脚本路径为空（这个入口在本机没有对应的引擎文件）' };
   const tries = [
     { exe: process.execPath, env: Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' }) },
     { exe: 'node', env: process.env }
@@ -4408,25 +4449,44 @@ ipcMain.handle('topbar:pressure', async () => {
 ipcMain.handle('topbar:pending', () => {
   const items = [];
   try {
-    const t = fs.readFileSync(TOPBAR_CARD, 'utf8');
-    const after = t.split(/\n##\s*六、/)[1];
-    const seg = after ? after.split(/\n##\s*七、/)[0] : '';
-    for (const line of seg.split(/\r?\n/)) {
-      const s = line.trim();
-      if (s.charAt(0) !== '|') continue;
-      const cells = s.split('|').map((x) => x.trim()).filter((x) => x.length);
-      if (cells.length < 4) continue;
-      if (/^-+$/.test(cells[0]) || cells[0] === '日期') continue;   // 分隔行与表头行都不算待办
-      const status = cells[cells.length - 1];
-      if (/^✅/.test(status) || /已办结|已关闭|不用做/.test(status)) continue;   // 只留"真的还没办"的
-      items.push({
-        kind: 'card', date: cells[0], from: cells[1], status,
-        text: cells[2].replace(/\*\*/g, '').replace(/\s+/g, ' ').slice(0, 220), file: TOPBAR_CARD
-      });
+    // ⚠ 2026-11-01：这里原来只读 `scenarios\dsh-gui-context.md`（作者机专属的"DSH·GUI改造"定位卡，
+    //   本仓库从来没有）⇒ readFileSync 必抛，整段被 catch 吞掉，"谁在等我"永远是空列表。
+    //   改成读**每个场景自己的定位卡**（身份索引的「定位卡」列是权威表）。
+    const cards = [];
+    try {
+      const idxTxt = fs.readFileSync(path.join(__dirname, 'scenarios', '_场景身份索引.md'), 'utf8');
+      for (const line of idxTxt.split(/\r?\n/)) {
+        if (!/^\|\s*`/.test(line)) continue;
+        const c = line.split('|').map((x) => x.trim());
+        const card = (c[6] || '').replace(/`/g, '');
+        if (!card) continue;
+        const abs = path.join(__dirname, card.replace(/\\/g, '/'));
+        if (!cards.includes(abs)) cards.push(abs);
+      }
+    } catch (e) { /* 没有索引就不出卡点条目 */ }
+    for (const cardFile of cards) {
+      let t = '';
+      try { t = fs.readFileSync(cardFile, 'utf8'); } catch (e) { continue }
+      const after = t.split(/\n##\s*六、/)[1];
+      const seg = after ? after.split(/\n##\s*七、/)[0] : '';
+      for (const line of seg.split(/\r?\n/)) {
+        const s = line.trim();
+        if (s.charAt(0) !== '|') continue;
+        const cells = s.split('|').map((x) => x.trim()).filter((x) => x.length);
+        if (cells.length < 4) continue;
+        if (/^-+$/.test(cells[0]) || cells[0] === '日期') continue;   // 分隔行与表头行都不算待办
+        const status = cells[cells.length - 1];
+        if (/^✅/.test(status) || /已办结|已关闭|不用做/.test(status)) continue;   // 只留"真的还没办"的
+        items.push({
+          kind: 'card', date: cells[0], from: cells[1], status,
+          text: cells[2].replace(/\*\*/g, '').replace(/\s+/g, ' ').slice(0, 220), file: cardFile
+        });
+      }
     }
   } catch (e) { /* ignore */ }
   try {
-    for (const d of fs.readdirSync(TOPBAR_MEM)) {
+    // TOPBAR_MEM 为空（公开版没有 引擎\ 这一层）⇒ readdirSync('') 直接抛，这里显式跳过
+    for (const d of (TOPBAR_MEM ? fs.readdirSync(TOPBAR_MEM) : [])) {
       const f = path.join(TOPBAR_MEM, d, '项目信息.md');
       if (!fs.existsSync(f)) continue;
       let head = '';
@@ -4592,7 +4652,11 @@ async function guardCheckAfterBoot() {
 ipcMain.handle('tools:catalog', () => {
   try {
     return JSON.parse(fs.readFileSync(path.join(__dirname, 'data', '工具清单.json'), 'utf8'));
-  } catch (e) { return { updated: null, groups: [], error: String((e && e.message) || e) }; }
+  } catch (e) {
+    // 文件不在 = 这份工作台还没登记工具（不是故障）⇒ 给 missing，让面板出"怎么建"的提示而不是红字 ENOENT
+    if (e && e.code === 'ENOENT') return { updated: null, groups: [], missing: true };
+    return { updated: null, groups: [], error: String((e && e.message) || e) };
+  }
 });
 ipcMain.handle('topbar:open', (e, p) => {
   const f = path.resolve(String(p || ''));

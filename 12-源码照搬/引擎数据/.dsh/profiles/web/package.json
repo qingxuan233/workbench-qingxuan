@@ -1,12 +1,26 @@
 {
   "name": "dsh-profile-web",
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "@deepseek-ai/dsh-subagent-claude-code": "0.2.1-rc.5",
+    "@deepseek-ai/dsh-subagent-codex": "0.2.1-rc.5"
+  },
   "dsh": {
     "profile": {
       "bundles": [
         "@deepseek-ai/dsh-base",
-        "@deepseek-ai/dsh-web-app"
+        "@deepseek-ai/dsh-web-app",
+        "@deepseek-ai/dsh-experimental-auto-review",
+        "@deepseek-ai/dsh-experimental-inspector-profile",
+        "@deepseek-ai/dsh-experimental-agent-team-profile",
+        "@deepseek-ai/dsh-experimental-session-search",
+        "@deepseek-ai/dsh-subagent-codex",
+        "@deepseek-ai/dsh-experimental-tool-worktree",
+        "@deepseek-ai/dsh-experimental-terminal-bundle",
+        "@deepseek-ai/dsh-experimental-ralph-bundle",
+        "@deepseek-ai/dsh-experimental-plugin-market-bundle",
+        "@deepseek-ai/dsh-subagent-claude-code",
+        "@deepseek-ai/dsh-experimental-session-titles-bundle"
       ]
     }
   }

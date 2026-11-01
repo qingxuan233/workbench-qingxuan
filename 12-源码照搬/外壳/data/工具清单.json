@@ -1,0 +1,370 @@
+{
+ "updated": "2026-11-01",
+ "note": "这份清单是「工作台里真正存在、能跑」的工具索引：一行四个、点组标题可折叠。加了新脚本就往对应组里补一条（name/tag/plain/how/where 五个字段）。路径都相对「12-源码照搬」。",
+ "groups": [
+  {
+   "title": "工作台工具（工具\\）",
+   "note": "管这个工作台本身：体检、发布、初始化、场景记忆",
+   "sections": [
+    {
+     "title": "体检与发布",
+     "items": [
+      {
+       "name": "体检",
+       "tag": "验收",
+       "plain": "15 条断言全跑一遍：端口、引擎、场景、会话、日志、窗口……红了就按它给的路径修，别改断言让它变绿。",
+       "how": "node 工具\\体检.mjs",
+       "where": "工具\\体检.mjs"
+      },
+      {
+       "name": "发布前检查",
+       "tag": "验收",
+       "plain": "打包前把「这台机器上的东西」再清一遍：会话 id、绝对路径、本机数据，防止把别人机器上的配置带出去。",
+       "how": "node 工具\\发布前检查.mjs",
+       "where": "工具\\发布前检查.mjs"
+      },
+      {
+       "name": "编码检查",
+       "tag": "验收",
+       "plain": "扫所有文本文件：UTF-8 无 BOM、BAT 必须 CRLF、不能有裸 LF —— 中文乱码和「启动.bat 跑一半崩」大多出在这。",
+       "how": "node 工具\\编码检查.mjs",
+       "where": "工具\\编码检查.mjs"
+      },
+      {
+       "name": "封装",
+       "tag": "发布",
+       "plain": "打成发布 zip：自动排除 node_modules / 引擎 / 本机数据，并清掉场景里的 sessionId（别人拿到要先建会话）。",
+       "how": "node 工具\\封装.mjs --dry   （真打去掉 --dry）",
+       "where": "工具\\封装.mjs"
+      }
+     ]
+    },
+    {
+     "title": "初始化与实例化",
+     "items": [
+      {
+       "name": "初始化",
+       "tag": "首次",
+       "plain": "把这份模板变成「你的工作台」：建目录、写工作台.json、清掉上一台机器的会话与工作区。第一次装必须跑一次。",
+       "how": "node 工具\\初始化.mjs",
+       "where": "工具\\初始化.mjs"
+      },
+      {
+       "name": "实例化",
+       "tag": "首次",
+       "plain": "按「壳 + 场景」再造一个工作台实例（换盘、换名字、多开一份用），自动改路径和端口。",
+       "how": "node 工具\\实例化.mjs --out D:\\我的工作台",
+       "where": "工具\\实例化.mjs"
+      },
+      {
+       "name": "引擎快照",
+       "tag": "回退",
+       "plain": "存/列/回退引擎启动配置（cordis.patch.yml、settings、插件接线…），最多留 5 代；回退前先把当前配置另存 pre-restore-*。只碰配置，不碰源码与产物。",
+       "how": "node 工具\\引擎快照.mjs --save ｜ --list ｜ --restore --yes ｜ --restore-gen gen-… --yes",
+       "where": "工具\\引擎快照.mjs"
+      }
+     ]
+    },
+    {
+     "title": "场景记忆（_共享记忆）",
+     "items": [
+      {
+       "name": "场景记忆",
+       "tag": "记忆",
+       "plain": "读/写四个场景共享的那套记忆：索引、项目、记忆地图、提交链。神经元视图画的就是它。",
+       "how": "node 工具\\场景记忆.mjs ls",
+       "where": "工具\\场景记忆.mjs"
+      },
+      {
+       "name": "共用记忆库",
+       "tag": "记忆",
+       "plain": "上面那个的底层实现（路径解析、读写、加锁），被其它工具 import，别单独跑。",
+       "how": "（被 import，无命令行）",
+       "where": "工具\\_共用-场景记忆.mjs"
+      },
+      {
+       "name": "发消息",
+       "tag": "记忆",
+       "plain": "往某个场景的会话里发一条消息（不点 GUI），用来唤醒/接力。",
+       "how": "node 工具\\发消息.mjs --scene command \"继续\"",
+       "where": "工具\\发消息.mjs"
+      },
+      {
+       "name": "身份索引",
+       "tag": "记忆",
+       "plain": "重建「身份卡 / 场景画像」索引，让每个场景知道自己是谁、该读哪几份记忆。",
+       "how": "node 工具\\身份索引.mjs",
+       "where": "工具\\身份索引.mjs"
+      },
+      {
+       "name": "上游分层",
+       "tag": "记忆",
+       "plain": "把「上游（引擎）」和「下游（这份工作台）」的文件分层列出来，判断哪些该跟着升级、哪些是本机私有。",
+       "how": "node 工具\\上游分层.mjs",
+       "where": "工具\\上游分层.mjs"
+      },
+      {
+       "name": "待确认",
+       "tag": "记忆",
+       "plain": "列/收「等你点头」的待办清单（清理、删除这类不可逆操作必须先过它）。",
+       "how": "node 工具\\待确认.mjs",
+       "where": "工具\\待确认.mjs"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "会话与面板（外壳\\scripts\\）",
+   "note": "管 GUI 里的会话、面板、数据、桥",
+   "sections": [
+    {
+     "title": "会话",
+     "items": [
+      {
+       "name": "建会话",
+       "tag": "会话",
+       "plain": "不开 GUI 直接建一条会话（带工作区、改好标题、塞一条开场消息再打断），输出 sessionId 给你抄进场景 json。",
+       "how": "node 外壳\\scripts\\建会话.mjs --title \"命令\"",
+       "where": "外壳\\scripts\\建会话.mjs"
+      },
+      {
+       "name": "会话对照",
+       "tag": "会话",
+       "plain": "列出引擎里真实存在的会话（标题·目录·最后活动·id），并校验四个场景写的 sessionTitle 有没有对上。",
+       "how": "node 外壳\\scripts\\sessions.mjs --check",
+       "where": "外壳\\scripts\\sessions.mjs"
+      },
+      {
+       "name": "换会话",
+       "tag": "会话",
+       "plain": "把某个场景面板切到另一条已有会话上（改场景 json 里的 sessionId/sessionTitle，不用手改文件）。",
+       "how": "node 外壳\\scripts\\换会话.mjs --scene command --title \"命令\"",
+       "where": "外壳\\scripts\\换会话.mjs"
+      },
+      {
+       "name": "会话改名",
+       "tag": "会话",
+       "plain": "给引擎里的会话改名（改完场景 json 里的标题也要跟着改，否则面板会显示「未切到」）。",
+       "how": "node 外壳\\scripts\\会话改名.mjs <sessionId> \"新标题\"",
+       "where": "外壳\\scripts\\会话改名.mjs"
+      },
+      {
+       "name": "归档会话",
+       "tag": "会话",
+       "plain": "把会话归档/还原（不进侧边栏但记录还在），清理列表用。",
+       "how": "node 外壳\\scripts\\归档会话.mjs <sessionId>",
+       "where": "外壳\\scripts\\归档会话.mjs"
+      }
+     ]
+    },
+    {
+     "title": "面板与数据",
+     "items": [
+      {
+       "name": "刷新面板",
+       "tag": "热更",
+       "plain": "外部触发某个面板 ⟳ 重载（all 或场景 id），改完 renderers 不用让用户手点。",
+       "how": "node 外壳\\scripts\\刷新面板.mjs all",
+       "where": "外壳\\scripts\\刷新面板.mjs"
+      },
+      {
+       "name": "磁盘扫描",
+       "tag": "数据",
+       "plain": "扫磁盘大户 + 可清理缓存，写 data\\pc-cleanup-scan.json ⇒ 「本地电脑」三块面板有数（不删任何东西）。",
+       "how": "node 外壳\\scripts\\pc-scan.mjs（--budget 300 给更长时间）",
+       "where": "外壳\\scripts\\pc-scan.mjs"
+      },
+      {
+       "name": "问网页版 AI",
+       "tag": "桥",
+       "plain": "让会话/脚本去问顶栏那 5 个网页版（不花 API token），要图加 --save-image。",
+       "how": "node 外壳\\scripts\\webai.mjs ask doubao \"写个 slogan\"",
+       "where": "外壳\\scripts\\webai.mjs"
+      },
+      {
+       "name": "浏览器侧栏",
+       "tag": "面板",
+       "plain": "原生侧栏（WebContentsView）贴着主窗口开/关/跳转/定位置；命令写 data\\sidebar-command.cmd，状态读 data\\sidebar-state.json。不碰场景与会话。",
+       "how": "node 外壳\\scripts\\浏览器侧栏.mjs state ｜ open [url] ｜ close ｜ url <地址> ｜ bounds x,y,w,h",
+       "where": "外壳\\scripts\\sidebar.js"
+      },
+      {
+       "name": "官网图标抓取",
+       "tag": "图标",
+       "plain": "从各家官网抓 favicon 落到 renderer\\assets\\webai\\<key>.png（拿到的就是 PNG 才写，否则保持原图；内容一样就不动文件）。",
+       "how": "node 外壳\\scripts\\fetch-webai-icons.mjs [--dry] [--only doubao]",
+       "where": "外壳\\scripts\\fetch-webai-icons.mjs"
+      }
+     ]
+    },
+    {
+     "title": "校验与备份",
+     "items": [
+      {
+       "name": "面板自检",
+       "tag": "验收",
+       "plain": "检查渲染器契约：每个 panels[].type 有没有对应 renderers 键、cleanup 形状对不对、WEB_AI 表是否和主进程一致。",
+       "how": "node 外壳\\scripts\\check-gui.mjs",
+       "where": "外壳\\scripts\\check-gui.mjs"
+      },
+      {
+       "name": "注入自检",
+       "tag": "验收",
+       "plain": "检查注入进引擎页面的脚本（HARNESS_PIN_JS 等）有没有被页面改版打断。",
+       "how": "node 外壳\\scripts\\check-injected.mjs",
+       "where": "外壳\\scripts\\check-injected.mjs"
+      },
+      {
+       "name": "神经元路径自检",
+       "tag": "验收",
+       "plain": "把神经元视图里的节点路径逐个 stat 一遍，失效就标红 —— 节点指向的文件被挪走时先跑它。",
+       "how": "node 外壳\\scripts\\check-neuron-paths.mjs",
+       "where": "外壳\\scripts\\check-neuron-paths.mjs"
+      },
+      {
+       "name": "备份外壳",
+       "tag": "备份",
+       "plain": "把 外壳\\renderer + main.js + preload 这些改坏会白屏的文件打一份快照，改之前跑一次。",
+       "how": "node 外壳\\scripts\\backup-gui.mjs",
+       "where": "外壳\\scripts\\backup-gui.mjs"
+      },
+      {
+       "name": "回滚外壳",
+       "tag": "备份",
+       "plain": "从快照回滚到某个时间点（配合上一个工具用）。",
+       "how": "node 外壳\\scripts\\restore-gui.mjs --list",
+       "where": "外壳\\scripts\\restore-gui.mjs"
+      },
+      {
+       "name": "引擎核对（升完）",
+       "tag": "核对",
+       "plain": "升完引擎跑：产物配套 / 8 个上游锚点还在不在 / 插件接线 / 数据目录 / 适配版本。没有内置引擎时明说\"不适用\"，不硬报错。",
+       "how": "node 外壳\\scripts\\engine-after.mjs",
+       "where": "外壳\\scripts\\engine-after.mjs"
+      },
+      {
+       "name": "引擎存档（升前）",
+       "tag": "核对",
+       "plain": "升引擎前把版本/HEAD/本地改动/技能会话数记一份到 data\\engine-before-<时间>.json，并提醒先备份外壳、git stash。",
+       "how": "node 外壳\\scripts\\engine-before.mjs",
+       "where": "外壳\\scripts\\engine-before.mjs"
+      }
+     ]
+    },
+    {
+     "title": "嵌入与系统",
+     "items": [
+      {
+       "name": "Office 转 PDF",
+       "tag": "系统",
+       "plain": "Word/Excel/PPT 预览时转 PDF（本机没装 LibreOffice 就转不了，面板会显示原文）。",
+       "how": "（GUI 预览时自动调用）",
+       "where": "外壳\\scripts\\office2pdf.ps1"
+      },
+      {
+       "name": "快捷方式身份",
+       "tag": "系统",
+       "plain": "给桌面快捷方式写 AppUserModelID，任务栏图标才不会跟别的 Electron 应用合并成一个。",
+       "how": "powershell -File 外壳\\scripts\\设置快捷方式身份.ps1",
+       "where": "外壳\\scripts\\设置快捷方式身份.ps1"
+      },
+      {
+       "name": "安装器脚本",
+       "tag": "安装",
+       "plain": "NSIS 安装包里跑的片段（卸载时清注册表/快捷方式）。改安装行为看它。",
+       "how": "（打包时由 electron-builder 调用）",
+       "where": "外壳\\scripts\\installer.nsh"
+      },
+      {
+       "name": "自动更新",
+       "tag": "系统",
+       "plain": "查有没有新版：只查不装，源码直跑时静默待命。发布源写在 外壳\\data\\updater.json 的 feed。",
+       "how": "node 外壳\\scripts\\检查更新.mjs ｜ 检查更新.mjs check",
+       "where": "外壳\\updater.js"
+      },
+      {
+       "name": "版本策略（强制更新）",
+       "tag": "系统",
+       "plain": "设最低版本，命中就弹提示窗（默认软提示可稍后；--hard 才关不掉）。改的是 data\\version-policy.json，重启或 ≤30 分钟后生效。",
+       "how": "node 外壳\\scripts\\强制更新.mjs ｜ 强制更新.mjs 设 1.2.0 --hard ｜ … 清",
+       "where": "外壳\\scripts\\强制更新.mjs"
+      },
+      {
+       "name": "窗口内置代理",
+       "tag": "系统",
+       "plain": "把别的软件窗口当面板贴进工作台：owner-overlay（⛔ 不用 SetParent）按屏幕物理像素摆位，宿主退出自动释放。Blender 走同名薄壳。",
+       "how": "（GUI 的 appwin:* / blender:* 通道自动拉起）",
+       "where": "外壳\\scripts\\app-embed-agent.ps1"
+      },
+      {
+       "name": "Blender 抓帧",
+       "tag": "Blender",
+       "plain": "持续把 Blender 窗口抓成 data\\blender-live.jpg（每 ~0.5 秒一帧）+ 帧信息 json；看到 data\\blender-capture.stop 就自己退出。不装 Blender 也能用 -Proc notepad 自测。",
+       "how": "（GUI 打开 Blender 面板时自动拉起）",
+       "where": "外壳\\scripts\\blender-capture.ps1"
+      },
+      {
+       "name": "Blender MCP 自启",
+       "tag": "Blender",
+       "plain": "Blender 启动时带 --python 跑它：装了 BlenderMCP 插件就替你启动服务（端口 9876）；没装只记一行日志，绝不弹报错窗。",
+       "how": "（随 Blender 启动自动执行）",
+       "where": "外壳\\scripts\\autostart_mcp.py"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "title": "启动与文档",
+   "note": "双击就能用的入口，和该先读的说明",
+   "sections": [
+    {
+     "title": "启动",
+     "items": [
+      {
+       "name": "启动工作台",
+       "tag": "入口",
+       "plain": "最外层那个双击入口：切到 UTF-8 代码页再调子启动器，路径里有中文也不会「系统找不到指定的路径」。",
+       "how": "双击 workbench\\启动工作台.bat",
+       "where": "..\\启动工作台.bat"
+      },
+      {
+       "name": "子启动器",
+       "tag": "入口",
+       "plain": "真正拉引擎和窗口的那个：端口 3083 守卫、启动日志分次记、失败时把 server.log 尾巴打出来。",
+       "how": "双击 12-源码照搬\\启动.bat",
+       "where": "启动.bat"
+      },
+      {
+       "name": "无黑框启动",
+       "tag": "入口",
+       "plain": "用 VBS 静默调启动器（不想看见命令行窗口时用）。",
+       "how": "双击 启动.vbs",
+       "where": "启动.vbs"
+      }
+     ]
+    },
+    {
+     "title": "文档",
+     "items": [
+      {
+       "name": "部署说明",
+       "tag": "文档",
+       "plain": "换机器怎么装、启动日志在哪、失败了按什么顺序查。",
+       "how": "打开 部署.md",
+       "where": "部署.md"
+      },
+      {
+       "name": "判据与工具",
+       "tag": "文档",
+       "plain": "15 条断言分别在证明什么，以及每条红了意味着哪块坏了。",
+       "how": "打开 说明\\判据与工具.md",
+       "where": "说明\\判据与工具.md"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

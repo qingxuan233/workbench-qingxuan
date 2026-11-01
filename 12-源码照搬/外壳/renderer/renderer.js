@@ -263,6 +263,12 @@ async function showTools() {
       acts.appendChild(foldAll);
       bar.appendChild(acts);
       body.appendChild(bar);
+      if (r && r.missing) {
+        body.appendChild(mkEl('div', 'stat-sub',
+          '这份工作台还没登记工具清单。新建 外壳\\data\\工具清单.json，格式：' +
+          '{"updated":"日期","groups":[{"title":"组名","sections":[{"title":"小节","items":' +
+          '[{"name","tag","plain","how","where"}]}]}]} —— 重开本面板即读到（不用重启 GUI）。'));
+      }
       if (r && r.error) body.appendChild(mkEl('div', 'stat-sub', '读取失败：' + r.error));
 
       const contents = [];
@@ -891,7 +897,25 @@ function initBoot() {
   };
 
   if (window.app.onBootProgress) window.app.onBootProgress(paint);
-  if (window.app.bootState) Promise.resolve(window.app.bootState()).then(paint).catch(() => { /* ignore */ });
+  if (window.app.bootState) Promise.resolve(window.app.bootState()).then((v) => {
+    paint(v);
+    // 主进程说"已就绪"，那就不等事件了 —— 直接进门。
+    // （为什么需要：引擎常常在渲染层订阅 onHarnessReady **之前**就好了，事件丢了就永远停在 93%。）
+    if (v && v.stage === 'ready') { try { loadHarness(); } catch (e) { /* ignore */ } }
+  }).catch(() => { /* ignore */ });
+
+  // 兜底轮询：订阅晚于事件、或事件压根没发（丢事件），都不能让加载页一直盖着界面。
+  // 到就绪就 loadHarness()；overlay 一旦 hide 就停。最多等 60 秒，之后交给人工「立即进入」。
+  let readyTries = 0;
+  const pollReady = async () => {
+    if (overlay.classList.contains('hide')) return;
+    if (++readyTries > 150) return;
+    let ok = false;
+    try { ok = await window.app.isHarnessReady(); } catch (e) { ok = false; }
+    if (ok) { try { loadHarness(); } catch (e) { /* ignore */ } return; }
+    setTimeout(pollReady, 400);
+  };
+  setTimeout(pollReady, 500);
 
   // 「⟳ 立即进入」：任何阶段都能点，点了马上进入界面
   if (refresh) refresh.addEventListener('click', forceEnterHarness);

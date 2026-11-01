@@ -427,9 +427,25 @@ if (rotating && !STRAY) {
                   // ⑦ 轮换后的同步点自检（2026-09-21 实测踩到：只回写 json ⇒ 索引/定位卡/技能里还写着旧 sessionId，
                   //    下次会话认身份就被带偏）。这些文件里有"历史沿革"是正常的，所以只提示、不改写、不算失败。
                   try {
+                    // ⚠ 2026-11-01：第二条原本是 `scenarios\dsh-gui-context.md` —— 作者机上的一个文件，
+                    //   本仓库里从来没有（定位卡的真名是 `<场景>-context.md`，身份索引表里逐条写着）。
+                    //   指向一个不存在的文件 ⇒ 这项自检永远静默跳过，等于没写。改成读身份索引的「定位卡」列。
+                    const pinCards = [];
+                    try {
+                      const idxTxt = fs.readFileSync(path.join(root, 'scenarios', '_场景身份索引.md'), 'utf8');
+                      for (const line of idxTxt.split(/\r?\n/)) {
+                        if (!/^\|\s*`/.test(line)) continue;
+                        const cells = line.split('|').map((x) => x.trim());
+                        // cells: ['', 场景id, 面板id, 面板标题, 会话名, 会话id, 定位卡, 主技能, '']
+                        const cid = (cells[1] || '').replace(/`/g, '');
+                        const card = (cells[6] || '').replace(/`/g, '');
+                        if (!cid || !card) continue;
+                        pinCards.push(['场景定位卡 ' + cid, path.join(root, card.replace(/\\/g, '/'))]);
+                      }
+                    } catch (e) { /* 没有索引就当没有定位卡 */ }
                     const docs = [
                       ['场景身份索引', path.join(root, 'scenarios', '_场景身份索引.md')],
-                      ['场景定位卡', path.join(root, 'scenarios', 'dsh-gui-context.md')],
+                      ...pinCards,
                       ['界面侧私有记忆', path.join(root, 'GUI改造私有记忆.md')],
                       ['引擎侧维护须知', path.join(DSH_HOME, '..', '本地维护须知.md')],
                       ['技能 harness-dev', path.join(DSH_HOME, 'skills', 'harness-dev', 'SKILL.md')],

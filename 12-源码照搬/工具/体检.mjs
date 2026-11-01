@@ -365,7 +365,100 @@ const ASSERTIONS = [
         if (!exists(app)) return [];
         return scanEncoding(app).reds.map((r) => ({ path: r.path, msg: `${r.kind}：${r.msg}` }));
       }
+    },
+  {
+    id: 'A15', title: '路径基准有效（不悬空 / 不重复定义）', layer: 'L3 抓手',
+    /**
+     * 「失效路径」的四条判据。四条都是真实踩过的，不是想象出来的：
+     *   ① 写出来的绝对路径必须存在（文档里承诺"必须存在"的「引擎\」在公开版里根本不存在）；
+     *   ② 同一个基准路径只能有一个定义（删了引擎目录，另一处还在按旧目录拼）；
+     *   ③ 推不出来的路径必须给空/null，不能退回一个"看起来对"的写死值（否则判断永远为真）；
+     *   ④ 空值不能喂给 path.join / fs（空串拼出来的相对路径会按进程 cwd 解析，静默落到别处）。
+     * 只认"本仓库内的字面量绝对路径"和"本仓库的已知基准"，不做全盘文件系统爬取。
+     */
+    run(root, ctx) {
+      const app = appRoot(root);
+      const SHELL = path.join(app, '外壳');
+      const f = [];
+
+      // ── ① 基准路径不得重复定义：引擎目录只有一个真源 HARNESS_DIR ──────────
+      //   真实事故：删掉照搬来的 引擎\ 之后，main.js 里 HARNESS_DIR 仍然"推得出来"，
+      //   于是 `path.join(HARNESS_DIR, 'apps','cli','lib','bin.js')` 拼出一个永远不存在的路径，
+      //   还被当成首选启动方式写进启动计划。判据 = 推不出来时必须给空串，且用它的地方必须判空。
+      const mainJs = path.join(SHELL, 'main.js');
+      const main = readText(mainJs);
+      if (main) {
+        const defs = (main.match(/^const\s+HARNESS_DIR\s*=/gm) || []).length;
+        if (defs > 1) f.push({ path: mainJs, msg: `HARNESS_DIR 定义了 ${defs} 次（基准路径必须单点定义）` });
+        const block = (main.match(/const HARNESS_DIR = \(function \(\) \{[\s\S]{0,500}?\}\)\(\);/) || [''])[0];
+        if (block && !/return\s+''\s*;/.test(block)) {
+          f.push({ path: mainJs, msg: "HARNESS_DIR 推不出来时没有给 ''，而是退回了写死路径 ⇒「引擎在不在」的判断永远为真" });
+        }
+      }
+
+      // ── ② 每个**本仓库定义**的基准路径：写进代码就必须真的存在 ────────────
+      //   只认本仓库口径的基准（不与"本机装在哪"混为一谈：引擎/Node 是外部依赖，归 工作台.json 管，不在此列）。
+      const BENCH = [
+        { name: '外壳\\scenarios', p: path.join(SHELL, 'scenarios'), must: true },
+        { name: '引擎数据\\.dsh\\场景记忆', p: memRoot(root), must: true },
+        { name: '外壳\\scripts', p: scriptsDir(root), must: true }
+      ];
+      for (const b of BENCH) {
+        if (b.must && !exists(b.p)) f.push({ path: b.p, msg: `基准路径不存在：${b.name}` });
+      }
+
+      // ── ③ 场景 json 里点名的文件必须存在（定位卡 / 记忆文件这一类"名字对不上就静默跳过"） ──
+      //   真实事故：sessions.mjs 的自检点着 `scenarios\dsh-gui-context.md` —— 一个作者机上才有、
+      //   本仓库从来没有的文件 ⇒ 那项自检永远静默跳过，等于没写。
+      if (ctx && Array.isArray(ctx.scenes)) {
+        for (const sc of ctx.scenes) {
+          for (const pt of [].concat(sc.pinTarget || [])) {
+            const abs = path.join(SHELL, String(pt).replace(/\\/g, '/'));
+            if (!exists(abs) && /\.(md|json|txt)$/i.test(String(pt))) {
+              f.push({ path: sc.__path, msg: `pinTarget 指向的文件不存在：「${pt}」` });
+            }
+          }
+        }
+      }
+
+      // ── ④ 代码里点名的"本仓库内"文件必须存在 ─────────────────────────────
+      //   只查 外壳\scenarios\ 下**本仓库自产**的文件名；
+      //   外部引擎路径（引擎\…、resources\…）一律不当基准 —— 那是装配问题，由 工作台.json 与启动日志判。
+      //   ⚠ 两种写法都要认：字符串里带目录（'scenarios\\x.md'）和 path.join 分段（join(r,'scenarios','x.md')）。
+      //   这条断言自己踩过坑：只认 'scenarios\' 反斜杠写法时，path.join 形式的坏引用一个都抓不到，
+      //   反例验收当场把这条判成"没命中 ⇒ 断言作废"（这正是反例验收存在的意义）。
+      const codeFiles = [
+        ...listFiles(SHELL, /\.(js|mjs)$/).map((n) => path.join(SHELL, n)),
+        ...listFiles(scriptsDir(root), /\.(js|mjs)$/).map((n) => path.join(scriptsDir(root), n)),
+        ...listFiles(path.join(SHELL, 'renderer'), /\.js$/).map((n) => path.join(SHELL, 'renderer', n))
+      ];
+      const REF_INLINE = /['"][^'"]*[\\/]scenarios[\\/]([^'"\\/]+\.(?:md|json))['"]/g;   // 'scenarios\\x.md'
+      const REF_JOIN = /['"]scenarios['"]\s*,\s*['"]([^'"]+\.(?:md|json))['"]/g;         // join(r,'scenarios','x.md')
+      const seen = new Set();
+      // 「可选注入件」白名单：代码里 existsSync 守着的可选文件，缺了是设计如此，不是失效路径。
+      //   目前只有 oa-context.md（OA / 内部管理系统模块在公开版被剔除，该文件从没进过仓库）。
+      const OPTIONAL = new Set(['oa-context.md']);
+      for (const p of codeFiles) {
+        const t = readText(p);
+        t.split(/\r?\n/).forEach((line, i) => {
+          if (/^\s*(\/\/|\*)/.test(line)) return;          // 注释里的历史名字不算
+          for (const re of [REF_INLINE, REF_JOIN]) {
+            for (const m of line.matchAll(re)) {
+              if (OPTIONAL.has(m[1])) continue;
+              const abs = path.join(SHELL, 'scenarios', m[1]);
+              if (exists(abs)) continue;
+              const key = p + '|' + i + '|' + m[1];
+              if (seen.has(key)) continue;
+              seen.add(key);
+              f.push({ path: p, msg: `第 ${i + 1} 行引用了不存在的场景文件：scenarios\\${m[1]}` });
+            }
+          }
+        });
+      }
+
+      return f;
     }
+  }
 ];
 
 /** §〇 可开工判据（A7 与 场景记忆.mjs check 共用同一口径） */
@@ -578,6 +671,33 @@ function makeFixture(root, o = {}) {
   }
   // badBat：批处理写成 LF + 中文（真实事故：cmd 会把中文行切成碎片当命令执行）
   if (o.badBat) fs.writeFileSync(path.join(root, '外壳', 'start-bad.bat'), '@echo off\necho 你好\n', 'utf8');
+
+  // A15 的四类坏样本（「失效路径」）：
+  //   ① 基准推不出来却退回写死值 ⇒ "引擎在不在"永远为真
+  //   ② 同一个基准定义两次
+  //   ③ 场景 json 的 pinTarget 点着一个本仓库没有的文件
+  //   ④ 代码里引用了不存在的 scenarios\*.md
+  if (o.badBase) {
+    w(path.join(root, '外壳', 'main.js'),
+      "const DSH_PORT = String(process.env.DSH_PORT || '3083');\n"
+      + 'const HARNESS_DIR = (function () {\n'
+      + "  const sibling = path.join(path.dirname(__dirname), '引擎');\n"
+      + "  try { if (fs.existsSync(path.join(sibling, 'apps', 'cli'))) return sibling; } catch (e) { /* ignore */ }\n"
+      + "  return path.join(path.dirname(__dirname), '引擎');\n"
+      + '})();\n'
+      + (o.dupBase ? "const HARNESS_DIR = '';\n" : ''));
+  }
+  if (o.badPin) {
+    const scf = path.join(root, '外壳', 'scenarios', 'command.json');
+    const j = JSON.parse(fs.readFileSync(scf, 'utf8'));
+    j.pinTarget = ['scenarios\\dsh-gui-context.md'];
+    fs.writeFileSync(scf, JSON.stringify(j, null, 1));
+  }
+  if (o.badRef) {
+    w(path.join(root, '外壳', 'scripts', 'sessions.mjs'),
+      "const BASE = process.env.DSH_GUI_BASE || 'http://127.0.0.1:3083';\n"
+      + "const CARD = path.join(root, 'scenarios', 'dsh-gui-context.md');\n");
+  }
   return root;
 }
 
@@ -598,6 +718,10 @@ function selfTest() {
     { id: 'A12', opts: { stalePending: true }, desc: '待确认项悬空 30 天没人结清' },
     { id: 'A13', opts: { badManifest: true }, desc: '工作台.json 带 BOM ⇒ JSON.parse 失败' },
     { id: 'A14', opts: { badBat: true }, desc: '批处理写成 LF + 中文（cmd 会切碎）' },
+    { id: 'A15', opts: { badBase: true }, desc: '基准推不出来却退回写死路径（判断永远为真）' },
+    { id: 'A15', opts: { badBase: true, dupBase: true }, desc: '同一个基准路径定义了两次' },
+    { id: 'A15', opts: { badPin: true }, desc: '场景 json 的 pinTarget 点着不存在的文件' },
+    { id: 'A15', opts: { badRef: true }, desc: '代码引用了不存在的 scenarios\\*.md' },
   ];
 
   let pass = 0, fail = 0;

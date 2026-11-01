@@ -4,13 +4,23 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 let webAiTaskCb = null;
 
 
-const __wbHome = (process.env.DSH_CUSTOMER_HOME || '');
+// ⚠ 沙箱化 preload 里 process.env 是**阉割版**：主进程 env 里的东西拿不到。
+//   所以主进程用 webPreferences.additionalArguments 把真值传进来（见 main.js 建窗口处）；
+//   环境变量只作老宿主/命令行调试的兜底。
+function __argVal(prefix) {
+  try {
+    for (const a of (process.argv || [])) if (String(a).indexOf(prefix) === 0) return String(a).slice(prefix.length);
+  } catch (e) { /* ignore */ }
+  return '';
+}
+const __wbHome = __argVal('--dsh-home=') || process.env.DSH_CUSTOMER_HOME || '';
+const __wbSkills = __argVal('--dsh-skills=') || (__wbHome ? (__wbHome + '\\skills') : '');
 const __wbPaths = {
   dataDir: (process.env.DSH_SHELL_DIR || '') + '\\data',
   reviewDir: (process.env.DSH_SHELL_DIR || '') ? ((process.env.DSH_SHELL_DIR || '').replace(/[\\/]外壳$/, '') + '\\自我复盘') : '',
   bootCfg: process.env.DSH_SHELL_DIR ? (process.env.DSH_SHELL_DIR + '\\data\\boot-animation.json') : '',
   memRoot: __wbHome ? (__wbHome + '\\场景记忆') : '',
-  skillDir: __wbHome ? (__wbHome + '\\skills') : '',
+  skillDir: __wbSkills,
   projectRoots: [],
 };
 

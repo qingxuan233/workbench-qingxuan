@@ -372,7 +372,7 @@ for (const s of ['scripts/check-injected.mjs', 'scripts/sessions.mjs']) {
 //   10.6 引擎侧扩展点结构正确：技能必须有 SKILL.md；插件目录要有开发约定
 head('10. 目录契约（哪里放什么 · 防乱建）');
 
-const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', '.git', 'GUI改造的项目信息'];   // 2026-10-16：归档并进 scenarios\归档，顶层不再有 归档
+const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', '.git', 'GUI改造的项目信息', '.electron-cache', '.npm-cache'];   // 2026-10-16：归档并进 scenarios\归档，顶层不再有 归档；2026-11-01：.electron-cache/.npm-cache = npm/electron 的安装缓存，允许留在顶层
 const ALLOWED_FILES = [
   'main.js', 'preload.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js', 'updater.js', 'crash.js',
   'package.json', 'package-lock.json', 'start.vbs', 'icon.ico', 'icon.png',
@@ -425,8 +425,9 @@ if (exists('scripts/backup-gui.mjs')) {
   const listed = (bkFiles + bkDirs).replace(/\/\/.*$/gm, '');
   // runtimeOnly = 不需要进备份清单的顶层条目：
   //   data/captures = 运行时数据；node_modules = 可重装；日志 = 可再生；
-  //   .gitignore = 一行的配置；**`.git` = 版本控制本身**（备份快照就在仓库内，纳入会自我嵌套）
-  const runtimeOnly = ['data', 'captures', 'node_modules', 'server.log', 'server.log.prev', '.gitignore', '.git'];
+  //   .gitignore = 一行的配置；**`.git` = 版本控制本身**（备份快照就在仓库内，纳入会自我嵌套）；
+  //   .electron-cache/.npm-cache = 安装缓存，重装即有，不进备份
+  const runtimeOnly = ['data', 'captures', 'node_modules', 'server.log', 'server.log.prev', '.gitignore', '.git', '.electron-cache', '.npm-cache'];
   const missing = ALLOWED_DIRS.concat(ALLOWED_FILES)
     .filter((x) => !runtimeOnly.includes(x))
     .filter((x) => !new RegExp("['\"]" + x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "['\"]").test(listed));

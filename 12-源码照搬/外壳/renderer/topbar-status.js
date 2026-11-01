@@ -637,7 +637,11 @@
     HEALTH.state = 'loading';
     // 2026-10-16 改：不再读「_基础体检-<今天>.md」（那是每天跑的产物，改成每周日后就不存在了 ⇒ 用户看到"今天这份还没生成"）。
     // 现在固定读引擎侧 `全量标准化体检.mjs` 写的卡片数据；报告路径也用它给的 json.report。
-    var f = ROOT + '\\引擎\\场景项目信息\\_体检-latest.json';
+    // ⚠ 2026-11-01：「引擎\场景项目信息\」这层目录在公开版里已经不存在（引擎被删、记忆根早就统一到
+    //   引擎数据\.dsh\场景记忆），这里却还在按它拼 ⇒ 读的永远是死路径。改走同一套口径：
+    //   优先用宿主给的 paths.memRoot，拿不到再按页面自身路径推导。
+    var memRoot = (K.paths && K.paths.memRoot) || (ROOT ? (ROOT + '\\引擎数据\\.dsh\\场景记忆') : '');
+    var f = memRoot + '\\_体检-latest.json';
     if (!(K.file && K.file.read)) { HEALTH.state = 'error'; HEALTH.err = '这个宿主没有读文件接口'; return; }
     Promise.resolve().then(function () { return K.file.read(f); }).then(function (t) {
       var o = null;
@@ -1315,7 +1319,11 @@
     HEALTH.state = 'loading';
     // 2026-10-16 改：不再读「_基础体检-<今天>.md」（那是每天跑的产物，改成每周日后就不存在了 ⇒ 用户看到"今天这份还没生成"）。
     // 现在固定读引擎侧 `全量标准化体检.mjs` 写的卡片数据；报告路径也用它给的 json.report。
-    var f = ROOT + '\\引擎\\场景项目信息\\_体检-latest.json';
+    // ⚠ 2026-11-01：「引擎\场景项目信息\」这层目录在公开版里已经不存在（引擎被删、记忆根早就统一到
+    //   引擎数据\.dsh\场景记忆），这里却还在按它拼 ⇒ 读的永远是死路径。改走同一套口径：
+    //   优先用宿主给的 paths.memRoot，拿不到再按页面自身路径推导。
+    var memRoot = (K.paths && K.paths.memRoot) || (ROOT ? (ROOT + '\\引擎数据\\.dsh\\场景记忆') : '');
+    var f = memRoot + '\\_体检-latest.json';
     if (!(K.file && K.file.read)) { HEALTH.state = 'error'; HEALTH.err = '这个宿主没有读文件接口'; return; }
     Promise.resolve().then(function () { return K.file.read(f); }).then(function (t) {
       var o = null;
