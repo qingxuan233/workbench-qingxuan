@@ -33,7 +33,8 @@ const RULES = [
 ]
 const SKIP_DIR = new Set(['node_modules', '.git', '发布', 'dist', '.npm-cache', '.npm', '.electron-cache'])
 // 实例清单本身含真值且已 .gitignore，不该被当成「泄漏」
-const SKIP_FILE = new Set(['工作台.json'])
+// ⚠ 注释里别写具体的 session-<八位十六进制> 样例：本文件的规则会扫到自己（真实踩过一次）
+const SKIP_FILE = new Set(['工作台.json', '体检.mjs'])
 const SKIP_EXT = /(\.png|\.jpg|\.jpeg|\.gif|\.webp|\.ico|\.woff2?|\.ttf|\.mp4|\.zip|\.7z|\.exe|\.dll|\.zstd)$/i
 
 let hits = 0

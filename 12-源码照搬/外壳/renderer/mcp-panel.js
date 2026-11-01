@@ -242,7 +242,7 @@
           }
           body.appendChild(row(st, i, render));
         }
-        var tail = note('写入位置：' + FILE + '（引擎官方 patch 覆盖项 disabled: true）。命令行等价物：node "<工作台>\\引擎\\.dsh\\skills\\context-overflow\\mcp-switch.mjs" 设置 blender=off --apply', 'dim');
+        var tail = note('写入位置：' + (FILE || '(未识别本机根)') + '（引擎官方 patch 覆盖项 disabled: true）。命令行等价物：node "<本机根>\\引擎数据\\.dsh\\skills\\context-overflow\\mcp-switch.mjs" 设置 blender=off --apply', 'dim');
         body.appendChild(tail);
         var btn = document.createElement('button'); btn.className = 'mcp-sw border'; btn.style.marginLeft = '0';
         btn.textContent = '⟳ 刷新界面（接回会话 / 让工具表生效）';

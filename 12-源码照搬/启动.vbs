@@ -1,4 +1,4 @@
-' 启动.vbs —— 启动「淋雨家的工作台」（公开模板）
+' 启动.vbs —— 启动「我的工作台」（公开模板）
 Option Explicit
 Dim fso, sh, root, shellDir, engineData, electron, env
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -16,5 +16,5 @@ If fso.FileExists(electron) Then
   sh.CurrentDirectory = shellDir
   sh.Run """" & electron & """ .", 1, False
 Else
-  MsgBox "还没装依赖：先在 外壳 目录里运行 npm install" & vbCrLf & shellDir, 48, "淋雨家的工作台"
+  MsgBox "还没装依赖。在本目录执行：node 工具\初始化.mjs --install" & vbCrLf & shellDir, 48, "我的工作台"
 End If

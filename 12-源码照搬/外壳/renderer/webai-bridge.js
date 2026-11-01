@@ -1,4 +1,13 @@
 // 网页版 AI 桥 · 渲染层这一半（2026-09-22 · v3.12：聊天框按几何位置选 + 正文结构法）
+// 本机工作台根（由页面路径推导，替代写死的「<工作台>」）
+var __WB_ROOT = (function () {
+  try {
+    var q = decodeURIComponent(String(location.pathname || '')).replace(/^\//, '').replace(/\//g, '\\');
+    var m = q.match(/^(.*)\\外壳\\renderer\\/i);
+    if (m && m[1]) return m[1];
+  } catch (e) { /* ignore */ }
+  return '';
+})();
 // ★ 本文件就是**唯一真身**（不另存副本）：改完 `node --check` 一下、点顶栏 ⟳ 即生效（beacon 见 data\webai-bridge-beacon.txt）。
 // 作用：让**任何会话/脚本**（引擎侧）能问顶栏那 5 个免费网页版 AI（DeepSeek/豆包/通义/智谱/Kimi），
 //       完全不花 API token。链路：
@@ -37,8 +46,8 @@
     return;
   }
   // 图片中转文件（脚本侧 webai.mjs --save-image 会读它并解码成真图）
-  var SPOOL_B64 = '<工作台>\\外壳\\data\\webai-last-image.b64';
-  var SPOOL_JSON = '<工作台>\\外壳\\data\\webai-last-image.json';
+  var SPOOL_B64 = __WB_ROOT + '\\外壳\\data\\webai-last-image.b64';
+  var SPOOL_JSON = __WB_ROOT + '\\外壳\\data\\webai-last-image.json';
   var MAX_B64 = 3600000;                       // 主进程 kun:file:write 上限 4MB，留余量
   var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
   var say = function (m) {
@@ -1487,7 +1496,7 @@
   say('已就绪 v' + S.ver + '（**穿 shadow DOM** 取文+取图 / 等真图 / 截屏保底 / [[peek]] 只看不派；换手回调，旧闭包作废）');
   // 装载信标：⟳ 之后这个文件到底有没有被重新拉取并执行，看它就够了（排查全靠猜太费时间）
   try {
-    K.file.write('<工作台>\\外壳\\data\\webai-bridge-beacon.txt',
+    K.file.write((__WB_ROOT + '\\外壳\\data\\webai-bridge-beacon.txt'),
       'v' + S.ver + ' loaded ' + new Date().toLocaleString() + '\n');
   } catch (e) { }
   // ★申报版本（v3.17）★：多窗口时主进程只把活派给"版本相等"的窗口。

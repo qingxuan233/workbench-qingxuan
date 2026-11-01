@@ -20,6 +20,7 @@
  *   node 工具\初始化.mjs --dry      # 先看会动什么
  *   node 工具\初始化.mjs            # 真做
  *   node 工具\初始化.mjs --hard     # 连登录凭据也清（== 全新机器，需重新登录）
+ *   node 工具\初始化.mjs --install  # 顺便装运行时依赖（Electron，首次约 200 MB）
  *   node 工具\初始化.mjs --keep-sessions   # 保留会话，只修配置
  *
  * 退出码：0 成功｜1 有步骤失败｜2 用法错
@@ -69,11 +70,14 @@ if (KEEP_SESSIONS) skip('--keep-sessions：会话保留')
 else purge(path.join(DSH, 'sessions'), '上一台机器的会话')
 purge(path.join(DSH, 'storages'), '工作区与 projcache（记录的是上机路径）')
 for (const f of ['server.log', 'server.err.log']) purge(path.join(SHELL, f), '运行时日志（含引擎 token）')
-for (const d of ['.npm-cache', '.npm', '.electron-cache', 'node_modules']) purge(path.join(APP, d), '安装缓存/依赖（用时再装）')
+for (const d of ['.npm-cache', '.npm', '.electron-cache']) purge(path.join(APP, d), '安装缓存（不是运行时依赖）')
 if (HARD) {
   purge(path.join(DSH, '.credentials.yaml'), '--hard：登录凭据也清（之后需重新登录）')
   purge(path.join(DSH, '.anonymous-user-id'), '--hard：匿名身份重置')
 } else skip('登录凭据保留（要连凭据一起清：--hard）')
+// ⚠ node_modules 是运行时依赖，不是缓存：删了机器就起不来。只在 --hard 下问。
+if (HARD) purge(path.join(SHELL, 'node_modules'), '--hard：依赖也清（之后必须 --install 重装）')
+else skip('依赖保留（node_modules 是运行时，不是缓存）')
 
 // ── 2. 引擎 CLI 探测 ───────────────────────────────────────
 head('探测本机 DSH 引擎 CLI');
@@ -104,6 +108,22 @@ if (CLI) act(`引擎 CLI：${CLI}`);
 else {
   say('  ⚠ 没找到 DSH 引擎 CLI。工作台仍能启动，但 AI 面板不可用。');
   say('    修法：设环境变量 DSH_CMD=<dsh.cmd 的路径>，或在 工作台.json 里填 engine.cliPath');
+}
+
+// ── 2.5 运行时依赖（Electron）─────────────────────────────
+head('运行时依赖（Electron）');
+const ELECTRON_EXE = path.join(SHELL, 'node_modules', 'electron', 'dist', 'electron.exe');
+if (exists(ELECTRON_EXE)) act('Electron 已就位');
+else if (DRY) act('未装依赖（另加 --install 会执行 npm install）');
+else if (argv.includes('--install')) {
+  say('  未装依赖 ⇒ 开始 npm install（首次约 200 MB，慢，属正常）…');
+  try {
+    execFileSync('npm.cmd', ['install', '--no-audit', '--no-fund'], { cwd: SHELL, stdio: 'inherit', windowsHide: true });
+    act(exists(ELECTRON_EXE) ? '依赖已安装，Electron 就位' : 'npm 跑完了但没找到 electron.exe，检查上方输出');
+  } catch (e) { bad('npm install 失败：' + String(e.message || '').split('\n')[0]) }
+} else {
+  say('  ⚠ 缺依赖：外壳\\node_modules\\electron 不存在 ⇒ 启动.bat 会直接退出。');
+  say('    修法：node 工具\\初始化.mjs --install   （等价于在 外壳 目录执行 npm install）');
 }
 
 // ── 3. 重置会话绑定 + 写实例清单 ───────────────────────────
@@ -197,7 +217,7 @@ if (failed) say(`✗ 初始化未完成：${failed} 步失败（见上）`);
 else if (DRY) say('✓ 预演结束，没有改动任何文件。去掉 --dry 执行。');
 else {
   say('✓ 初始化完成。接下来这样开始用：');
-  say('  1) 启动工作台：双击 12-源码照搬\\启动.vbs（或 外壳\\start.vbs）');
+  say('  1) 启动工作台：双击 12-源码照搬\\启动.bat（缺依赖时它会告诉你跑哪条命令）');
   say('  2) 打开「命令」场景 → 在 AI 面板点一下，会按当前工作区新建会话');
   say(`  3) 四个场景各开一次面板后，回来跑：node 工具\\实例化.mjs --apply`);
   say('     （它把真实 sessionId 回填进场景 json，并把清单的 fresh 置为 false）');

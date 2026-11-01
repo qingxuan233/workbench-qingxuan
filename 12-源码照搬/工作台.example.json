@@ -1,7 +1,7 @@
 {
   "$comment": "工作台实例清单（模板）。复制为 工作台.json 后按本机填；工作台.json 不入库（见 .gitignore）。",
   "version": 1,
-  "name": "淋雨家的工作台",
+  "name": "我的工作台",
   "root": null,
   "dshPort": 3083,
   "sitePort": 31238,

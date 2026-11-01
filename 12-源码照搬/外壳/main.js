@@ -320,8 +320,15 @@ function resolveNodeExe() {
     try { if (fs.statSync(process.env.DSH_NODE).isFile()) { cachedNodeExe = process.env.DSH_NODE; return cachedNodeExe; } } catch (e) { /* ignore */ }
   }
   const dirs = String(process.env.Path || process.env.PATH || '').split(path.delimiter).filter(Boolean);
-  // 末位兜底：本机常见安装位置（PATH 里没有 node 时仍可直连）
-  dirs.push('<盘根>:\\software\\node.js');
+  // 末位兜底：系统常见安装位置（PATH 里没有 node 时仍可直连）
+  //   2026-11-01：原来写死某个人的盘符（'<盘根>:\software\node.js'），换机必失效 ⇒ 改成系统位置。
+  for (const d of [
+    process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'nodejs'),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'nodejs'),
+    'C:\\Program Files\\nodejs'
+  ]) {
+    if (d) dirs.push(d);
+  }
   for (const d of dirs) {
     const p = path.join(d, 'node.exe');
     try { if (fs.statSync(p).isFile()) { cachedNodeExe = p; return cachedNodeExe; } } catch (e) { /* next */ }
@@ -591,8 +598,9 @@ function applyOaScenario(sid) {
 
 // ---- 个人站场景：官网静态服务（E 盘官网目录 → 127.0.0.1:SITE_PORT，供 webview 预览与图片加载）----
 // ---- Blender 场景：实时画面（抓帧 JPEG 也由这个静态服务直出，避免每帧走 IPC）----
-const BLENDER_EXE = '<盘根>:\\software\\Blender\\blender.exe';
-const BLENDER_DIR = '<盘根>:\\blender\\blender控制';                               // Blender 工作区（本地文件面板的根）
+// 本机没装就留空（该场景没面板时永远不会被调用）
+  const BLENDER_EXE = process.env.DSH_BLENDER_EXE || '';
+const BLENDER_DIR = process.env.DSH_BLENDER_DIR || '';                               // Blender 工作区（本地文件面板的根）
 const BLENDER_AUTOSTART = path.join(__dirname, 'scripts', 'autostart_mcp.py'); // ASCII 路径：中文路径会被 Blender 当文件加载
 const BLENDER_CAPTURE_PS = path.join(__dirname, 'scripts', 'blender-capture.ps1');
 const BLENDER_LIVE_JPG = path.join(__dirname, 'data', 'blender-live.jpg');
@@ -694,11 +702,11 @@ function startSiteServer() {
 // 个人站上下文：从官网 index.html 提取关键信息（账号/邮箱/标题），失败回退内置
 function collectSiteContext() {
   const ctx = {
-    title: '<机主> | <机主> · 个人站',
+    title: '我 | 我 · 个人站',
     accounts: [
-      { name: '哔哩哔哩', handle: '@<机主>', url: 'https://<你的B站主页>' },
+      { name: '哔哩哔哩', handle: '@我', url: 'https://space.bilibili.com' },
       { name: '抖音', handle: '@<你的抖音账号>', url: 'https://<你的抖音主页>' },
-      { name: '小红书', handle: '@<机主>', url: 'https://<你的小红书主页>' }
+      { name: '小红书', handle: '@我', url: 'https://www.xiaohongshu.com' }
     ],
     email: '<邮箱>',
     siteUrl: 'http://127.0.0.1:' + SITE_PORT + '/index.html'
@@ -718,18 +726,18 @@ function buildSiteSystem(c) {
     return '- ' + a.name + '（' + a.handle + '）: ' + a.url;
   }).join('\n');
   return [
-    '你是「<机主>」个人站的 AI 助手（<机主>的个人站），只回答与这个个人站相关的问题，语气友好简洁。',
+    '你是「我」个人站的 AI 助手（我的个人站），只回答与这个个人站相关的问题，语气友好简洁。',
     '',
     '【个人站信息】',
-    '标题：' + (c.title || '<机主> | <机主> · 个人站'),
+    '标题：' + (c.title || '我 | 我 · 个人站'),
     '官网本地预览：' + (c.siteUrl || ''),
     '自媒体账号：',
     acct || '（无）',
     '联系邮箱：' + (c.email || '<邮箱>'),
     '',
-    '【官网板块】#tools <机主>小工具集合（已上架「上班盯盘助手」，其余空位待填）；#media 自媒体账号；#cooperate 联系咨询；#donate 投喂小鱼干；#about 关于<机主>。',
+    '【官网板块】#tools 我小工具集合（已上架「上班盯盘助手」，其余空位待填）；#media 自媒体账号；#cooperate 联系咨询；#donate 投喂小鱼干；#about 关于我。',
     '【风格】像素风 + 下雨背景，深蓝 #0a1628 主色，青色 #06e7e9 点缀；签名：梦想是优雅地淋一场雨。',
-    '无关话题礼貌说明自己只了解<机主>个人站。'
+    '无关话题礼貌说明自己只了解我个人站。'
   ].join('\n');
 }
 
@@ -749,7 +757,7 @@ function createWindow(opts) {
     height: bounds.height,
     minWidth: 1000,
     minHeight: 660,
-    title: isMain ? 'DSH 引擎' : (sceneNameOf(scene) + ' · 淋雨家的工作台'),
+    title: isMain ? 'DSH 引擎' : (sceneNameOf(scene) + ' · 我的工作台'),
     autoHideMenuBar: true,
     frame: false,
     backgroundColor: '#0b0d12',
@@ -1200,7 +1208,7 @@ ipcMain.handle('harness:wv:inject', (e, webContentsId, pinTarget) => {
     if (p && typeof p.catch === 'function') p.catch(function (err) { log('[wv:inject] insertCSS 拒绝: ' + (err && err.message || err)); });
   } catch (ex) { log('[wv:inject] insertCSS 失败: ' + (ex && ex.message || ex)); }
   try {
-    // 钉住目标由调用方决定（OA 'oa系统运维' / 个人站 '个人站' / 分析助手 ['<机主>看盘助手','<机主>']）
+    // 钉住目标由调用方决定（OA 'oa系统运维' / 个人站 '个人站' / 分析助手 ['我看盘助手','我']）
     // 支持字符串或字符串数组（多候选）；以 JSON 数组字面量注入，避免引号转义问题
     const targets = (Array.isArray(pinTarget) ? pinTarget : [pinTarget])
       .map(function (t) { return String(t == null ? '' : t).trim(); })
@@ -1511,7 +1519,7 @@ ipcMain.handle('site:open-file', async (e, relPath) => {
 // 需求：右上角浏览「自我复盘」镜像目录（主要都是 md），左上角大窗口"单击即预览"该文档。
 // 为什么必须走主进程：渲染进程是 file:// 页面，fetch/XHR 读不了本地文件（图/视频能当子资源加载，
 // 文本不能），所以目录列表与正文都由这里读盘；路径一律相对 REVIEW_DIR 解析并夹在本目录内。
-// 只读：镜像是「<机主>-个人信息 / 我的知识库」的副本（技能 maben-profile 的默认只读约束），不提供任何写接口。
+// 只读：镜像是「我-个人信息 / 我的知识库」的副本（技能 maben-profile 的默认只读约束），不提供任何写接口。
 const REVIEW_DIR = path.join(WORKBENCH_ROOT, '自我复盘');
 const REVIEW_TEXT_EXT = /\.(md|markdown|txt|json|ya?ml|csv|log|ini|conf)$/i;
 const REVIEW_MAX_BYTES = 4 * 1024 * 1024;   // 单篇上限 4 MB：超了只回前 4 MB，够看且不会把面板卡死
@@ -2262,7 +2270,7 @@ ipcMain.handle('oa:files', async (e, remotePath, force) => {
 });
 // 本地文件：项目目录浏览（与云端无关，始终可用）
 ipcMain.handle('oa:files:local', async (e, localPath) => {
-  const base = localPath || oaStore.getConfig('oa.path.local') || '<资料库>';
+  const base = localPath || oaStore.getConfig('oa.path.local') || path.join(WORKBENCH_ROOT, '工作区');
   try {
     // ★ 异步 + 并行 stat：不再阻塞主进程（原来用 readdirSync/statSync，大目录会卡住整个界面）
     const ents = await fs.promises.readdir(base, { withFileTypes: true });
@@ -2283,7 +2291,7 @@ ipcMain.handle('oa:files:local', async (e, localPath) => {
 ipcMain.handle('oa:paths', () => {
   const mp = scenarioMeta().paths || {};
   return {
-    localRoot: mp.local || oaStore.getConfig('oa.path.local') || '<资料库>',
+    localRoot: mp.local || oaStore.getConfig('oa.path.local') || path.join(WORKBENCH_ROOT, '工作区'),
     code: mp.code || oaStore.getConfig('oa.path.code') || '/opt/langchen_oa',
     www: mp.www || oaStore.getConfig('oa.path.www') || '/var/www',
     backups: mp.backups || oaStore.getConfig('oa.path.backups') || '/opt/langchen_oa_backups',
@@ -2407,7 +2415,7 @@ function oaUrls() {
     // ★ 2026-09-28 新增教务端；★ 2026-09-29 用户要求标题去掉「·手机版」后缀 —— 就叫「教务端」（地址仍是 /m/ 手机版 H5）
     { name: '教务端', url: 'http://example.com:8083/m/' },
     {
-      name: '<客户>官网', url: 'http://example.com:8084',
+      name: '本地站点', url: 'http://127.0.0.1:8084',
       links: [
         { label: '备用1', url: 'http://example.com:8081/site/' },
         { label: '备用2', url: 'http://example.com:8082/site/' },
@@ -2520,7 +2528,7 @@ ipcMain.handle('oa:open', (e, url) => {
 //   顶部左侧有一个 📌 置顶按钮 —— 按钮在窗口**内部**（不占场景面板），点它调本地 /api/pin → SetWindowPos 置顶。
 //   为什么包装页：外部浏览器 --app= 窗口没有"往窗口里加按钮"的通道，只能往页面内容里注入；
 //   包装页同时保留独立配置目录（--user-data-dir 不变，登录照样记住）。
-const PREVIEW_ROOT = '<资料库>';
+const PREVIEW_ROOT = path.join(WORKBENCH_ROOT, '工作区');
 const PREVIEW_PORT = Number(process.env.PREVIEW_PORT || 31240);
 const PREVIEW_APPS = {
   parent: { name: '家长端', url: 'http://example.com:8082/', x: 70, y: 60 },
@@ -2768,7 +2776,7 @@ ipcMain.handle('oa:ai:perms:set', (e, p) => saveAiPermissions(p || {}));
 const OA_CODE_ROOTS = ['backend', 'web'];
 const OA_CODE_BACKUP_DIR = path.join(__dirname, 'data', 'oa-code-backups');
 function resolveOaCodePath(rel) {
-  const root = oaStore.getConfig('oa.path.local') || '<资料库>';
+  const root = oaStore.getConfig('oa.path.local') || path.join(WORKBENCH_ROOT, '工作区');
   const r = String(rel || '').replace(/^[\\/]+/, '').replace(/\\/g, '/');
   if (!r || r === '.' || r.startsWith('..') || r.indexOf('/../') >= 0 || r.indexOf('\0') >= 0) return null;
   const seg = r.split('/')[0];
@@ -2899,11 +2907,11 @@ function collectOaContext() {
 
 // <客户>教务 OA 项目内置信息（与项目 README/云控台一致；作为助手对项目的固有认知）
 function oaProjectBrief() {
-  const localRoot = oaStore.getConfig('oa.path.local') || '<资料库>';
+  const localRoot = oaStore.getConfig('oa.path.local') || path.join(WORKBENCH_ROOT, '工作区');
   const code = oaStore.getConfig('oa.path.code') || '/opt/langchen_oa';
   const www = oaStore.getConfig('oa.path.www') || '/var/www';
   return [
-    '【项目】<客户>教务内部管理系统（<客户>教育 OA）',
+    '【项目】内部管理系统（自有后台）',
     '- 端：Web 管理后台（Vue3 + Element Plus + Vite + Pinia）；教师移动端 App（uni-app）；家长移动端 App（uni-app）',
     '- 后端：Node.js + Express + JWT；数据库 MySQL 8.0；部署 Nginx 反向代理 + HTTPS + pm2（应用名 langchen-oa，端口 3000）',
     '- 角色权限硬隔离：超级管理员 / 教务专员 / 授课教师',
@@ -2918,9 +2926,9 @@ function oaProjectBrief() {
 // OA 助手系统提示（像普通对话一样自由；项目背景仅供参考，不设束缚性规则）
 function buildOaSystem(c) {
   const L = [];
-  L.push('你是用户「<客户>教务内部管理系统」（<客户>教育 OA）项目的专职维护与更新助手。本项目是你在本对话中的长期职责：帮用户维护、排查、修改、同步这个项目的代码、数据与部署。项目源码在本机 ' + (oaStore.getConfig('oa.path.local') || '<资料库>') + '（全部在 D/E 盘，绝不碰 C 盘）。');
+  L.push('你是「内部管理系统」（自有后台）项目的专职维护与更新助手。本项目是你在本对话中的长期职责：帮用户维护、排查、修改、同步这个项目的代码、数据与部署。项目源码在本机 ' + (oaStore.getConfig('oa.path.local') || path.join(WORKBENCH_ROOT, '工作区')) + '（全部在 D/E 盘，绝不碰 C 盘）。');
   L.push('你可以像普通对话一样自由聊天、帮忙分析问题、给出建议、协助改代码，不必拘泥于运维话术。');
-  L.push('下面是该项目（<客户>教育 OA）的背景信息与当前状态，回答项目相关问题时可作参考。');
+  L.push('下面是该项目（内部管理系统）的背景信息与当前状态，回答项目相关问题时可作参考。');
   L.push('');
   L.push(oaProjectBrief());
   L.push('');
@@ -3096,7 +3104,7 @@ ipcMain.handle('stock:acct:snapshot', (e, snap) => stockStore.addAssetSnapshot(s
 ipcMain.handle('stock:acct:snapshots', (e, limit) => stockStore.listAssetSnapshots(limit));
 
 // ---- 股票助手：运行 Python 数据脚本（akshare / baostock）----
-const PYTHON = '<盘根>:\\software\\yuyanhuanjing\\python\\python.exe';
+const PYTHON = process.env.DSH_PYTHON || 'python';
 ipcMain.handle('stock:script:run', (e, script) => new Promise((resolve) => {
   if (!script || typeof script !== 'string') return resolve({ ok: false, out: '', err: '脚本为空' });
   // 用 utf-8 环境变量避免中文乱码
@@ -4185,7 +4193,7 @@ function loadCpuPercent() {
 }
 function nvidiaSmiOnce() {
   return new Promise((resolve) => {
-    const exe = '<盘根>:\\Windows\\System32\\nvidia-smi.exe';
+    const exe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'nvidia-smi.exe');
     let out = '', done = false, cp = null;
     try { cp = spawn(exe, ['--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'], { windowsHide: true }); }
     catch (e) { return resolve(null); }
@@ -4919,7 +4927,7 @@ setInterval(function () {
     // 再让窗口跑一次它自己的热更新（重灌带时间戳的 renderers.js，**不重载页面** ⇒ Harness 对话不断）。
     // 2026-09-29 修：以前只热更新 mainWindow ⇒ 跑在**独立场景窗口**里的面板永远刷不到
     //   （主窗口对"已分离"的场景只画一张占位卡然后 return，所以 renderer 改动在那边全都不生效——
-    //    当天就撞上：改了 renderers.js，独立窗口里的「<机主>的分析助手」既不换标题也没有新页签）。
+    //    当天就撞上：改了 renderers.js，独立窗口里的「我的分析助手」既不换标题也没有新页签）。
     //   现在按 target 选窗口：场景 id ⇒ 该场景的独立窗口 + 主窗口（主窗口自己判断要不要重建，currentTab 是渲染层状态）；
     //   all ⇒ 所有窗口。**不顺手重建无关窗口**——那会把别的窗口里的 AI 面板一起重建。
     try {

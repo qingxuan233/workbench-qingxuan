@@ -42,7 +42,7 @@
       var m = p.match(/^(.*)\\外壳\\renderer\\/i);
       if (m && m[1]) return m[1];
     } catch (e) { /* ignore */ }
-    return '<工作台>';   // 兜底：搬家脚本会改写这一行
+    return '';   // 推不出来就留空，调用方按「无根」处理
   })();
   var INDEX_FILES = [
     { label: '场景身份索引', file: ROOT + '\\外壳\\scenarios\\_场景身份索引.md' },

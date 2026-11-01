@@ -2,6 +2,18 @@
 // 场景 0：DSH 引擎（默认初始界面，webview 内嵌，带 token）
 // 场景 1..N：本地场景（scenarios/*.json 配置 + renderers 分发）
 // 顶层声明一律用 var：刷新按钮会带时间戳重复加载本文件，const/let 重复声明会直接报错导致热更新失效
+
+// 本机工作台根（2026-11-01）：由页面自身路径推导，替代原来写死的「<工作台>」。
+// 页面固定在 <根>\外壳\renderer\index.html ⇒ location 里就带着真根，换机不需要改任何代码。
+var __WB_ROOT = (function () {
+  try {
+    var q = decodeURIComponent(String(location.pathname || '')).replace(/^\//, '').replace(/\//g, '\\');
+    var m = q.match(/^(.*)\\外壳\\renderer\\/i);
+    if (m && m[1]) return m[1];
+  } catch (e) { /* ignore */ }
+  if (window.console) console.warn('[工作台] 推不出本机根，依赖根的兜底路径将不可用');
+  return '';
+})();
 'use strict';
 
 var el = (tag, cls, text) => {
@@ -1692,7 +1704,7 @@ renderers.reserved = (body, meta) => {
 renderers['wb-cards'] = (body, meta) => {
   const K = window.app || {};
   const OA = K.oa || null, APP = K.app || null, F = K.file || null;
-  const BASE = String((meta && meta.root) || '<工作台>');
+  const BASE = String((meta && meta.root) || __WB_ROOT || '');
   const TPL_DIR = BASE + '\\_模板';
   const NOT_SCENE = { '外壳': 1, '引擎': 1 };
   const GROUPS = (meta && Array.isArray(meta.groups) && meta.groups.length) ? meta.groups : null;
@@ -2648,7 +2660,7 @@ var FLOW_TYPES = [
     id: 'folder', name: '项目文件夹', icon: '📁', color: '#e0b341', cat: 'place',
     kind: 'dir', sides: 'tb',
     newName: '项目文件夹',
-    pathLabel: '文件夹路径', pathHint: '<资料库>',
+    pathLabel: '文件夹路径', pathHint: '文件夹路径（选到文件夹本身）',
     descRows: 3,
     descHint: '这个文件夹是干什么的？例：本项目全部产物都放这儿（口播稿 / 现象段 / 原理段 / 成片）',
     subKeys: ['desc'],
@@ -3915,7 +3927,7 @@ renderers.flow = (body, meta, head) => {
       return {
         dot: dp ? '●' : '·', cls: dp ? 'ok' : 'none', has: true,
         text: dp ? ('双击打开 · ' + dp) : '还没填文件夹路径（右键「✎ 编辑节点」）',
-        tip: dp ? ('双击用资源管理器打开：' + dp) : '把文件夹路径填上（写到文件夹本身，例：<资料库>'
+        tip: dp ? ('双击用资源管理器打开：' + dp) : '把文件夹路径填上（写到文件夹本身，例：<工作台根>\\工作区'
       };
     }
     // 固定流程预设节点：也**没有文件/地址**（它的"内容"就是那几行步骤）⇒ 同 webai 的处理，
@@ -4168,7 +4180,7 @@ renderers.flow = (body, meta, head) => {
     //   因为它要自己说清"这一栏该填文件夹、不是文件"。
     if (k.kind === 'dir') {
       const dp = String(n.path || '').trim();
-      if (!dp) { say('这个项目文件夹节点还没填路径 —— 右键「✎ 编辑节点」填一个（写到**文件夹本身**，例：<资料库>'); openDialog(n); return; }
+      if (!dp) { say('这个项目文件夹节点还没填路径 —— 右键「✎ 编辑节点」填一个（写到**文件夹本身**，例：<工作台根>\\工作区'); openDialog(n); return; }
       // ★2026-09-26★ 用户点名："项目文件夹双击在预览里显示，内容文件视频和图片都要显示出来，
       //   然后双击具体的图片或者视频要播放展示" ⇒ **优先摊到预览面板**（列出文件夹内容、图片/视频带缩略图、
       //   双击就在面板里看/播）；这个场景没有预览面板时，才退回"直接用资源管理器打开"。
@@ -7438,7 +7450,7 @@ renderers.web = (body, meta, head) => {
   // 常驻网址：即使主进程清单里没有，也自动补上（2026-09-11 官网下载中心 + 全部备用 + APK 下载）
   const ALWAYS_URLS = [
     {
-      name: '<客户>官网', url: 'http://example.com:8084',
+      name: '本地站点', url: 'http://127.0.0.1:8084',
       links: [
         { label: '备用1', url: 'http://example.com:8081/site/' },
         { label: '备用2', url: 'http://example.com:8082/site/' },
@@ -11548,7 +11560,7 @@ function decorateBrand() {
 }
 
 // ===== 顶栏「网页版 AI」：五个官方小图标 + 点开的浮动窗口（2026-09-20 第四波 / 第五波补 DeepSeek）=====
-// 用户原话：「把这四个网页版内置到 gui 窗口最顶上，淋雨家的工作台字段后面，用一个个官方小图标
+// 用户原话：「把这四个网页版内置到 gui 窗口最顶上，我的工作台字段后面，用一个个官方小图标
 // 显示，点击就可以出来一个窗口，保证快速响应」。
 //
 // ★为什么整段都在这里、一行 index.html 都不改★
@@ -11966,7 +11978,7 @@ function webAiMarkOn() {
   } catch (e) { /* ignore */ }
 }
 
-// 顶栏那五个图标（插在「淋雨家的工作台」字段后面；✕ 幂等：⟳ 重跑不会插第二排）
+// 顶栏那五个图标（插在「我的工作台」字段后面；✕ 幂等：⟳ 重跑不会插第二排）
 function decorateWebAi() {
   try {
     const drag = document.querySelector('#titlebar .titlebar-drag');
@@ -12115,7 +12127,7 @@ var SCENARIO_ICONS = {
     '<rect x="5.6" y="5.9" width="4.8" height="6.2" rx="1" fill="#8fb4ff" opacity=".85"/>' +
     '<rect x="6.9" y="7.6" width="2.2" height=".9" rx=".45" fill="#0b1220" opacity=".5"/>' +
     '<rect x="6.9" y="9.4" width="2.2" height=".9" rx=".45" fill="#0b1220" opacity=".5"/></svg>',
-  // stock-analysis：「<机主>的分析助手」→ 同花顺官方图标（用户 2026-09-26 指定；
+  // stock-analysis：「我的分析助手」→ 同花顺官方图标（用户 2026-09-26 指定；
   // 由 scripts\fetch-hithink-icon.mjs 从 10jqka 官网抓到 renderer\assets\hithink-icon.png（32×32 PNG；
   // 那个网址后缀是 .ico、content-type 也写 image/x-icon，但真实字节是 PNG —— 脚本按魔数认格式），
   // 换版式了重跑那个脚本即可）。这里用 <img>：renderer.js 只认 .png，热更新版不受那个限制。
@@ -12898,7 +12910,7 @@ var GLOW_TICK_MS = 2500;
 // 引擎用户数据目录（DSH_HOME）：**空 = 运行时从 app.getVersion().engineDir 推**（换电脑/换盘符都不用改这行），
 // 老宿主没有 app:version 或它没带 engineDir 时退回下面这个兜底值。2026-10-12 为"拷给别人/换机开箱即用"改。
 var GLOW_HOME = window.__dshGlowHome || '';
-var GLOW_HOME_FALLBACK = '<工作台>\\引擎数据\\.dsh';
+var GLOW_HOME_FALLBACK = __WB_ROOT + '\\引擎数据\\.dsh';
 async function glowHome() {
   if (GLOW_HOME) return GLOW_HOME;
   try {
@@ -13131,10 +13143,10 @@ function panelPartition(meta) {
 // ⇒ 三个扫描页签集体退回本地缓存、雷达"板块 0 个"。统一改走 scripts\mkt-fallback.py：
 // 东财优先、失败自动降级到新浪 / 腾讯，并把真实来源(src)带回来给界面标注；
 // 东财失败后脚本自身熔断 5 分钟（state 文件），不再每次白等 1.5 秒。
-var MK_FALLBACK = '<工作台>\\外壳\\scripts\\mkt-fallback.py';
+var MK_FALLBACK = __WB_ROOT + '\\外壳\\scripts\\mkt-fallback.py';
 // 场景专属数据仓库（2026-10-14 建）：榜单/机会池/板块落库 + 基本面采集 + 调研报告
 // 与 OA 场景的 data\oa.db 同一套"场景专属库"约定；CLI 与 mkt-fallback.py 同构，故共用这个 runner。
-var MK_WH = '<工作台>\\外壳\\scripts\\warehouse.py';   // ★2026-10-15 从 data\stock\ 搬进 scripts\（进得了 backup 快照）
+var MK_WH = __WB_ROOT + '\\外壳\\scripts\\warehouse.py';   // ★2026-10-15 从 data\stock\ 搬进 scripts\（进得了 backup 快照）
 // ---- 买不了的板（2026-10-14 用户要求）：创业板 300/301、科创板 688/689 ----
 // 这些票**只当板块参考**：不进机会池、不进机会事件、不弹窗，也不进「波段启动 / 超跌反弹」候选清单。
 // （行情榜单快照照旧全收，方便复盘和看板块；情绪/涨停池是全市场口径，也不受影响。）
@@ -14808,7 +14820,7 @@ function showQr(src, title) {
 renderers['site-folder'] = (body, meta, head) => {
   body.classList.add('site-folder');
   const K = window.app && window.app.site;
-  let ROOT_LABEL = '<工作台>';
+  let ROOT_LABEL = __WB_ROOT || '工作台根目录';
   // 标题栏右侧：当前路径（带背景栏）——路径只显示此处，内容区保持清爽
   const crumbs = el('div', 'file-crumbs', '加载中…');
   if (head) {
@@ -15001,14 +15013,14 @@ renderers['site-preview'] = (body, meta, head) => {
     if (!btnSite || !btnComm) return;
     btnSite.classList.toggle('on', current === 'site');
     btnComm.classList.toggle('on', current === 'community');
-    btnComm.title = commOk ? '预览 DSH 社区站（<工作台>' : 'DSH 社区目录不存在：<工作台>';
+    btnComm.title = commOk ? '预览 DSH 社区站（工作台根目录' : 'DSH 社区目录不存在：工作台根目录';
   }
   function switchTo(k) {
     if (k === current) return;
     current = k;
     try { localStorage.setItem(srcKey, k); } catch (e) { /* ignore */ }
     paintSwitch();
-    if (k === 'community' && !commOk) { msg.textContent = 'DSH 社区目录不存在：<工作台>'; return; }
+    if (k === 'community' && !commOk) { msg.textContent = 'DSH 社区目录不存在：工作台根目录'; return; }
     const target = urls[k];
     if (wv && target) { msg.textContent = ''; wv.setAttribute('src', target); }
     else { load(); }
@@ -15063,7 +15075,7 @@ renderers['site-preview'] = (body, meta, head) => {
         return;
       }
       siteBase().then(function (base) {
-        const url = base ? base + '/index.html' : '<工作台>';
+        const url = base ? base + '/index.html' : (__WB_ROOT + '\\index.html');
         if (window.app && window.app.site && window.app.site.open) window.app.site.open(url);
         else window.open(url);
       });
@@ -15087,7 +15099,7 @@ renderers['site-preview'] = (body, meta, head) => {
       if (current === 'community' && !commOk) { current = 'site'; }
       paintSwitch();
       if (current === 'community' && !commOk) {
-        msg.textContent = 'DSH 社区目录不可用：<工作台>';
+        msg.textContent = 'DSH 社区目录不可用：工作台根目录';
       }
       body.innerHTML = '';
       wv = document.createElement('webview');
@@ -15115,27 +15127,27 @@ renderers['site-preview'] = (body, meta, head) => {
   load();
 };
 
-// 关于<机主>：头像 + 简介 + 标签 + 时间线
+// 关于我：头像 + 简介 + 标签 + 时间线
 renderers['site-about'] = (body, meta, head) => {
   body.classList.add('site-about');
   siteBase().then(function (base) {
     const card = el('div', 'site-about-card');
     const avatar = document.createElement('img');
     avatar.className = 'site-avatar';
-    avatar.src = base + '/头像/<机主>头像像素画.webp';
-    avatar.alt = '<机主>';
+    avatar.src = base + '';
+    avatar.alt = '我';
     card.appendChild(avatar);
-    card.appendChild(el('div', 'site-name', '<机主>'));
+    card.appendChild(el('div', 'site-name', '我'));
     card.appendChild(el('div', 'site-slogan', '梦想是优雅地淋一场雨'));
     const tags = ['像素画', '前端', 'AI 工具', '独立开发者', 'UP主'];
     const tagRow = el('div', 'site-tags');
     tags.forEach(function (t) { tagRow.appendChild(el('span', 'site-tag', t)); });
     card.appendChild(tagRow);
     card.appendChild(el('div', 'site-desc',
-      '「<机主> · 个人站」作者：像素风 + 下雨背景的个人网站，上架小工具，分享创作内容。'));
+      '「我的个人站」：像素风 + 下雨背景的个人网站，上架小工具，分享创作内容。'));
     const tl = el('div', 'site-tl');
     [
-      ['2026 · 建站', '个人官网「<机主>」上线（像素风 · 下雨主题）'],
+      ['建站', '个人官网上线（像素风 · 下雨主题）'],
       ['2026 · 工具', '「上班盯盘助手」上架 Cloudflare Pages'],
       ['2026 · 内容', 'B站 / 抖音 / 小红书 持续更新像素画与创作']
     ].forEach(function (it) {
@@ -15153,9 +15165,9 @@ renderers['site-about'] = (body, meta, head) => {
 renderers['site-media'] = (body, meta, head) => {
   body.classList.add('site-media');
   const MEDIA = [
-    { name: '哔哩哔哩', handle: '@<机主>', emoji: '📺', url: 'https://<你的B站主页>', qr: '/账号二维码/哔哩哔哩.jpg' },
+    { name: '哔哩哔哩', handle: '@我', emoji: '📺', url: 'https://space.bilibili.com', qr: '' },
     { name: '抖音', handle: '@<你的抖音账号>', emoji: '🎵', url: 'https://<你的抖音主页>', qr: '/账号二维码/抖音.png' },
-    { name: '小红书', handle: '@<机主>', emoji: '📕', url: 'https://<你的小红书主页>', qr: '/账号二维码/小红书.png' }
+    { name: '小红书', handle: '@我', emoji: '📕', url: 'https://www.xiaohongshu.com', qr: '' }
   ];
   siteBase().then(function (base) {
     const grid = el('div', 'site-media-grid');
@@ -15187,7 +15199,7 @@ renderers['site-projects'] = (body, meta, head) => {
       name: '上班盯盘助手',
       status: '已上线',
       desc: '股票摸鱼小工具 · 像素风',
-      path: '<工作台>',
+      path: __WB_ROOT || '',
       url: 'https://<你的工具站>/'
     }
   ];
@@ -15241,7 +15253,7 @@ renderers['site-urls'] = (body, meta, head) => {
   // 网址数据：以后管理就在这里增删改（icon 为官网目录内相对路径；links 支持多条并标注；pinned 标记置顶）
   const URLS = [
     {
-      icon: '/头像/<机主>头像像素画.webp', name: '个人站', pinned: true,
+      icon: '', name: '个人站', pinned: true,
       links: [{ label: 'Pages', url: 'https://<你的站点>/' }]
     },
     {
@@ -15262,11 +15274,11 @@ renderers['site-urls'] = (body, meta, head) => {
     },
     // ── 两个公开仓库（各自的 GitHub 卡片）──
     {
-      icon: '/img/panel/workbench.png', name: '淋雨家的工作台',
+      icon: '/img/panel/workbench.png', name: '我的工作台',
       links: [{ label: 'GitHub', url: 'https://github.com/<你的GitHub账号>/<仓库名>' }]
     },
     {
-      icon: '/img/panel/dsh-repo.png', name: '<机主>的DSH',
+      icon: '/img/panel/dsh-repo.png', name: '我的DSH',
       links: [{ label: 'GitHub', url: 'https://github.com/<你的GitHub账号>/<仓库名>' }]
     }
   ];
@@ -15848,7 +15860,7 @@ renderers['file'] = (body, meta, head) => {
   var IMG_RE = /\.(png|jpe?g|gif|webp|bmp)$/i;
   var VID_RE = /\.(mp4|mov|mkv|webm|m4v|avi|flv|wmv|mpe?g|ts)$/i;
   // ★ 根目录（面板级配置）：默认<客户> OA 工程目录，场景 json 里 "root" 可换根
-  var DISP_ROOT = String((meta && meta.root) || '<资料库>');
+  var DISP_ROOT = String((meta && meta.root) || __WB_ROOT || '');
   var LOCAL_ROOT = normWin(DISP_ROOT) || DISP_ROOT;
   // ★ 2026-10-20（宿主：「文件管理默认 C/D/E/F 盘」）—— 场景 json 写 "drives": ["C","D","E","F"]（或 true）
   //   ⇒ 面板一开始停在「此电脑」：列这几个盘（带可用/总量，读 app.sys.disks 零子进程），双击进盘；
@@ -16366,7 +16378,7 @@ renderers['file'] = (body, meta, head) => {
                 pane.appendChild(box);
               });
             } else if (K.download) {
-              var dir = '<资料库>';
+              var dir = __WB_ROOT;
               showTip('下载中：' + full);
               Promise.resolve(K.download(full, dir)).then(function (res) {
                 if (res && res.ok) { showTip('✓ 已下载：' + res.local, 4000); try { if (K.openPath) K.openPath(res.local); } catch (err) {} }
@@ -16674,7 +16686,7 @@ renderers['review-files'] = function (body, meta, head) {
   var bUp = el('button', 'sr-btn', '↑'); bUp.type = 'button'; bUp.title = '上一级';
   var bRe = el('button', 'sr-btn', '⟳'); bRe.type = 'button'; bRe.title = '重新读取目录';
   var bCp = el('button', 'sr-btn', '⧉'); bCp.type = 'button'; bCp.title = '复制当前文件夹的完整路径';
-  var RO_NOTE = '这里是「个人档案 / 我的知识库」的复盘镜像：只读。要改档案去 <盘根>:\\学习和自己\\个人档案 与 我的知识库，再同步过来。';
+  var RO_NOTE = '这里是「个人档案 / 我的知识库」的复盘镜像：只读。要改档案去你自己的档案目录，再同步过来。';
   // 当前文件夹的**完整路径**：并进标题行显示，可拖选、也可单击复制（用户要求）。
   var fpath = el('span', 'sr-fpath');
   fpath.title = '当前文件夹的完整路径（单击复制）';
@@ -17174,7 +17186,7 @@ renderers['review-doc'] = function (body, meta, head) {
   var last = 0;
   // 留痕：每次自愈都往 data\focus-heal.log 追一行（只留最后 300 行）——
   // 这样"到底有没有再犯"不用靠用户开控制台，看文件就知道（走 app.file 通道，只允许 <盘根>:/E: 盘）。
-  var LOG = '<工作台>\\外壳\\data\\focus-heal.log';
+  var LOG = __WB_ROOT + '\\外壳\\data\\focus-heal.log';
   function logHeal(why, r) {
     try {
       if (!window.app || !window.app.file || !window.app.file.write) return;
@@ -17639,7 +17651,7 @@ renderers.neuron = (body, meta, head) => {
   const MEM_ROOT = P.memRoot || '';
   const ROOT = MEM_ROOT + '\\_共享记忆';
   const META_DIR = MEM_ROOT;
-  const SKILL_DIR = P.skillDir || '<工作台>\\引擎数据\\.dsh\\skills';
+  const SKILL_DIR = P.skillDir || (__WB_ROOT + '\\引擎数据\\.dsh\\skills');
   // 技能清单**不硬编码**（2026-10-27 审计①：硬编码 23 漏了 command / douyin）——运行时列技能目录，这份只当兜底
   const SKILL_FALLBACK = ['gui-workbench', 'harness-dev', 'context-overflow', 'workbuddy', 'webai-offload',
     'new-tools', 'code-dev', 'design-misc', 'pc-cleanup', 'bilibili', 'blender', 'comfyui',
@@ -17928,7 +17940,7 @@ renderers.neuron = (body, meta, head) => {
       var AREA_IDS = {};
       areas.forEach(function (a) { if (a && a.owner) AREA_IDS[a.owner] = 1; });
       var SKILL_OWNER = {};
-      jobs.push(readText('<工作台>\\引擎数据\\.dsh\\skills\\_索引.md').then(function (txt) {
+      jobs.push(readText(__WB_ROOT + '\\引擎数据\\.dsh\\skills\\_索引.md').then(function (txt) {
         String(txt || '').split(/\r?\n/).forEach(function (line) {
           if (!line.startsWith('| `')) return;
           var cells = line.split('|').map(function (c) { return c.trim(); });
@@ -17983,7 +17995,7 @@ renderers.neuron = (body, meta, head) => {
           }
         });
       });
-      // 重名项目（两组「<机主>的git hub仓库」）：后面缀盘符区分，别让人看混
+      // 重名项目（两组「我的git hub仓库」）：后面缀盘符区分，别让人看混
       var nameCount = {};
       nodes.filter(function (n) { return n.kind === 'project'; }).forEach(function (n) { nameCount[n.label] = (nameCount[n.label] || 0) + 1; });
       nodes.filter(function (n) { return n.kind === 'project' && nameCount[n.label] > 1; }).forEach(function (n) {

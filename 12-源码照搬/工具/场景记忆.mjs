@@ -44,7 +44,7 @@ const sha = (p) => (fs.existsSync(p) ? crypto.createHash('sha256').update(fs.rea
 
 const ALIAS = {
   'bilibili': 'B站', 'pc-cleanup': '本地电脑', 'personal-site': '<个人站场景>',
-  'stock-analysis': '<机主>的分析助手', 'code-dev': '程序开发', 'design-misc': '设计杂活',
+  'stock-analysis': '股票分析', 'code-dev': '程序开发', 'design-misc': '设计杂活',
   'video-workflow': '视频工作流', 'self-review': '自我复盘', 'douyin': '刷抖音', 'command': '命令',
   'workbench-custom': '工作台定制', 'dsh-gui': null,
 }
