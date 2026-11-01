@@ -1016,6 +1016,15 @@ app.on('web-contents-created', function (event, contents) {
       contents.executeJavaScript("(function(){try{var b=document.body;return {len:b?b.innerText.length:0,txt:b?b.innerText.slice(0,120):\"(no body)\",els:document.querySelectorAll(\"*\").length}}catch(e){return {err:String(e&&e.message)}}})()", true)
         .then(function (r) { log(tag + 'bodyLen=' + (r && r.len) + ' els=' + (r && r.els) + ' txt=' + JSON.stringify(r && r.txt)) })
         .catch(function (e) { log(tag + 'probe failed ' + (e && e.message)) });
+      // did-finish-load 只是初始 HTML 到位，SPA 还要再水合一轮（首屏常是骨架屏）。
+      // 3 秒后再量一次，避免把「还在水合」误判成「白屏」。
+      setTimeout(function () {
+        try {
+          contents.executeJavaScript("(function(){try{var b=document.body;return {len:b?b.innerText.length:0,els:document.querySelectorAll(\"*\").length}}catch(e){return {err:String(e&&e.message)}}})()", true)
+            .then(function (r) { log(tag + 'hydrated bodyLen=' + (r && r.len) + ' els=' + (r && r.els)) })
+            .catch(function () { /* 面板已关就算了 */ });
+        } catch (e3) { /* ignore */ }
+      }, 3000);
     });
     contents.on('console-message', function (ev) {
       const lv = String(ev.level);
