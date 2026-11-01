@@ -1000,6 +1000,28 @@ app.on('web-contents-created', function (event, contents) {
       return { action: 'deny' };
     });
   } catch (e) { /* ignore */ }
+  if (webai) {
+    // 网页版 AI 的 guest 是独立进程，渲染层看不到它的失败。这里把它的关键事件写进 server.log，
+    // 否则出问题只能看到一片空白（真实踩过：面板显示模板源码/白屏，日志里什么都没有）。
+    const tag = '[webai:' + part + '] ';
+    contents.on('did-fail-load', function (e, code, desc, url, isMain) {
+      if (isMain) log(tag + 'did-fail-load ' + code + ' ' + desc + ' ' + url);
+    });
+    contents.on('did-finish-load', function () {
+      let u = '', ti = '';
+      try { u = contents.getURL() } catch (e2) { /* ignore */ }
+      try { ti = contents.getTitle() } catch (e2) { /* ignore */ }
+      log(tag + 'finish title=' + JSON.stringify(ti) + ' url=' + u);
+      // 正文长度 + 开头一小段：白屏和「渲染了但没登录」是两回事，得能分开
+      contents.executeJavaScript("(function(){try{var b=document.body;return {len:b?b.innerText.length:0,txt:b?b.innerText.slice(0,120):\"(no body)\",els:document.querySelectorAll(\"*\").length}}catch(e){return {err:String(e&&e.message)}}})()", true)
+        .then(function (r) { log(tag + 'bodyLen=' + (r && r.len) + ' els=' + (r && r.els) + ' txt=' + JSON.stringify(r && r.txt)) })
+        .catch(function (e) { log(tag + 'probe failed ' + (e && e.message)) });
+    });
+    contents.on('console-message', function (ev) {
+      const lv = String(ev.level);
+      if (lv === 'error' || lv === '2') log(tag + 'console ' + String(ev.message).slice(0, 200));
+    });
+  }
   if (webai) return;   // 内置网页版 AI：导航完全照浏览器来，不接管
   contents.on('will-navigate', function (e, url) {
     if (isInternalUrl(url)) return;

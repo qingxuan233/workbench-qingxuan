@@ -11599,7 +11599,9 @@ var WEB_AI = [
     // 2026-11-01：tongyi.aliyun.com/qianwen/ 已并入 qianwen.com（品牌改叫「千问」）。
     // 老地址还能跳，但会落到根路径，且可能拿到未渲染的 Velocity 模板源码（页面显示成 #set(...)）。
     // key 仍叫 tongyi：分区 persist:webai-tongyi 里的登录态要能继续用。
-    url: 'https://www.qianwen.com/' },
+    // userAgent:'chrome'：Electron 默认 UA 里带 Electron/xx，阿里侧的 WAF 会回一个空壳页面
+    //   （实测 bodyLen=0、只有 3 个元素、标题是域名本身、控制台无报错）。换成真实 Chrome UA 再试。
+    url: 'https://www.qianwen.com/', userAgent: 'chrome' },
   { key: 'chatglm', name: '智谱清言', icon: 'assets/webai/chatglm.png', fallback: '智',
     url: 'https://chatglm.cn/main/alltoolsdetail' },
   { key: 'kimi', name: 'Kimi', icon: 'assets/webai/kimi.png', fallback: 'K',
