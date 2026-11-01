@@ -70,6 +70,10 @@ if (KEEP_SESSIONS) skip('--keep-sessions：会话保留')
 else purge(path.join(DSH, 'sessions'), '上一台机器的会话')
 purge(path.join(DSH, 'storages'), '工作区与 projcache（记录的是上机路径）')
 for (const f of ['server.log', 'server.err.log']) purge(path.join(SHELL, f), '运行时日志（含引擎 token）')
+  // 外壳/data 是纯运行时状态：崩溃记录、启动日志、本机兼容模式标记、网页版桥 beacon
+  for (const f of ['crash-log.jsonl', 'engine-boot-fail.json', 'webai-bridge-beacon.txt', 'no-sandbox.flag', '启动日志.txt']) {
+    purge(path.join(SHELL, 'data', f), '运行时状态（上一台机器留下的）')
+  }
 for (const d of ['.npm-cache', '.npm', '.electron-cache']) purge(path.join(APP, d), '安装缓存（不是运行时依赖）')
 if (HARD) {
   purge(path.join(DSH, '.credentials.yaml'), '--hard：登录凭据也清（之后需重新登录）')

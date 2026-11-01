@@ -783,9 +783,44 @@ function createWindow(opts) {
   win.once('ready-to-show', function () {
     win.show();
     if (fit.maximized) { try { win.maximize(); } catch (e) { /* ignore */ } }
+    if (isMain) log('[boot] window-visible ms=' + (Date.now() - APP_T0));   // ASCII 判据，供启动脚本 find
     if (isMain) log('[boot] 窗口可见耗时 ' + (Date.now() - APP_T0) + 'ms');
     else log('[win] 场景窗口已打开: ' + scene + (fit.clamped ? '（原屏幕已不在，已夹回主屏）' : ''));
   });
+  // ── 启动诊断（2026-11-01）────────────────────────────────
+  // 症状：双击后什么也没发生。常见原因是「窗口 create 了但 show 没触发」——
+  //   show:false + once('ready-to-show') ⇒ 渲染层没加载完就永远不显示，人看不到任何报错。
+  // 这里把三件事写进 server.log，让"没反应"有据可查：
+  win.webContents.on('did-fail-load', function (e, code, desc, url, isMainFrame) {
+    log('[diag] did-fail-load code=' + code + ' desc=' + desc + ' url=' + url + ' mainFrame=' + isMainFrame);
+  });
+  win.webContents.on('preload-error', function (e, p, err) {
+    log('[diag] preload-error ' + p + ' :: ' + ((err && err.message) || err));
+  });
+  win.webContents.on('render-process-gone', function (e, d) {
+    log('[diag] render-process-gone reason=' + (d && d.reason) + ' exit=' + (d && d.exitCode));
+  });
+  win.webContents.on('did-finish-load', function () {
+    log('[diag] did-finish-load ' + String(win.webContents.getURL()).slice(0, 120));
+  });
+  // Electron 43 起 console-message 的形参只剩一个事件对象；多声明一个参数就会触发弃用警告
+  win.webContents.on('console-message', function (ev) {
+    try {
+      var d = ev || {};
+      if (d.message === undefined) return;                 // 老签名（拿不到文案）就别记噪音
+      if (d.level === 'verbose' || d.level === 'info' || d.level === 0 || d.level === 1) return;  // 只留警告和错误
+      log('[diag] console L' + d.level + ' ' + String(d.message).slice(0, 400) + '  @' + (d.sourceId || '').slice(-60) + ':' + d.lineNumber);
+    } catch (err) { /* ignore */ }
+  });
+  // 兜底：10 秒还没显示，就强制显示（宁可露出半成品，也别让人对着空气）
+  setTimeout(function () {
+    try {
+      if (!win.isVisible() && !win.isDestroyed()) {
+        log('[diag] 10s 仍未 ready-to-show，强制显示窗口');
+        win.show();
+      }
+    } catch (e) { /* ignore */ }
+  }, 10000);
   win.webContents.setWindowOpenHandler(function (details) {
     if (/^https?:/i.test(details.url) || /^mailto:/i.test(details.url)) shell.openExternal(details.url);
     return { action: 'deny' };

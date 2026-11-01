@@ -52,3 +52,7 @@ desktop.ini
 *.bak
 _tmp/
 临时/
+# 外壳/data：运行时状态（崩溃记录/启动日志/本机兼容模式标记），只放行两个模板默认值
+12-源码照搬/外壳/data/*
+!12-源码照搬/外壳/data/boot-animation.json
+!12-源码照搬/外壳/data/scene-tab-order.json
