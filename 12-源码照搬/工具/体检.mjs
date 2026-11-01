@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { scan as scanEncoding } from './编码检查.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 根 = 仓库根（本工具在 <根>\12-源码照搬\工具）。可用 --root / DSH_WORKBENCH_ROOT 覆盖。
@@ -354,7 +355,17 @@ const ASSERTIONS = [
       catch (e) { f.push({ path: mf, msg: 'JSON 语法错误：' + (e && e.message) }) }
       return f;
     }
-  }
+  },
+    {
+      id: 'A14', title: '文本编码不会乱码（BOM / 换行 / 代码页）', layer: 'L3 抓手',
+      run(root) {
+        // 判据不是"我觉得该用什么编码"，而是按真实消费者：JSON.parse / cmd / WSH / PS 5.1。
+        // 三类真实事故：BOM 让 JSON.parse 静默失败、LF 让 cmd 切碎命令、代码页让中文变问号。
+        const app = appRoot(root);
+        if (!exists(app)) return [];
+        return scanEncoding(app).reds.map((r) => ({ path: r.path, msg: `${r.kind}：${r.msg}` }));
+      }
+    }
 ];
 
 /** §〇 可开工判据（A7 与 场景记忆.mjs check 共用同一口径） */
@@ -563,6 +574,8 @@ function makeFixture(root, o = {}) {
     // badManifest：带上 UTF-8 BOM（PowerShell 5 的 Set-Content -Encoding UTF8 就会这么写）
     fs.writeFileSync(mf, (o.badManifest ? '\uFEFF' : '') + JSON.stringify({ version: 1, dshPort: 3083, fresh: !!o.fresh }, null, 1));
   }
+  // badBat：批处理写成 LF + 中文（真实事故：cmd 会把中文行切成碎片当命令执行）
+  if (o.badBat) fs.writeFileSync(path.join(root, '外壳', 'start-bad.bat'), '@echo off\necho 你好\n', 'utf8');
   return root;
 }
 
@@ -581,7 +594,8 @@ function selfTest() {
     { id: 'A10', opts: { placeholder: true }, desc: '实例模式下面板未绑定会话' },
     { id: 'A11', opts: { badIndex: true }, desc: '身份索引与场景 json 漂移' },
     { id: 'A12', opts: { stalePending: true }, desc: '待确认项悬空 30 天没人结清' },
-    { id: 'A13', opts: { badManifest: true }, desc: '工作台.json 带 BOM ⇒ JSON.parse 失败' }
+    { id: 'A13', opts: { badManifest: true }, desc: '工作台.json 带 BOM ⇒ JSON.parse 失败' },
+    { id: 'A14', opts: { badBat: true }, desc: '批处理写成 LF + 中文（cmd 会切碎）' },
   ];
 
   let pass = 0, fail = 0;
