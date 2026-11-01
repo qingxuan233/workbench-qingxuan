@@ -24,7 +24,12 @@ import { fileURLToPath } from 'node:url';
 const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(TOOL_DIR, '..');
 
-const SKIP_DIR = new Set(['.git', 'node_modules', '.npm-cache', '.npm', '.electron-cache', 'dist', 'out', 'release']);
+// electron-profile 是 Chromium 的缓存/分区，里面全是不透明的二进制式文件：
+// 逐字节判定成"不是合法 UTF-8"属误报，而且它本身是跨机无效的运行时状态。
+const SKIP_DIR = new Set([
+  '.git', 'node_modules', '.npm-cache', '.npm', '.electron-cache', 'dist', 'out', 'release',
+  'electron-profile', 'Crashpad', 'Cache', 'Code Cache', 'GPUCache', 'DawnWebGPUCache', 'Service Worker'
+]);
 const SKIP_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.ico', '.pdf', '.zip', '.exe', '.dll', '.node', '.woff', '.woff2', '.ttf', '.mp4', '.webm', '.b64', '.asar', '.log']);
 
 const EXT_KIND = {

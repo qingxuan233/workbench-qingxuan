@@ -48,8 +48,9 @@ set "RC=%ERRORLEVEL%"
 
 :done
 >>"%ELOG%" echo [exit] rc=%RC% %DATE% %TIME%
-rem 判据用 ASCII 串：chcp 65001 下 find 对中文串不可靠
-find /C "window-visible" "%~dp0外壳\server.log" >nul 2>&1
+rem 判据：server.log 里出现过 window-visible 才算真的起来了。
+rem 不用 find —— chcp 65001 下 find 对中文路径和中文串都不可靠；交给 PowerShell 判定。
+powershell -NoProfile -Command "if (Test-Path -LiteralPath '%~dp0外壳\server.log') { if (Select-String -LiteralPath '%~dp0外壳\server.log' -Pattern 'window-visible' -Quiet) { exit 0 } }; exit 1"
 if errorlevel 1 goto failed
 exit /b %RC%
 
@@ -63,7 +64,7 @@ echo  ---- 启动日志 ----
 type "%ELOG%" 2>nul
 echo.
 echo  ---- 外壳服务日志（最后 20 行）----
-if exist "%~dp0外壳\server.log" powershell -NoProfile -Command "Get-Content -LiteralPath '%~dp0外壳\server.log' -Tail 20"
+if exist "%~dp0外壳\server.log" powershell -NoProfile -Command "Get-Content -LiteralPath '%~dp0外壳\server.log' -Tail 20 -Encoding UTF8"
 if not exist "%~dp0外壳\server.log" echo （没有 server.log：主进程未执行到日志代码）
 echo.
 echo  把上面的内容发给 AI 就能定位。按任意键关闭。

@@ -296,6 +296,10 @@ function serverSpawnEnv() {
 
 // 统一挂上 stdout/stderr/exit 处理（解析 token + 写日志）
 function wireServerProc(proc) {
+  // 没有这一行，spawn 失败（cwd 不存在 / exe 找不到）会走 uncaughtException ⇒ 弹致命框
+  proc.on('error', function (e) {
+    log('[boot] 子进程启动失败: ' + ((e && e.code) || '') + ' ' + ((e && e.message) || e));
+  });
   proc.stdout.on('data', function (d) {
     const s = String(d);
     captureToken(s);
@@ -355,7 +359,10 @@ function spawnServerDshCmd() {
   // ⚠ cwd 必须是一个**存在**的目录：之前用 HARNESS_DIR（引擎\，模板里并不存在），
   //   spawn 会异步抛 ENOENT；wireServerProc 没挂 error 监听 ⇒ 走 uncaughtException 弹致命框。
   //   工作台根一定存在，且 dsh CLI 不依赖 cwd，故用它。
-  const proc = spawn('cmd.exe', ['/c', `"${dshCmd}"`, 'web', '--no-open', '--port', DSH_PORT], {
+  // ⚠ 不要在参数里手写引号：Node 在 Windows 上会把带空格的参数再转义一层，
+  //   cmd 收到的是 \"D:\...dsh.cmd\" 这种带反斜杠的串 ⇒ 报「不是内部或外部命令」。
+  //   交给 Node 自动加引号即可（真实事故，2026-11-01）。
+  const proc = spawn('cmd.exe', ['/c', dshCmd, 'web', '--no-open', '--port', DSH_PORT], {
     cwd: WORKBENCH_ROOT,
     env: env,
     windowsHide: true,
@@ -366,7 +373,15 @@ function spawnServerDshCmd() {
 }
 
 // 方式一（首选）：直跑构建产物（无 cmd / 无 pnpm / 无 tsx）
+// 引擎子进程的 cwd 必须是**存在**的目录。
+// 原来固定用 HARNESS_DIR（模板里没有 引擎\ 这一层）⇒ spawn 异步抛 ENOENT，界面白屏。
+function engineCwd() {
+  try { if (HARNESS_DIR && fs.statSync(HARNESS_DIR).isDirectory()) return HARNESS_DIR } catch (e) { /* ignore */ }
+  return WORKBENCH_ROOT;
+}
+
 function spawnServerDirect() {
+  if (!fs.existsSync(CLI_BUILT)) { log('[boot] 内置入口不存在，跳过：' + CLI_BUILT); return null }
   const env = serverSpawnEnv();
   const nodeExe = resolveNodeExe();
   let cmd, args;
@@ -381,7 +396,7 @@ function spawnServerDirect() {
   }
   log('[boot] direct: ' + cmd + ' ' + args.join(' '));
   return wireServerProc(spawn(cmd, args, {
-    cwd: HARNESS_DIR,
+    cwd: engineCwd(),
     env: env,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe']
@@ -391,7 +406,7 @@ function spawnServerDirect() {
 // 方式二（兜底）：原来的 pnpm 脚本（走 tsx 实时转译，慢但兼容性最好）
 function spawnServerPnpm() {
   return wireServerProc(spawn('cmd.exe', ['/c', PNPM_CMD + ' dsh web --no-open --port ' + DSH_PORT], {
-    cwd: HARNESS_DIR,
+    cwd: engineCwd(),
     env: serverSpawnEnv(),
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe']
@@ -456,13 +471,18 @@ async function startServer() {
   if (fs.existsSync(CLI_BUILT)) {
     plans.push({ label: '内置入口', detail: 'apps/cli/lib/bin.js（跳过 pnpm / tsx）', spawn: spawnServerDirect, budget: 45 });
   }
-  plans.push({ label: 'pnpm 脚本', detail: 'pnpm dsh web（tsx 转译，兜底）', spawn: spawnServerPnpm, budget: 90 });
+  if (fs.existsSync(PNPM_CMD)) {
+    plans.push({ label: 'pnpm 脚本', detail: 'pnpm dsh web（tsx 转译，兜底）', spawn: spawnServerPnpm, budget: 90 });
+  } else {
+    log('[boot] pnpm 不存在，跳过该兜底：' + PNPM_CMD);
+  }
 
   for (let i = 0; i < plans.length; i++) {
     const plan = plans[i];
     sendBoot({ stage: 'spawn', pct: 12, text: '正在启动 Harness 引擎…', detail: plan.detail });
     serverProc = plan.spawn();
     const proc = serverProc;
+    if (!proc) { log(plan.label + ' 无法启动，跳到下一档'); continue }
     const t0 = Date.now();
     while ((Date.now() - t0) < plan.budget * 1000) {
       await sleep(300);   // 300ms 轮询：引擎就绪后最多 0.3s 就能进入下一步（原来 1s）
