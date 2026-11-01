@@ -2,7 +2,7 @@
 chcp 65001 >nul
 rem 有的环境会把 Electron 当纯 Node 跑（ELECTRON_RUN_AS_NODE=1），清掉它
 set "ELECTRON_RUN_AS_NODE="
-title 我的工作台
+title 清玄的工作台
 cd /d "%~dp0"
 set "DSH_PORT=3083"
 set "DSH_CUSTOMER_HOME=%~dp0引擎数据\.dsh"

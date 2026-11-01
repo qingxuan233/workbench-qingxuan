@@ -111,7 +111,7 @@ for (const sc of scens) {
 
 const nextManifest = {
   version: 1,
-  name: base.name || '我的工作台',
+  name: base.name || '清玄的工作台',
   root: base.root || null,
   dshPort: base.dshPort || 3083,
   sitePort: base.sitePort || 31238,

@@ -757,7 +757,7 @@ function createWindow(opts) {
     height: bounds.height,
     minWidth: 1000,
     minHeight: 660,
-    title: isMain ? 'DSH 引擎' : (sceneNameOf(scene) + ' · 我的工作台'),
+    title: isMain ? 'DSH 引擎' : (sceneNameOf(scene) + ' · 清玄的工作台'),
     autoHideMenuBar: true,
     frame: false,
     backgroundColor: '#0b0d12',

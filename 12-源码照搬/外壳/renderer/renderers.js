@@ -11560,7 +11560,7 @@ function decorateBrand() {
 }
 
 // ===== 顶栏「网页版 AI」：五个官方小图标 + 点开的浮动窗口（2026-09-20 第四波 / 第五波补 DeepSeek）=====
-// 用户原话：「把这四个网页版内置到 gui 窗口最顶上，我的工作台字段后面，用一个个官方小图标
+// 用户原话：「把这四个网页版内置到 gui 窗口最顶上，清玄的工作台字段后面，用一个个官方小图标
 // 显示，点击就可以出来一个窗口，保证快速响应」。
 //
 // ★为什么整段都在这里、一行 index.html 都不改★
@@ -11978,7 +11978,7 @@ function webAiMarkOn() {
   } catch (e) { /* ignore */ }
 }
 
-// 顶栏那五个图标（插在「我的工作台」字段后面；✕ 幂等：⟳ 重跑不会插第二排）
+// 顶栏那五个图标（插在「清玄的工作台」字段后面；✕ 幂等：⟳ 重跑不会插第二排）
 function decorateWebAi() {
   try {
     const drag = document.querySelector('#titlebar .titlebar-drag');
@@ -15274,7 +15274,7 @@ renderers['site-urls'] = (body, meta, head) => {
     },
     // ── 两个公开仓库（各自的 GitHub 卡片）──
     {
-      icon: '/img/panel/workbench.png', name: '我的工作台',
+      icon: '/img/panel/workbench.png', name: '清玄的工作台',
       links: [{ label: 'GitHub', url: 'https://github.com/<你的GitHub账号>/<仓库名>' }]
     },
     {

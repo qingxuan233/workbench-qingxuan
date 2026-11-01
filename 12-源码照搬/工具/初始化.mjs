@@ -153,7 +153,7 @@ for (const f of (exists(JSONDIR) ? fs.readdirSync(JSONDIR) : [])) {
 
 const manifest = {
   version: 1,
-  name: example.name || '我的工作台',
+  name: example.name || '清玄的工作台',
   root: null,                       // null = 跟随 工作台.json 所在目录（换机不用改）
   dshPort: example.dshPort || 3083,
   sitePort: example.sitePort || 31238,
