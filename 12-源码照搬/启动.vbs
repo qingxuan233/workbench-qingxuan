@@ -1,20 +1,14 @@
-' 启动.vbs —— 启动「我的工作台」（公开模板）
+' start.vbs -- launch the workbench without a console window.
+' The real launcher logic lives in ??.bat; this file only hides the window.
 Option Explicit
-Dim fso, sh, root, shellDir, engineData, electron, env
+Dim fso, sh, root, bat
 Set fso = CreateObject("Scripting.FileSystemObject")
 Set sh = CreateObject("WScript.Shell")
 root = fso.GetParentFolderName(WScript.ScriptFullName)
-shellDir = root & "\外壳"
-engineData = root & "\引擎数据\.dsh"
-If Not fso.FolderExists(engineData) Then fso.CreateFolder engineData
-Set env = sh.Environment("PROCESS")
-env("DSH_PORT") = "3083"
-env("DSH_CUSTOMER_HOME") = engineData
-env("DSH_SHELL_DIR") = shellDir
-electron = shellDir & "\node_modules\electron\dist\electron.exe"
-If fso.FileExists(electron) Then
-  sh.CurrentDirectory = shellDir
-  sh.Run """" & electron & """ .", 1, False
-Else
-  MsgBox "还没装依赖。在本目录执行：node 工具\初始化.mjs --install" & vbCrLf & shellDir, 48, "我的工作台"
+bat = root & "\" & ChrW(21551) & ChrW(21160) & ".bat"
+If Not fso.FileExists(bat) Then
+  MsgBox "start.bat is missing next to this file.", 16, "Workbench"
+  WScript.Quit 1
 End If
+sh.CurrentDirectory = root
+sh.Run """" & bat & """", 0, False
