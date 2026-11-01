@@ -436,11 +436,13 @@ export function checkKaiGong(file, sceneName) {
 function runAll(root) {
   // fresh = 「刚初始化、还没绑会话」的合法中间态：未绑定算待办，不算失败。
   // 一旦 实例化.mjs --apply 绑完并清掉 fresh，A10 立刻恢复硬判。
-  let fresh = false;
+  // 没有 工作台.json（刚 clone 下来、还没跑初始化）同样算 fresh ——
+  //   否则新克隆的仓库第一条体检就报红，把"还没开始"说成"坏了"（真实踩到）。
+  let fresh = true;
   try {
     const mf = path.join(appRoot(root), '工作台.json');
     if (exists(mf)) fresh = JSON.parse(readText(mf).replace(/^\uFEFF/, '')).fresh === true;
-  } catch { /* 清单坏了由 A13 报 */ }
+  } catch { fresh = true; /* 清单坏了由 A13 报，这里按未初始化处理 */ }
   const ctx = { scenes: scenes(root), mode: modeOf(root), fresh };
   const results = ASSERTIONS.map((a) => {
     let findings = [];
@@ -629,6 +631,12 @@ function selfTest() {
   const a10b = noFresh.results.find((r) => r.id === 'A10');
   if (a10b && !a10b.ok) { pass++; log.push('  ✓ 非 fresh 态：未绑会话仍然报红（闸没松）') }
   else { fail++; log.push('  ✗ 非 fresh 态未报红 ⇒ A10 闸被放水') }
+  // ③ 刚 clone 下来（仓库里没有 工作台.json，引擎也没启动过）：
+  //    A1 的「会话库不存在」必须是待办。否则新克隆的仓库第一条体检就是红的。
+  const cloneRes = runAll(makeFixture(path.join(tmp, 'clone'), { template: true }));
+  const a1c = cloneRes.results.find((r) => r.id === 'A1');
+  if (a1c && a1c.ok) { pass++; log.push('  ✓ 无清单（刚 clone）⇒ 会话库缺失降级为待办') }
+  else { fail++; log.push('  ✗ 无清单（刚 clone）A1 仍报红 ⇒ 新克隆第一条体检就是红的') }
 
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(log.join('\n'));
