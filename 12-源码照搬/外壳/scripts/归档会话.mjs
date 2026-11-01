@@ -16,8 +16,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DSH_HOME = process.env.DSH_HOME || '<盘根>:\\software\\DSH全场景工作助手\\引擎\\.dsh';
-const BASE = process.env.DSH_GUI_BASE || 'http://127.0.0.1:3080';
+const DSH_HOME = process.env.DSH_HOME || path.join(path.dirname(root), '引擎数据', '.dsh');
+const BASE = process.env.DSH_GUI_BASE || 'http://127.0.0.1:' + (process.env.DSH_PORT || '3083');
 const WS = path.join(DSH_HOME, 'storages', 'workspace.json');
 const argv = process.argv.slice(2);
 const flags = new Set(argv.filter((a) => a.startsWith('--')));

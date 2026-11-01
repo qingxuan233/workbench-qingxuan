@@ -23,6 +23,10 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 
+// §〇「可开工」判据只有一份实现（体检 A7 用的就是它），这里 import 复用，
+// 避免「体检绿了、check 还说 §〇 不行」这种两套标准的老问题。
+import { checkKaiGong } from './体检.mjs'
+
 // 公开模板：根 = --root 参数 > 脚本所在目录的上一级；记忆在 <根>\引擎数据\.dsh\场景记忆
 import { fileURLToPath as __f2u } from 'node:url'
 const __HERE = path.dirname(__f2u(import.meta.url))
@@ -468,7 +472,8 @@ function cmdCheck(name) {
   const problems = []
   const warns = []
   const ok = []
-  const SESS = path.join(MEMROOT, '..', '.dsh', 'sessions')
+  // 会话库就在记忆根旁边（引擎数据\.dsh\sessions）。⚠ 曾多拼一层 .dsh ⇒ 恒假警告（A1 会拦）。
+  const SESS = path.join(MEMROOT, '..', 'sessions')
   for (const f of ['场景私有记忆.md', '身份卡.md', '场景画像.md', '_文件索引.md']) {
     if (fs.existsSync(path.join(dir, f))) ok.push(f); else problems.push('缺文件 ' + f)
   }
@@ -515,6 +520,9 @@ function cmdCheck(name) {
   for (const s of ['### 1) 上次交接', '### 2) 当前项目', '### 3) 私有记忆变更', '### 4) 下一步 / 卡点', '### 5) 全貌']) {
     if (!main.includes(s)) problems.push('§〇 缺小节 ' + s)
   }
+  // §〇 可开工判据（与 体检 A7 同一实现）：体量之外的第二道闸 ——
+  // 「下一步」必须能读出动作用，「卡点」必须写清等谁，不能是周报流水。
+  for (const f of checkKaiGong(mainPath, name)) problems.push(f.msg)
   // 内容告警：项目表不能空、下一步/卡点不能空（卡08 决定：只告警不阻断）
   {
     const seg = (head) => {

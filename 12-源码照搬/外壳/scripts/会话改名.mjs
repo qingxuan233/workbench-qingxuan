@@ -8,14 +8,14 @@ if (!sid || !title) {
   console.log('用法：node 会话改名.mjs <sessionId> "新标题"');
   process.exit(2);
 }
-const BASE = process.env.DSH_GUI_BASE || 'http://127.0.0.1:3080';
+const BASE = process.env.DSH_GUI_BASE || 'http://127.0.0.1:' + (process.env.DSH_PORT || '3083');
 const DSH_HOME = process.env.DSH_HOME || '<盘根>:/DSH/引擎/.dsh';
 // token 在「外壳」的 server.log 里（不是 引擎 目录）；两个位置都试
 const LOG = ['<盘根>:/DSH/外壳/server.log', path.join(path.dirname(DSH_HOME), 'server.log')]
   .find((p) => fs.existsSync(p)) || '';
 
 const toks = fs.existsSync(LOG)
-  ? [...fs.readFileSync(LOG, 'utf8').matchAll(/dsh web:\s*http:\/\/127\.0\.0\.1:3080\/\?token=([A-Za-z0-9_\-]{16,})/g)].map((m) => m[1]).reverse()
+  ? [...fs.readFileSync(LOG, 'utf8').matchAll(/dsh web:\s*http:\/\/127\.0\.0\.1:(?:3083|3080)\/\?token=([A-Za-z0-9_\-]{16,})/g)].map((m) => m[1]).reverse()
   : [];
 let cookie = '';
 for (const t of toks.slice(0, 3)) {

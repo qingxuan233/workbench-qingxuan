@@ -23,6 +23,9 @@ _临时/
 引擎数据/.dsh/.credentials.yaml
 引擎数据/.dsh/.anonymous-user-id
 
+# 本机实例清单（含真实会话 id / 本机路径，绝不出包）
+工作台.json
+
 # 工作台运行时
 外壳/data/electron-profile/
 外壳/data/crash-state.json

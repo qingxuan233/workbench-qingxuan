@@ -50,6 +50,15 @@ rotateLog();
 const SCENARIOS_DIR = path.join(__dirname, 'scenarios');
 
 const WORKBENCH_ROOT = path.dirname(__dirname);
+
+// ---- 实例清单（工作台.json）：本机真值的唯一落点 ----
+//   模板要能公开（里面只能是占位/可推导），实例要能跑（本机真值）。
+//   真值只存 工作台.json（不入库，见 .gitignore）；模板见 工作台.example.json。
+//   读不到就当没有（老机器 / 纯模板），一切回落到下面的推导逻辑。
+const MANIFEST = (function () {
+  try { return JSON.parse(fs.readFileSync(path.join(WORKBENCH_ROOT, '工作台.json'), 'utf8')) || {}; }
+  catch (e) { return {}; }
+})();
 // ---- 个人站场景：官网静态服务（WORKBENCH_ROOT → http://127.0.0.1:SITE_PORT）----
 const SITE_DIR = WORKBENCH_ROOT;
 // 2026-10-22：第二个预览源——DSH 社区站（本地目录，静态服务用 /__community/ 前缀直出，
@@ -322,9 +331,12 @@ function resolveNodeExe() {
 }
 
 // 方式〇（推荐）：本机安装的 DSH 官方 CLI（dsh.cmd）
+// ⚠ 2026-11-01：不再把本机绝对路径写进代码（模板要能公开）。
+//   来源优先级：工作台.json 的 engine.cliPath → 环境变量 DSH_CMD → 无。
+//   都没有时这一档直接跳过，回落「内置入口 / pnpm」。
 function findDshCmd() {
-  const defaultPath = 'D:\\Programs\\DeepSeek Harness\\resources\\runtime\\cli\\bin\\dsh.cmd';
-  if (fs.existsSync(defaultPath)) return defaultPath;
+  const fromManifest = MANIFEST && MANIFEST.engine && MANIFEST.engine.cliPath;
+  if (fromManifest && fs.existsSync(fromManifest)) return fromManifest;
   if (process.env.DSH_CMD && fs.existsSync(process.env.DSH_CMD)) return process.env.DSH_CMD;
   return null;
 }
@@ -333,12 +345,17 @@ function spawnServerDshCmd() {
   const dshCmd = findDshCmd();
   const env = serverSpawnEnv();
   log('[boot] dsh.cmd: ' + dshCmd + ' web --no-open --port ' + DSH_PORT);
-  return wireServerProc(spawn('cmd.exe', ['/c', `"${dshCmd}"`, 'web', '--no-open', '--port', DSH_PORT], {
-    cwd: HARNESS_DIR,
+  // ⚠ cwd 必须是一个**存在**的目录：之前用 HARNESS_DIR（引擎\，模板里并不存在），
+  //   spawn 会异步抛 ENOENT；wireServerProc 没挂 error 监听 ⇒ 走 uncaughtException 弹致命框。
+  //   工作台根一定存在，且 dsh CLI 不依赖 cwd，故用它。
+  const proc = spawn('cmd.exe', ['/c', `"${dshCmd}"`, 'web', '--no-open', '--port', DSH_PORT], {
+    cwd: WORKBENCH_ROOT,
     env: env,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe']
-  }));
+  });
+  proc.on('error', function (e) { log('[boot] dsh.cmd spawn 失败: ' + ((e && e.message) || e)); });
+  return wireServerProc(proc);
 }
 
 // 方式一（首选）：直跑构建产物（无 cmd / 无 pnpm / 无 tsx）

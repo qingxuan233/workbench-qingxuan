@@ -21,6 +21,8 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// 分层判定单独成模块（可 --self-test 反例验收）：上游没更新时也测得到
+import { classify } from './12-源码照搬/工具/上游分层.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const UPSTREAM = 'upstream';
@@ -87,6 +89,18 @@ const overlap = upFiles.filter((x) => localFiles.has(x));
 if (dirty) {
   say('\n── 本地有未提交改动；与上游改动重叠的文件 ──');
   say(overlap.length ? overlap.map((x) => '  ⚠ ' + x).join('\n') : '  （无重叠 ⇒ 可以安全快进）');
+}
+
+// ── 3.5 按方法论分层：上游改的是「规则」「实现」还是「本机真值」 ──
+//   一律绿灯 = 把判断整个推给人。这里先把「改在哪一层」标出来，再给一句建议。
+//   判定逻辑在 12-源码照搬\工具\上游分层.mjs（可 --self-test）。
+if (upFiles.length) {
+  say('\n── 按方法论分层（这决定要不要逐条读、谁来拍板）──');
+  for (const g of classify(upFiles)) {
+    say(`  ${g.layer} · ${g.files.length} 个文件  ${g.advice}`);
+    for (const x of g.files.slice(0, 10)) say('    · ' + x);
+    if (g.files.length > 10) say(`    … 另有 ${g.files.length - 10} 个`);
+  }
 }
 
 // ── 4. 确认闸门：没确认就到此为止 ──────────────────────────

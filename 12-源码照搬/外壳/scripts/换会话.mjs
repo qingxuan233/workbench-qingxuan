@@ -2,9 +2,9 @@
 //
 // 用途：把某个场景面板的常驻会话**归档 + 新建一条同名的新会话顶上来**（= sessions.mjs --rotate 的傻瓜包装）。
 //
-//   node "<工作台>\外壳\scripts\换会话.mjs"            列出 8 个面板 + 是否到线 + 交接是否够新鲜
-//   node "<工作台>\外壳\scripts\换会话.mjs" site-ai     空跑：打印计划，不动任何东西
-//   node "<工作台>\外壳\scripts\换会话.mjs" site-ai --go   真换（用户只要记到这一条）
+//   node "<根>\外壳\scripts\换会话.mjs"            列出 8 个面板 + 是否到线 + 交接是否够新鲜
+//   node "<根>\外壳\scripts\换会话.mjs" site-ai     空跑：打印计划，不动任何东西
+//   node "<根>\外壳\scripts\换会话.mjs" site-ai --go   真换（用户只要记到这一条）
 //   可加 --force：交接文件超过 2 小时也照换（会有警告，仍要求文件存在）
 //
 // 零散会话（没有场景/面板的那些 · 2026-09-23 加）—— 走同一入口，加 --stray：
@@ -12,7 +12,7 @@
 //   node "…\scripts\换会话.mjs" --stray 华为电脑管家升级        空跑：打印计划
 //   node "…\scripts\换会话.mjs" --stray 华为电脑管家升级 --go    真换
 //   可加 --adopt <会话id>：认领一条已经建好的会话顶替（不新建）；--handoff <文件> 指定交接文档。
-//   零散会话的交接文档 = `<工作台>\引擎\场景记忆\其他会话临时项目信息交接文档\<会话名>-<YYYYMMDD-HHMM>.md`，
+//   零散会话的交接文档 = `<根>\引擎数据\.dsh\场景记忆\其他会话临时项目信息交接文档\<会话名>-<YYYYMMDD-HHMM>.md`，
 //   不给 --handoff 时按标题自动匹配；真换做全四步：建/认领新会话 → 旧会话改名+**真归档** → 给新会话写开场消息
 //   （空会话不进侧边栏）→ 把交接文档里的旧会话 id 换成新的。真逻辑同样转交 sessions.mjs（--rotate … --stray）。
 //
@@ -34,21 +34,35 @@ const DSH_HOME = process.env.DSH_HOME || path.join(ROOT, '引擎数据', '.dsh')
 const SESSIONS = path.join(here, 'sessions.mjs');
 
 // 面板 → 该场景的长期记忆（= 交接文件）。只有这些面板能自动交接。
-const HANDOFF = {
-  'dz-ai': '<工作台>\\引擎\\场景记忆\\设计杂活\\场景私有记忆.md',
-  'pc-ai': '<工作台>\\引擎\\场景记忆\\本地电脑\\场景私有记忆.md',
-  'dg-dsh': '<工作台>\\引擎\\DSH改造私有记忆.md',      // 引擎侧私有记忆（职责见 DSH改造的项目信息\\）
-  'dg-gui': path.join(GUI, 'GUI改造私有记忆.md'),                     // 界面侧私有记忆
-  // ★2026-10-13★ 场景长期记忆已从 `<工作台>\引擎\场景记忆` 搬到 `<工作台>\引擎\场景记忆`
-  //   （旧根已删）。这里原来是**转义写法**（`\\`），搬家的文本扫描匹配不到 ⇒ 漏改，换会话会把交接写到已删的旧路径去。
-  //   路径要与 `scenarios\_场景身份索引.md` §五 表一致；`sr-ai` 例外：自我复盘的记忆不在根下，在 `<盘根>:\学习和自己\`。
-  'bl-ai': '<工作台>\\引擎\\场景记忆\\blender\\场景私有记忆.md',
-  'oa-ai': '<资料库>',      // ⚠ 本场景自成一体的项目信息
-  'site-ai': '<工作台>\\引擎\\场景记忆\\<个人站场景>\\场景私有记忆.md',
-  'sr-ai': '<工作台>\\引擎\\场景记忆\\自我复盘\\场景私有记忆.md',  // ⚠ 不在场景记忆根下（索引 §五 表原文）
-  'mk-chat': '<工作台>\\引擎\\场景记忆\\<机主>的分析助手\\场景私有记忆.md',
-  'vw-ai': '<工作台>\\引擎\\场景记忆\\视频工作流\\场景私有记忆.md',
+//
+// ⚠ 2026-11-01 重构（原实现写死了作者私有面板 id 与「根\引擎\…」占位路径，
+//   公开版四个场景里「本地电脑/自我复盘」映射到永不存在的地方、「命令/B站」根本没映射
+//   ⇒ 自动交接形同未接线）。现在改为**从场景配置派生**，规则只有一条：
+//     面板所属场景的 name（没有就用 id）→ <场景记忆根>\<场景名>\场景私有记忆.md
+//   这样新增场景不需要再改这张表（单一真源：场景 json）。
+const SCENE_MEMORY_ROOT = path.join(ROOT, '引擎数据', '.dsh', '场景记忆');
+
+// 少数例外（历史面板 id / 记忆不在场景记忆根下）显式覆盖；路径同样按本机根推导，不写占位。
+const HANDOFF_OVERRIDE = {
+  'dg-gui': path.join(GUI, 'GUI改造私有记忆.md'),
 };
+
+function buildHandoff() {
+  const map = {};
+  const dir = path.join(GUI, 'scenarios');
+  try {
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json'))) {
+      let j; try { j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) } catch { continue }
+      for (const p of (j.panels || [])) {
+        if (!p || p.type !== 'harness' || !p.id) continue;
+        map[p.id] = path.join(SCENE_MEMORY_ROOT, String(j.name || j.id), '场景私有记忆.md');
+      }
+    }
+  } catch (e) { /* 读不到场景目录就只剩 override */ }
+  return Object.assign(map, HANDOFF_OVERRIDE);
+}
+
+const HANDOFF = buildHandoff();
 const FRESH_MS = 2 * 60 * 60 * 1000;      // 与 sessions.mjs 的硬闸门一致：2 小时内改过才算"写好了"
 
 const argv = process.argv.slice(2);
@@ -180,14 +194,16 @@ if (st && !st.stale && st.pct < 50) say('\n（提示：这条才 ' + st.pct + '%
     const sceneDir = m[1];
     let ok = true, out = '';
     try {
-      out = execFileSync(process.execPath, ['<工作台>\\工具\\场景记忆.mjs', 'check', '--场景', sceneDir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 << 20 });
+      // ⚠ 2026-11-01 修：这里原本把 '〈根〉\工具\场景记忆.mjs' 当路径直传 ⇒ 每次必然失败，
+      //   结构闸形同不存在。现按本机根推导（单一真源：ROOT）。
+      out = execFileSync(process.execPath, [path.join(ROOT, '工具', '场景记忆.mjs'), 'check', '--场景', sceneDir], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 4 << 20 });
     } catch (e) {
       ok = false;
       out = String(e.stdout || '') + String(e.stderr || '');
     }
     if (!ok) {
       const detail = out.split(/\r?\n/).filter((x) => x.includes('✗')).slice(0, 6).join('；');
-      problems.push('场景记忆结构闸没过（' + sceneDir + '）：' + (detail || '检查失败') + ' ⇒ 先跑 `node <工作台>\\工具\\场景记忆.mjs 交接 --场景 ' + sceneDir + '`');
+      problems.push('场景记忆结构闸没过（' + sceneDir + '）：' + (detail || '检查失败') + ' ⇒ 先跑 `node 工具\\场景记忆.mjs 交接 --场景 ' + sceneDir + '`');
     }
   }
 }
