@@ -291,6 +291,19 @@ function serverSpawnEnv() {
   // DSH_HOME 显式指向独立数据目录（数据盘隔离：会话/存储/缓存绝不落 C 盘）。
   // 不设置的话 dsh 默认用 用户目录\.dsh，导致历史会话在界面里"消失"。
   env.DSH_HOME = process.env.DSH_CUSTOMER_HOME || path.join(path.dirname(__dirname), '引擎数据', '.dsh');
+  // 2026-11-01：引擎默认是受限模式，导致命令类工具全废。
+  //   dsh 的 web profile 里写死了 `mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'`，
+  //   而 Windows 的受限沙箱里，凡是要起子进程的工具（psh / glob / grep …）一律 EPERM：
+  //     mkdtemp 'C:\Users\...\Temp\dsh-subprocess-XXXXXX'、ripgrep launch failed
+  //   工作台等于不能干活。这是单机个人工具，默认给完全权限；想收回去就自己设 DSH_PERMISSION_MODE。
+  if (!env.DSH_PERMISSION_MODE) env.DSH_PERMISSION_MODE = 'danger-full-access';
+  // 2026-11-01：引擎在用户 %TEMP% 里建临时目录会被拦（EPERM）。实测同一个 exe 从普通命令行跑却正常，
+  //   说明是安全软件那一类按进程拦截，不是权限本身的问题（用户对 %TEMP% 是 FullControl）。
+  //   所以不去动系统环境变量（影响全局、还要重启），只把引擎这个进程的 TEMP/TMP 指到工作台自己的目录。
+  const tmpDir = path.join(__dirname, 'data', 'temp');
+  try { fs.mkdirSync(tmpDir, { recursive: true }) } catch (e) { log('[boot] 建临时目录失败: ' + (e && e.message)) }
+  env.TEMP = tmpDir;
+  env.TMP = tmpDir;
   return env;
 }
 

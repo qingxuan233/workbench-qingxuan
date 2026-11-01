@@ -73,6 +73,7 @@ for (const f of ['server.log', 'server.err.log']) purge(path.join(SHELL, f), '�
   // 外壳/data 是纯运行时状态：崩溃记录、启动日志、本机兼容模式标记、网页版桥 beacon
   // electron-profile：Chromium 的缓存/分区，跨机复制会报 Invalid file version or magic
   purge(path.join(SHELL, 'data', 'electron-profile'), 'Chromium 缓存（跨机无效，且可能已损坏）')
+purge(path.join(SHELL, 'data', 'temp'), '引擎子进程的临时目录（EPERM 绕行用，装完没必要带过去）')
   for (const f of ['crash-log.jsonl', 'engine-boot-fail.json', 'webai-bridge-beacon.txt', 'no-sandbox.flag', 'startup.log']) {
     purge(path.join(SHELL, 'data', f), '运行时状态（上一台机器留下的）')
   }
