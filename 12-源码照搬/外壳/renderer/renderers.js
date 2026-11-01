@@ -2623,14 +2623,14 @@ var FLOW_TYPES = [
     tip: '免费网页版 DeepSeek（顶栏同款窗口，同一个登录态、不花 API token）：双击打开；第一次是现加载，慢几秒正常'
   },
   {
-    id: 'webai-tongyi', name: '通义千问', icon: '通', img: 'assets/webai/tongyi.png', color: '#7c5cff', cat: 'tool',
+    id: 'webai-tongyi', name: '千问', icon: '通', img: 'assets/webai/tongyi.png', color: '#7c5cff', cat: 'tool',
     kind: 'webai', sides: 'tb', webaiKey: 'tongyi',
-    newName: '通义千问',
+    newName: '千问',
     texts: [{ key: 'duty', label: '默认干什么', rows: 2, value: '按站点强项：写代码 / 长文', hint: '这一步拿它干什么（会写进导出的 Markdown）' }],
     subKeys: ['duty'],
     note: '双击打开顶栏那个同款免费网页版窗口（同一个登录态、不花 API token）：长文/代码都能顶。'
       + '这个节点连到内容节点上，就是在告诉 AI 会话：这一步用通义做。',
-    tip: '免费网页版通义千问（顶栏同款窗口，同一个登录态、不花 API token）：双击打开'
+    tip: '免费网页版千问（顶栏同款窗口，同一个登录态、不花 API token）：双击打开'
   },
   {
     id: 'webai-chatglm', name: '智谱清言', icon: '智', img: 'assets/webai/chatglm.png', color: '#2f6fed', cat: 'tool',
@@ -11595,8 +11595,11 @@ var WEB_AI = [
     tip: '与自我复盘场景的 DeepSeek 面板共用登录态（同一个 webview 分区）' },
   { key: 'doubao', name: '豆包', icon: 'assets/webai/doubao.png', fallback: '豆',
     url: 'https://www.doubao.com/chat/' },
-  { key: 'tongyi', name: '通义千问', icon: 'assets/webai/tongyi.png', fallback: '通',
-    url: 'https://tongyi.aliyun.com/qianwen/' },
+  { key: 'tongyi', name: '千问', icon: 'assets/webai/tongyi.png', fallback: '通',
+    // 2026-11-01：tongyi.aliyun.com/qianwen/ 已并入 qianwen.com（品牌改叫「千问」）。
+    // 老地址还能跳，但会落到根路径，且可能拿到未渲染的 Velocity 模板源码（页面显示成 #set(...)）。
+    // key 仍叫 tongyi：分区 persist:webai-tongyi 里的登录态要能继续用。
+    url: 'https://www.qianwen.com/' },
   { key: 'chatglm', name: '智谱清言', icon: 'assets/webai/chatglm.png', fallback: '智',
     url: 'https://chatglm.cn/main/alltoolsdetail' },
   { key: 'kimi', name: 'Kimi', icon: 'assets/webai/kimi.png', fallback: 'K',
@@ -11752,6 +11755,13 @@ function webAiEnsure(key, mode) {
   return o;
 }
 
+// 绕过缓存重载。站点的坏响应（比如未渲染的模板）会被 disk cache 钉住，
+// 普通 reload 拿回来的还是那一份，所以用户点 ⟳ 时优先走这个。
+function webAiHardReload(o) {
+  if (!o || !o.wv) { if (o) webAiRebuildGuest(o); return }
+  try { if (o.wv.reloadIgnoringCache) o.wv.reloadIgnoringCache(); else o.wv.reload() } catch (e) { try { o.wv.reload() } catch (e2) { /* ignore */ } }
+}
+
 // 释放后重建 guest（保留窗口外壳与几何）
 function webAiRebuildGuest(o) {
   const wv = document.createElement('webview');
@@ -11775,6 +11785,16 @@ function webAiBindWebview(o) {
   const wv = o.wv;
   if (!wv || !wv.addEventListener) return;
   const done = function () {
+    // 偶发：站点把未渲染的服务端模板直接发下来（标题/正文里能看到 #set( 或 $!xxx），
+    //   而且这份坏响应会被 disk cache 钉住 —— 表现就是面板一片模板源码。
+    //   这里识别到就硬刷一次；每个窗口只自动做一次，避免和站点互相打架变成死循环。
+    try {
+      const ttl = String((o.wv && o.wv.getTitle && o.wv.getTitle()) || '');
+      if (!o._tplReloaded && /\$!|#set\(|#if\(/.test(ttl)) {
+        o._tplReloaded = true;
+        webAiHardReload(o);
+      }
+    } catch (e) { /* ignore */ }
     webAiSetStatus(o.key, 'ready');
     if (o.mask) o.mask.style.display = 'none';
     webAiSyncNav(o);
@@ -11841,7 +11861,7 @@ function webAiBindWindow(o) {
     try {
       if (act === 'back') o.wv.goBack();
       else if (act === 'fwd') o.wv.goForward();
-      else if (act === 'reload') { o.mask.style.display = ''; o.wv.reload(); webAiSetStatus(o.key, 'loading'); }
+      else if (act === 'reload') { o.mask.style.display = ''; webAiHardReload(o); webAiSetStatus(o.key, 'loading'); }
       else if (act === 'mini') { el.classList.toggle('mini'); b.textContent = el.classList.contains('mini') ? '▔' : '▁'; webAiRecordGeometry(o.key); }
       else if (act === 'free') webAiFree(o);
       else if (act === 'open') webAiOpenExternal(o.key);
@@ -11856,7 +11876,10 @@ function webAiBindWindow(o) {
       o.mask.style.display = '';
       o.mask.innerHTML = '<div class="webai-spin"></div><div class="webai-mask-t">正在加载 ' + o.site.name + ' …</div>';
       webAiSetStatus(o.key, 'loading');
-      try { o.wv.loadURL ? o.wv.loadURL(o.site.url) : (o.wv.src = o.site.url); } catch (err) { o.wv.setAttribute('src', o.site.url); }
+      // o.wv 可能为 null（释放过内存）：原代码 try/catch 都假设 wv 存在，
+      //   null 时 catch 里再调 setAttribute 会抛 TypeError，重试按钮彻底失效（真实踩过）。
+      if (!o.wv) { webAiRebuildGuest(o); return }
+      try { if (o.wv.loadURL) o.wv.loadURL(o.site.url); else o.wv.setAttribute('src', o.site.url) } catch (err) { try { o.wv.setAttribute('src', o.site.url) } catch (e2) { /* ignore */ } }
     } else if (a.dataset.act === 'open') webAiOpenExternal(o.key);
   });
   // ④ 鼠标按在窗口任何地方都把它抬到最前（多窗口叠着时符合直觉）

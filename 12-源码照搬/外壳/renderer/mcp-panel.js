@@ -36,7 +36,7 @@
     // 它们**收进一张折叠卡片**（同一 grp 值 = 同一张卡；默认收起，点标题展开）——5 行平铺太占地方。
     { id: 'mcp-webai-deepseek', label: '网页版·DeepSeek', tools: 1, est: 136, grp: WEB, desc: '免费问 DeepSeek 网页版：长文本 / 写代码（最难的那种先问它）' },
     { id: 'mcp-webai-doubao',   label: '网页版·豆包',     tools: 1, est: 132, grp: WEB, desc: '免费问豆包：生图 / 生视频 / 日常问答' },
-    { id: 'mcp-webai-tongyi',   label: '网页版·通义千问', tools: 1, est: 130, grp: WEB, desc: '免费问通义：生图（备用）/ 中文长文（正文有时夹侧栏文字）' },
+    { id: 'mcp-webai-tongyi',   label: '网页版·千问', tools: 1, est: 130, grp: WEB, desc: '免费问通义：生图（备用）/ 中文长文（正文有时夹侧栏文字）' },
     { id: 'mcp-webai-chatglm',  label: '网页版·智谱清言', tools: 1, est: 128, grp: WEB, desc: '免费问智谱：写代码（主力）/ 结构化输出' },
     { id: 'mcp-webai-kimi',     label: '网页版·Kimi',     tools: 1, est: 132, grp: WEB, desc: '⚠ 当前打不进输入框（2026-09-23 实测），先别开' }
   ];

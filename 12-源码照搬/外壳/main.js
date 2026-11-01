@@ -4724,7 +4724,7 @@ const WEB_AI_PORT = Number(process.env.WEB_AI_PORT || 31239);
 const WEB_AI_KEYS = [
   { key: 'deepseek', name: 'DeepSeek', url: 'https://chat.deepseek.com/' },
   { key: 'doubao', name: '豆包', url: 'https://www.doubao.com/chat/' },
-  { key: 'tongyi', name: '通义千问', url: 'https://tongyi.aliyun.com/qianwen/' },
+  { key: 'tongyi', name: '千问', url: 'https://www.qianwen.com/' },   // 2026-11-01 品牌改名，老地址只剩跳转
   { key: 'chatglm', name: '智谱清言', url: 'https://chatglm.cn/main/alltoolsdetail' },
   { key: 'kimi', name: 'Kimi', url: 'https://www.kimi.com/' }
 ];   // ⚠ 这份表必须和 renderer\renderers.js 的 WEB_AI 一致（check-gui.mjs 会比对）
