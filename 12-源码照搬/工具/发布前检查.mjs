@@ -9,6 +9,9 @@
  *   自动判定：有 工作台.json ⇒ instance，否则 template。也可 --mode 强制。
  *
  * 用法：node 工具\发布前检查.mjs [--mode template|instance]
+ *      node 工具\发布前检查.mjs --mode template --files-from <清单文件>
+ *      （--files-from 只扫清单里列出的文件，供 验收.mjs 按 git ls-files 的已跟踪清单执行；
+ *        清单里每行一个相对 ROOT 的路径或绝对路径，不存在/越界的条目跳过）
  * 退出码：0 通过 ｜1 有红线
  */
 import fs from 'node:fs'
@@ -22,6 +25,7 @@ const modeArg = (() => { const i = argv.indexOf('--mode'); return i >= 0 ? argv[
 const MODE = modeArg === 'template' || modeArg === 'instance'
   ? modeArg
   : (fs.existsSync(path.join(ROOT, '工作台.json')) ? 'instance' : 'template')
+const filesFrom = (() => { const i = argv.indexOf('--files-from'); return i >= 0 ? argv[i + 1] : '' })()
 
 // tier：both = 两种模式都挡；template = 只在模板模式挡（实例里是本机真值）
 const RULES = [
@@ -39,29 +43,58 @@ const SKIP_EXT = /(\.png|\.jpg|\.jpeg|\.gif|\.webp|\.ico|\.woff2?|\.ttf|\.mp4|\.
 
 let hits = 0
 let allowed = 0
-function walk(dir) {
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (SKIP_DIR.has(e.name)) continue
-    const p = path.join(dir, e.name)
-    if (e.isDirectory()) { walk(p); continue }
-    if (SKIP_FILE.has(e.name) || SKIP_EXT.test(e.name)) continue
-    let t
-    try { t = fs.readFileSync(p, 'utf8') } catch { continue }
-    for (const [name, re, tier] of RULES) {
-      const m = t.match(re)
-      if (!m) continue
-      const where = path.relative(ROOT, p)
-      if (tier === 'template' && MODE === 'instance') {
-        console.log('· ' + where + ' ← ' + name + '：' + m[0].slice(0, 30) + '（实例真值，允许；出包前请切回 template）')
-        allowed++
-      } else {
-        console.log('✗ ' + where + ' ← ' + name + '：' + m[0].slice(0, 30))
-        hits++
-      }
+/** 命中值脱敏后再进日志：密钥/IP 不落明文，会话 id 与路径只留可辨识前缀 */
+function maskValue(name, s) {
+  if (name === '密钥') return 'sk-****'
+  if (name === '服务器 IP') return '<IP 已掩码>'
+  if (name === '会话 id') return String(s).slice(0, 12) + '****'
+  return String(s).slice(0, 6) + '****'
+}
+function inspectFile(p, where) {
+  if (SKIP_FILE.has(path.basename(p)) || SKIP_EXT.test(p)) return
+  let t
+  try { t = fs.readFileSync(p, 'utf8') } catch { return }
+  for (const [name, re, tier] of RULES) {
+    const m = t.match(re)
+    if (!m) continue
+    if (tier === 'template' && MODE === 'instance') {
+      console.log('· ' + where + ' ← ' + name + '：' + maskValue(name, m[0]) + '（实例真值，允许；出包前请切回 template）')
+      allowed++
+    } else {
+      console.log('✗ ' + where + ' ← ' + name + '：' + maskValue(name, m[0]))
+      hits++
     }
   }
 }
-walk(ROOT)
+function walk(dir) {
+  let ents
+  // 运行时目录（Chromium 临时目录等）可能被正在运行的进程锁住；
+  // 读不到就跳过并说明，不让一次 EPERM 把整道闸掀翻。
+  try { ents = fs.readdirSync(dir, { withFileTypes: true }) } catch (e) {
+    console.log('· 跳过不可读目录：' + path.relative(ROOT, dir) + '（' + (e.code || e.message) + '）')
+    return
+  }
+  for (const e of ents) {
+    if (SKIP_DIR.has(e.name)) continue
+    const p = path.join(dir, e.name)
+    if (e.isDirectory()) { walk(p); continue }
+    inspectFile(p, path.relative(ROOT, p))
+  }
+}
+if (filesFrom) {
+  const list = fs.readFileSync(path.resolve(filesFrom), 'utf8').split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  let n = 0
+  for (const raw of list) {
+    const abs = path.resolve(ROOT, raw)
+    const rel = path.relative(ROOT, abs)
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || !fs.existsSync(abs)) continue
+    inspectFile(abs, rel)
+    n++
+  }
+  console.log(`清单模式：只扫 ${n} 个已列出文件（不遍历目录）`)
+} else {
+  walk(ROOT)
+}
 console.log('')
 console.log(`模式：${MODE}（${MODE === 'instance' ? '本机实例，只看真红线' : '对外模板，本机痕迹也挡'}）`)
 if (allowed) console.log(`  另有 ${allowed} 处「实例真值」被放行（不计失败）。`)

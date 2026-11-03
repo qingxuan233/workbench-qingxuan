@@ -3,6 +3,14 @@
   "command",
   "bilibili",
   "self-review",
-  "pc-cleanup"
+  "pc-cleanup",
+  "work-dev"
+ ],
+ "ids": [
+  "command",
+  "bilibili",
+  "self-review",
+  "pc-cleanup",
+  "work-dev"
  ]
 }

@@ -1,0 +1,75 @@
+{
+  "id": "work-dev",
+  "name": "工作项目开发",
+  "description": "工作项目开发：左上预览代码/文档/网页、右上浏览 {{CODE_ROOT}} 下各开发项目工程文件目录（如 WMS、ERP、workbench-qingxuan 等）、左下开发服务与调试网址在线状态、右下 AI·工作项目开发常驻会话。满足各开发项目全生命周期需求，遵守开发项目AGENT约束边界与文档要求，具备持续迭代沉淀场景工具能力。",
+  "layout": "grid",
+  "theme": "dark",
+  "cols": 4,
+  "panels": [
+    {
+      "id": "wd-preview",
+      "title": "预览",
+      "sub": "代码 / 文档 / 产物预览（支持 Markdown、代码高亮、PDF、图片）",
+      "type": "view",
+      "quickLinks": [
+        { "label": "CODE 根目录", "launchPath": "{{CODE_ROOT}}" },
+        { "label": "清玄工作台", "launchPath": "{{REPO_ROOT}}" },
+        { "label": "工作台源码", "launchPath": "{{APP_ROOT}}" },
+        { "label": "场景记忆", "launchPath": "{{APP_ROOT}}\\引擎数据\\.dsh\\场景记忆\\工作项目开发" },
+        { "label": "场景工具库", "launchPath": "{{APP_ROOT}}\\工具" }
+      ],
+      "col": 1,
+      "row": 1,
+      "w": 3,
+      "h": 2
+    },
+    {
+      "id": "wd-files",
+      "title": "开发项目工程",
+      "sub": "支持指定与切换当前开发项目",
+      "type": "file",
+      "mode": "local",
+      "root": "{{CODE_ROOT}}",
+      "projectSelect": true,
+      "viewPanel": "wd-preview",
+      "col": 4,
+      "row": 1,
+      "w": 1,
+      "h": 2
+    },
+    {
+      "id": "wd-urls",
+      "title": "开发服务与网址",
+      "sub": "本地服务与常用接口状态",
+      "type": "code-urls",
+      "urls": [
+        { "name": "工作台主界面", "url": "http://127.0.0.1:31238", "note": "Web 站点 · 端口 31238" },
+        { "name": "DSH 引擎 API", "url": "http://127.0.0.1:3083", "note": "Harness 引擎 · 端口 3083" },
+        { "name": "网页版 AI 桥", "url": "http://127.0.0.1:31239", "note": "WebAI Bridge · 端口 31239" },
+        { "name": "本地开发调试", "url": "http://127.0.0.1:3000", "note": "项目 Dev Server 预留" }
+      ],
+      "col": 1,
+      "row": 3,
+      "w": 1,
+      "h": 2
+    },
+    {
+      "id": "wd-ai",
+      "title": "AI·工作项目开发",
+      "sub": "需求开发 · 边界约束 · 工具沉淀 · 持续迭代",
+      "type": "harness",
+      "sessionTitle": "工作项目开发",
+      "sessionId": "__待填__",
+      "pinTarget": [
+        "工作项目开发"
+      ],
+      "newSessionRoot": "current-project",
+      "expand": true,
+      "col": 2,
+      "row": 3,
+      "w": 3,
+      "h": 2
+    }
+  ],
+  "first": false
+}

@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('app', {
   },
   getHarnessUrl: () => ipcRenderer.invoke('harness:url'),
   isHarnessReady: () => ipcRenderer.invoke('harness:ready'),
+  openHarnessWindow: (opts) => ipcRenderer.invoke('harness:open-window', opts),
   // 版本信息（左上角品牌区悬停显示）：GUI / 引擎 / Electron·Chromium·Node
   getVersion: () => ipcRenderer.invoke('app:version'),
   // ---- 壳侧能力位（渲染层据此决定"敢不敢用"某个新策略）----

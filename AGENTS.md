@@ -13,7 +13,7 @@
 | 仓库 | `https://github.com/qingxuan233/workbench-qingxuan.git`，分支 `main` |
 | 应用根 | `<仓库>/12-源码照搬`（下称 `$APP`） |
 | 启动入口 | `$APP\启动.bat`（外层：`<仓库>\启动工作台.bat`） |
-| 四个场景（标题必须一字不差） | `命令`、`B站`、`自我复盘`、`本地电脑` |
+| 五个场景（标题必须一字不差） | `命令`、`B站`、`自我复盘`、`本地电脑`、`工作项目开发` |
 | 端口 | 引擎 `3083`（环境变量 `DSH_PORT`）、站点 `31238`（写死）、网页版 AI 桥 `31239`（`WEB_AI_PORT`） |
 | 实例清单 | `$APP\工作台.json` —— **不入库**，由 `初始化.mjs` 生成 |
 | 数据根 | `$APP\引擎数据\.dsh`（会话 / 工作区 / 场景记忆） |
@@ -21,6 +21,18 @@
 | 运行时 | Windows 10/11；Node.js ≥ 18（建议 20/22）；DSH 引擎可选但 AI 面板需要 |
 
 ---
+
+<!-- 场景事实表:开始（工具\场景校验.mjs --stamp 生成；勿手改） -->
+| 项 | 值 |
+|---|---|
+| 场景数 | 5 |
+| 场景（id → 标题） | `bilibili` → B站；`command` → 命令；`pc-cleanup` → 本地电脑；`self-review` → 自我复盘；`work-dev` → 工作项目开发 |
+| 面板总数 | 17 |
+| AI 面板（harness） | 5 |
+| 首屏场景 | `command` |
+| 端口 | 引擎 `3083`（`DSH_PORT`）；站点 `31238`（写死）；网页版 AI 桥 `31239`（`WEB_AI_PORT`） |
+| 场景配置目录 | `12-源码照搬\外壳\scenarios` |
+<!-- 场景事实表:结束 -->
 
 ## §1 前置检查（不通就别往下走）
 
@@ -72,19 +84,20 @@ node 工具\初始化.mjs --install    # 真做 + 装 Electron（首次约 200 M
 .\启动.bat
 ```
 
-**期望**：约 3 秒后窗口出现，顶栏四个场景标签。
+**期望**：约 3 秒后窗口出现，顶栏五个场景标签。
 **判据（二选一即可）**：`$APP\外壳\data\startup.log` 里出现 `[exit] rc=0 … window-visible + engine ready`；
 或 `$APP\外壳\server.log` **本次新增**两行 `[boot] window-visible ms=…` 和 `engine ready in …`。
 
 > ⚠ 只认**本次启动之后新写**的日志（启动器会记 `offset`）。历史成功不算数。
 
-### ④ 建 4 条会话（最容易漏，一定要做）
+### ④ 建 5 条会话（最容易漏，一定要做）
 
 ```powershell
 node 外壳\scripts\建会话.mjs --title "命令"     --cwd "$((Get-Location).Path)"
 node 外壳\scripts\建会话.mjs --title "B站"       --cwd "$((Get-Location).Path)"
 node 外壳\scripts\建会话.mjs --title "自我复盘"  --cwd "$((Get-Location).Path)"
 node 外壳\scripts\建会话.mjs --title "本地电脑"  --cwd "$((Get-Location).Path)"
+node 外壳\scripts\建会话.mjs --title "工作项目开发" --cwd "$((Get-Location).Path)"
 node 工具\实例化.mjs --apply
 ```
 
@@ -125,8 +138,8 @@ node 外壳\scripts\sessions.mjs --check
 | `node 工具\体检.mjs --self-test` | `自检：35 通过 · 0 失败` | — |
 | `node 工具\编码检查.mjs` | `✓ 没有会导致乱码或静默失效的编码问题。` | §5-4 |
 | `node 外壳\scripts\check-gui.mjs` | `全部通过 ✓（warning N）` | warning 属正常（缺内置引擎） |
-| `node 外壳\scripts\sessions.mjs --check` | `场景↔会话对照检查通过 ✓ 共 4 个 AI 面板` | §3、§5-5 |
-| 界面 | 四个场景的 AI 面板标题行都显示 `✓ 已钉绑定` | §5-5 |
+| `node 外壳\scripts\sessions.mjs --check` | `场景↔会话对照检查通过 ✓ 共 5 个 AI 面板` | §3、§5-5 |
+| 界面 | 五个场景的 AI 面板标题行都显示 `✓ 已钉绑定` | §5-5 |
 | 工具面板（顶栏） | `43 个工具` | 清单缺失见 §5-7 |
 
 ---
@@ -202,14 +215,14 @@ repo: https://github.com/qingxuan233/workbench-qingxuan.git
 branch: main
 app_root: 12-源码照搬
 entry: 12-源码照搬/启动.bat
-scenes: {command: 命令, bilibili: B站, self-review: 自我复盘, pc-cleanup: 本地电脑}
+scenes: {command: 命令, bilibili: B站, self-review: 自我复盘, pc-cleanup: 本地电脑, work-dev: 工作项目开发}
 ports: {engine: 3083, site: 31238, webai_bridge: 31239}
 env_overrides: {engine_port: DSH_PORT, webai_port: WEB_AI_PORT, engine_cli: DSH_CMD}
 steps:
   - node 工具/初始化.mjs --dry
   - node 工具/初始化.mjs --install
   - 启动.bat
-  - 建会话 4 条（--title 与上文一字不差，--cwd=app_root）
+  - 建会话 5 条（--title 与上文一字不差，--cwd=app_root）
   - node 工具/实例化.mjs --apply
   - node 工具/体检.mjs
 gate_ok:
@@ -217,9 +230,30 @@ gate_ok:
   体检自检: "35 通过 · 0 失败"
   编码检查: "没有会导致乱码或静默失效的编码问题"
   check_gui: "全部通过"
-  sessions_check: "4 个 AI 面板"
+  sessions_check: "5 个 AI 面板"
 human_required:
   - 顶栏「模型与提供方」填 API key
   - 网页版 AI 五站各登录一次
   - node 外壳/scripts/pc-scan.mjs 跑一次
 ```
+
+---
+
+## §10 提交前红线闸（本次新增，需要手动启用一次）
+
+```powershell
+git config core.hooksPath .githooks     # 启用（只影响本机这份克隆）
+git config --unset core.hooksPath       # 关闭
+node 12-源码照搬\工具\验收.mjs           # 不装钩子也能手动跑
+```
+
+`验收.mjs` 串行五步：编码检查 → 体检自检 → 身份索引 → 发布前检查（template · 仅
+`git ls-files` 清单 + 暂存新增）→ 场景校验。第 4 步不看磁盘上的实例文件，只看
+「会被提交的文件」，所以 `工作台.json`、真实会话 id、本机绝对路径蒙混不过去。
+
+场景事实表（本节上方区块）由 `node 12-源码照搬\工具\场景校验.mjs --stamp` 生成，
+不要手改标记区块内的行；`--check` 发现与场景 json 不一致会直接失败。
+
+体量红线：`node 12-源码照搬\工具\代码红线.mjs --check`（新文件 ≤800 行；存量
+超大文件只许变短；源码里禁止新增盘符硬编码、真实会话 id 与 eval）。
+

@@ -21,6 +21,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { scan as scanEncoding } from './编码检查.mjs';
+import binding from './_场景绑定.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 根 = 仓库根（本工具在 <根>\12-源码照搬\工具）。可用 --root / DSH_WORKBENCH_ROOT 覆盖。
@@ -158,8 +159,7 @@ const ASSERTIONS = [
       const bound = [];
       for (const sc of ctx.scenes) {
         for (const p of harnessPanels(sc)) {
-          const id = String(p.sessionId || '').trim();
-          if (!id || id === '__待填__') continue;          // 未绑定交给 A10
+          const id = binding.effectiveSessionId(ctx.manifest, sc.id, p); if (!id) continue;   // 未绑定交给 A10
           bound.push({ sc, p, id });
         }
       }
@@ -181,8 +181,7 @@ const ASSERTIONS = [
       const cacheDir = path.join(dshRoot(root), 'storages', 'session_projcache', 'sessions');
       for (const sc of ctx.scenes) {
         for (const p of harnessPanels(sc)) {
-          const id = String(p.sessionId || '').trim();
-          if (!id || id === '__待填__') continue;
+          const id = binding.effectiveSessionId(ctx.manifest, sc.id, p); if (!id) continue;
           const j = readJson(path.join(cacheDir, id + '.json'));
           const cwd = j && j.record && j.record.identity && j.record.identity.cwd;
           if (!cwd) continue;                              // 没有记录就不判
@@ -274,8 +273,8 @@ const ASSERTIONS = [
       const f = [];
       for (const sc of ctx.scenes) {
         for (const p of harnessPanels(sc)) {
-          const id = String(p.sessionId || '').trim();
-          if (!id || id === '__待填__') {
+          const id = binding.effectiveSessionId(ctx.manifest, sc.id, p);
+          if (!id) {
             f.push({
               path: sc.__path,
               msg: `面板 ${p.id} 未绑定会话（跑 node 工具\\实例化.mjs）`,
@@ -531,12 +530,12 @@ function runAll(root) {
   // 一旦 实例化.mjs --apply 绑完并清掉 fresh，A10 立刻恢复硬判。
   // 没有 工作台.json（刚 clone 下来、还没跑初始化）同样算 fresh ——
   //   否则新克隆的仓库第一条体检就报红，把"还没开始"说成"坏了"（真实踩到）。
-  let fresh = true;
+  let fresh = true, manifest = {};
   try {
     const mf = path.join(appRoot(root), '工作台.json');
-    if (exists(mf)) fresh = JSON.parse(readText(mf).replace(/^\uFEFF/, '')).fresh === true;
+    if (exists(mf)) { manifest = JSON.parse(readText(mf).replace(/^\uFEFF/, '')) || {}; fresh = manifest.fresh === true }
   } catch { fresh = true; /* 清单坏了由 A13 报，这里按未初始化处理 */ }
-  const ctx = { scenes: scenes(root), mode: modeOf(root), fresh };
+  const ctx = { scenes: scenes(root), mode: modeOf(root), fresh, manifest };
   const results = ASSERTIONS.map((a) => {
     let findings = [];
     try { findings = a.run(root, ctx) } catch (e) { findings = [{ path: root, msg: '断言自身抛错: ' + (e && e.message) }] }

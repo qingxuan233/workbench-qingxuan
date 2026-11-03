@@ -10,9 +10,9 @@
  *
  * 用法：
  *   node 工具\实例化.mjs --discover        列出会话库里所有会话（id / 标题 / cwd 是否还有效）
- *   node 工具\实例化.mjs --dry             只报告：要写哪些 sessionId 到 工作台.json / 场景 json
- *   node 工具\实例化.mjs --apply           真写（工作台.json + 场景 json 的 sessionId）
- *   node 工具\实例化.mjs --check           校验 工作台.json 与 场景 json 是否一致
+ *   node 工具\实例化.mjs --dry             只报告：要写哪些 sessionId 到 工作台.json
+ *   node 工具\实例化.mjs --apply           真写（工作台.json 存真值；场景 json 统一回 __待填__）
+ *   node 工具\实例化.mjs --check           校验 工作台.json 完整、场景 json 仍是模板
  *
  * 退出码：0 成功/一致 ｜1 不一致或有错 ｜2 用法错误
  */
@@ -131,11 +131,20 @@ if (has('--check')) {
   else {
     for (const sc of scens) {
       const m = (manifest.scenes || {})[sc.id];
-      const wantId = m && m.sessionId;
-      const cur = sc.panel ? String(sc.panel.sessionId || '') : '';
-      if (wantId !== undefined && wantId !== cur) { say(`✗ ${sc.id}：工作台.json=${wantId} 但 场景 json=${cur}`); bad++ }
+      const wantId = m && String(m.sessionId || '').trim();
+      const cur = sc.panel ? String(sc.panel.sessionId || '').trim() : '';
+      if (!wantId || wantId === '__待填__') {
+        say(`✗ ${sc.id}：工作台.json 里没有有效会话 id（先建会话，再 --apply）`);
+        bad++;
+      } else if (cur && cur !== '__待填__' && cur !== wantId) {
+        say(`✗ ${sc.id}：场景 json 里仍是实例真值（模板应写 __待填__，由 --apply 清回占位；运行时由 main.js 叠加清单值）`);
+        bad++;
+      } else if (cur && cur === wantId) {
+        say(`✗ ${sc.id}：场景 json 里写了真实会话 id（模板应写 __待填__）`);
+        bad++;
+      }
     }
-    if (!bad) say('✓ 工作台.json 与 场景 json 一致');
+    if (!bad) say('✓ 工作台.json 绑定完整 · 场景 json 保持模板占位');
   }
   process.exit(bad ? 1 : 0);
 }
@@ -168,23 +177,22 @@ if (allBound) delete nextManifest.fresh;
 fs.writeFileSync(MANIFEST, JSON.stringify(nextManifest, null, 2) + '\n', 'utf8');
 say('\n✓ 已写 工作台.json' + (allBound ? '（全部面板已绑定 ⇒ fresh 已清除）' : '（仍有面板未绑定 ⇒ 保持 fresh）'));
 
-// 写场景 json 的 sessionId（保持原有缩进风格：只替换字段值，不重排）
+// 场景 json 是模板：真值只写 工作台.json（运行时由 外壳\main.js 叠加）。
+// 因此这里把场景 json 的 sessionId 统一清回 __待填__，保证「提交模板」与「实例能跑」不再互斥。
 let changed = 0;
 for (const sc of scens) {
-  const id = (nextManifest.scenes[sc.id] || {}).sessionId;
-  if (!id) continue;
-  let t = fs.readFileSync(sc.path, 'utf8');
   const cur = sc.panel ? String(sc.panel.sessionId || '') : '';
-  if (cur === id) continue;
+  if (cur === '__待填__') continue;
+  let t = fs.readFileSync(sc.path, 'utf8');
   if (!/"sessionId"\s*:\s*"[^"]*"/.test(t)) {
     // 没有 sessionId 字段：在 "sessionTitle" 之后插入
-    t = t.replace(/("sessionTitle"\s*:\s*"[^"]*"\s*,?)/, (m) => m + '\n   "sessionId": "' + id + '",');
+    t = t.replace(/("sessionTitle"\s*:\s*"[^"]*"\s*,?)/, (m) => m + '\n   "sessionId": "__待填__",');
   } else {
-    t = t.replace(/("sessionId"\s*:\s*)"[^"]*"/, '$1"' + id + '"');
+    t = t.replace(/("sessionId"\s*:\s*)"[^"]*"/, '$1"__待填__"');
   }
   fs.writeFileSync(sc.path, t, 'utf8');
   changed++;
-  say('  ✓ ' + sc.file + ' → ' + id.slice(0, 22) + '…');
+  say('  ✓ ' + sc.file + ' → __待填__');
 }
-say(`\n完成：工作台.json 1 份 · 场景 json ${changed} 份更新`);
+say(`\n完成：工作台.json 1 份 · 场景 json ${changed} 份回到模板占位`);
 say('下一步：node 工具\\体检.mjs（A8/A10 应按「实例」口径判）');

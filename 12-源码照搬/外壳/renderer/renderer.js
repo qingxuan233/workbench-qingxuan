@@ -1186,6 +1186,7 @@ async function init() {
     'dsh-gui': 'data:image/svg+xml;utf8,' + encodeURIComponent(PANELS_SVG),  // DSH·GUI改造（窗口 + 三块面板）
     'design-misc': 'data:image/svg+xml;utf8,' + encodeURIComponent(DESIGN_SVG),
     'code-dev': 'data:image/svg+xml;utf8,' + encodeURIComponent(CODE_SVG),
+    'work-dev': 'data:image/svg+xml;utf8,' + encodeURIComponent(CODE_SVG),
     'pc-cleanup': 'data:image/svg+xml;utf8,' + encodeURIComponent(CLEAN_SVG),   // 本地电脑（用量环）
     'workbench-custom': 'data:image/svg+xml;utf8,' + encodeURIComponent(WORKBENCH_SVG),  // 工作台定制（蓝壳 + 琥珀可换块）
     'command': 'data:image/svg+xml;utf8,' + encodeURIComponent(NEURON_SVG)  // 命令（记忆神经元）

@@ -7,7 +7,7 @@ const { app, BrowserWindow, dialog, shell, ipcMain, webContents, nativeImage, sc
 const { spawn, spawnSync } = require('child_process');
 const http = require('http');
 const net = require('net');
-const path = require('path');
+const path = require('path'); const { applySceneInstance } = require('../工具/_场景绑定.js');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -620,7 +620,7 @@ function listScenarios() {
 function getScenario(id) {
   const f = path.join(SCENARIOS_DIR, id + '.json');
   if (!fs.existsSync(f)) return null;
-  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return null; }
+  try { return applySceneInstance(JSON.parse(fs.readFileSync(f, 'utf8')), MANIFEST); } catch (e) { return null; }
 }
 
 // ---- 多公司模板支持：当前场景的 meta（可覆盖 SSH/服务/映射/日志/网址）----
@@ -1097,6 +1097,36 @@ ipcMain.handle('harness:url', () => {
   return token ? (BASE + '/?token=' + token) : (BASE + '/');
 });
 ipcMain.handle('harness:ready', () => engineIsForeign || !!harnessToken);
+ipcMain.handle('harness:open-window', (e, opts) => {
+  opts = opts || {};
+  let targetUrl = opts.url || '';
+  if (!targetUrl) {
+    if (engineIsForeign) targetUrl = 'http://127.0.0.1:' + SITE_PORT + '/chat';
+    else targetUrl = harnessToken ? (BASE + '/?token=' + harnessToken) : (BASE + '/');
+  }
+  try {
+    const win = new BrowserWindow({
+      width: 1120,
+      height: 820,
+      minWidth: 640,
+      minHeight: 520,
+      title: String(opts.title || 'AI 对话窗口'),
+      autoHideMenuBar: true,
+      backgroundColor: '#151517',
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        partition: opts.partition || 'persist:harness'
+      }
+    });
+    win.setMenuBarVisibility(false);
+    win.loadURL(targetUrl);
+    return { ok: true };
+  } catch (ex) {
+    return { ok: false, err: String((ex && ex.message) || ex) };
+  }
+});
 
 // ---- IPC：版本信息（左上角品牌区悬停显示）----
 // 放主进程读的原因：版本号来自各处 package.json，渲染层没有文件系统权限；
@@ -4177,9 +4207,9 @@ function topbarWorkbenchSessions() {
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith('.json') || f.startsWith('_')) continue;
       let j = null;
-      try { j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch (e) { continue; }
+      try { j = applySceneInstance(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')), MANIFEST); } catch (e) { continue; }
       for (const p of (Array.isArray(j.panels) ? j.panels : [])) {
-        if (p && p.sessionId) out.push({ scene: j.title || j.id || f, panel: p.title || p.id || '', sessionId: p.sessionId });
+        if (p && p.sessionId && p.sessionId !== '__待填__') out.push({ scene: j.title || j.id || f, panel: p.title || p.id || '', sessionId: p.sessionId });
       }
     }
   } catch (e) { /* ignore */ }

@@ -46,7 +46,7 @@ const ALIAS = {
   'bilibili': 'B站', 'pc-cleanup': '本地电脑', 'personal-site': '<个人站场景>',
   'stock-analysis': '股票分析', 'code-dev': '程序开发', 'design-misc': '设计杂活',
   'video-workflow': '视频工作流', 'self-review': '自我复盘', 'douyin': '刷抖音', 'command': '命令',
-  'workbench-custom': '工作台定制', 'dsh-gui': null,
+  'workbench-custom': '工作台定制', 'dsh-gui': null, 'work-dev': '工作项目开发',
 }
 
 /* ------------------------------------------------------------ 读两个事实源 */
@@ -179,10 +179,10 @@ function bindingBlock(id, ident, dirName, sceneJson) {
 }
 
 function writeIdentityCard(dir, id, ident, sceneJson) {
-  const name = dir
+  const name = path.basename(dir)
   const txt = `# ${name} · 身份卡（工具生成 · ⛔ 手改即校验失败）
 
-${bindingBlock(id, ident, dir, sceneJson)}
+${bindingBlock(id, ident, path.relative(WORKBENCH_ROOT, dir), sceneJson)}
 
 ## 怎么用
 - 开场第一份读的是**这张卡**：我是谁、在哪个面板、会话是哪条、定位卡是哪张、能碰什么。
@@ -195,8 +195,9 @@ ${bindingBlock(id, ident, dir, sceneJson)}
 
 function writePortrait(dir, id, sceneJson, ident) {
   const p = sceneJson || {}
+  const rel = path.relative(WORKBENCH_ROOT, dir)
   const rows = (p.panels || []).map((x) => `| \`${x.id}\` | ${x.title || ''} | \`${x.type}\` | ${x.url ? `\`${x.url}\`` : x.sessionId ? '会话' : ''} | ${x.col ?? ''},${x.row ?? ''} | ${x.w ?? ''}×${x.h ?? ''} |`).join('\n')
-  const txt = `# ${dir} · 场景画像（工具生成 · 由场景 json 推导）
+  const txt = `# ${path.basename(dir)} · 场景画像（工具生成 · 由场景 json 推导）
 
 > 来源：\`scenarios\\${id}.json\` + \`renderers.js\` + 定位卡 ｜ 生成 ${stamp()}
 > 一句话：${p.description || '(json 没写 description)'}
@@ -218,7 +219,7 @@ ${rows || '| — | — | — | — | — | — |'}
 ## 四、依赖与入口
 - 定位卡：${ident?.card ? '`' + path.relative(WORKBENCH_ROOT, ident.card) + '`' : '(缺)'}
 - 专属技能：${ident?.skill || '(无)'}
-- 记忆文件夹：\`${dir}\`
+- 记忆文件夹：\`${rel}\`
 
 > 本文件由工具推导生成；场景 json 改了就 \`stamp\`。
 `
@@ -271,13 +272,9 @@ function ensureSkeleton(dir, name) {
       }
     } catch {}
   }
-  // ★ 2026-10-27：`项目信息.md` 已淘汰 —— 正文并入 main 后删除，**不再重建**（旧前缀名暂留兼容）
+  // ★ 2026-10-27：`项目信息.md` 与旧前缀名已淘汰 —— 确保删除，只留单一真源 场景私有记忆.md（A3 校验）
   try { if (fs.existsSync(legacyPlain)) fs.rmSync(legacyPlain, { force: true }) } catch {}
-  // 旧前缀名留硬链接（各场景技能/文档还引用它）
-  try {
-    if (fs.existsSync(legacyPrefixed) && sha(legacyPrefixed) !== sha(main)) fs.rmSync(legacyPrefixed, { force: true })
-    if (!fs.existsSync(legacyPrefixed) && fs.existsSync(main)) fs.linkSync(main, legacyPrefixed)
-  } catch {}
+  try { if (fs.existsSync(legacyPrefixed)) fs.rmSync(legacyPrefixed, { force: true }) } catch {}
   if (!fs.existsSync(main)) {
     fs.writeFileSync(main, `# ${name} · 场景私有记忆
 
@@ -437,17 +434,25 @@ function cmdCheck(name) {
     else ok.push('卡指纹一致')
   } else problems.push('身份索引里没有这张场景卡')
   // 会话必须绑定到场景（2026-10-27 卡07 决定）
+  // 场景 json 是模板（占位 __待填__），实例真值在 工作台.json：校验会话文件时按清单解析。
   if (scene && ident) {
     const panelSessions = (scene.panels || []).filter((p) => p && p.sessionId).map((p) => p.sessionId)
     if (!panelSessions.includes(ident.sessionId)) problems.push('会话未绑定场景 json（身份索引 ' + ident.sessionId + '，json 面板 ' + (panelSessions.join(',') || '无') + '）')
     else ok.push('会话已绑定场景')
+    let boundId = String(ident.sessionId || '').trim()
+    if (!boundId || boundId === '__待填__') {
+      try {
+        const man = JSON.parse(fs.readFileSync(path.join(WORKBENCH_ROOT, '工作台.json'), 'utf8'))
+        boundId = String((((man.scenes || {})[scene.id] || {}).sessionId) || '').trim()
+      } catch (e) { /* 没有清单就跳过 */ }
+    }
     let found = false
-    if (fs.existsSync(SESS)) {
+    if (boundId && boundId !== '__待填__' && fs.existsSync(SESS)) {
       for (const ws of fs.readdirSync(SESS)) {
-        if (fs.existsSync(path.join(SESS, ws, ident.sessionId, 'session.v4.jsonl.zstd')) || fs.existsSync(path.join(SESS, ws, ident.sessionId, 'session.v3.jsonl.zstd'))) { found = true; break }
+        if (fs.existsSync(path.join(SESS, ws, boundId, 'session.v4.jsonl.zstd')) || fs.existsSync(path.join(SESS, ws, boundId, 'session.v3.jsonl.zstd'))) { found = true; break }
       }
     }
-    if (!found) warns.push('会话文件不在库（可能刚归档/换会话未回填）')
+    if (!found && boundId && boundId !== '__待填__') warns.push('会话文件不在库（可能刚归档/换会话未回填）')
   }
   const mainPath = path.join(dir, '场景私有记忆.md')
   if (!fs.existsSync(mainPath)) { console.log('\n' + name + '：✗ 缺 场景私有记忆.md（跑 init）'); return 1 }

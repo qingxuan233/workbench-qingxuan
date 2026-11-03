@@ -383,12 +383,22 @@ if (rotating && !STRAY) {
               const obj = readJson(hit.sc.__path);
               let patched = 0;
               for (const p of (obj.panels || [])) {
-                if (p.type === 'harness' && p.id === hit.p.id) { p.sessionId = newId; patched++; }
+                // 场景 json 只是模板：轮换后仍写占位，真值写进 工作台.json（运行时由 main.js 叠加）
+                if (p.type === 'harness' && p.id === hit.p.id) { p.sessionId = '__待填__'; patched++; }
               }
               const tmp = hit.sc.__path + '.tmp';
               fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n', 'utf8');
               fs.renameSync(tmp, hit.sc.__path);
-              say('  ✓ 已回写 ' + path.relative(root, hit.sc.__path) + '（改了 ' + patched + ' 处；备份 ' + path.relative(root, bfile) + '）');
+              say('  ✓ 已回写 ' + path.relative(root, hit.sc.__path) + '（面板 id 保持模板占位；备份 ' + path.relative(root, bfile) + '）');
+              // 实例真值唯一落点：工作台.json（不入库）
+              try {
+                const mf = path.join(path.dirname(root), '工作台.json');
+                const man = readJson(mf) || {};
+                man.scenes = man.scenes || {};
+                man.scenes[hit.sc.id] = Object.assign({}, man.scenes[hit.sc.id], { sessionId: newId });
+                fs.writeFileSync(mf, JSON.stringify(man, null, 2) + '\n', 'utf8');
+                say('  ✓ 已同步 工作台.json（' + hit.sc.id + ' → ' + newId.slice(0, 20) + '…）');
+              } catch (e) { die('工作台.json 同步失败：' + ((e && e.message) || e)); }
               // 2026-10-16 补（dg-dsh 派单 · 轮换后名册漂移）：**名册也要跟着改** ——
               //   `scenarios\_场景身份索引.md` §二 那行是"这个面板绑哪条会话"的权威记载；以前只改 scenarios\*.json，
               //   于是每次 --rotate 都留下"名册还写旧 id"的漂移（全量标准化体检因此报 2 条 ⛔：身份对不上 + 会话库里找不到）。
