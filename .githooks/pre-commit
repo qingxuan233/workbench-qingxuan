@@ -1,0 +1,21 @@
+#!/bin/sh
+# 提交前红线闸：调用 12-源码照搬/工具/验收.mjs
+#
+# 启用（只影响本机这份克隆，不改全局配置）：
+#   git config core.hooksPath .githooks
+# Linux/macOS 若提示无执行权限，再补：chmod +x .githooks/pre-commit
+# 关闭：
+#   git config --unset core.hooksPath
+#
+# 说明：验收.mjs 自身会基于 git ls-files 的已跟踪清单做模板态扫描，
+#       所以本机实例文件（工作台.json、真实会话 id、本机路径）不会因为
+#       「文件就在磁盘上」而放行。
+set -u
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "✗ pre-commit：找不到仓库根（git rev-parse 失败）" >&2
+  exit 1
+}
+cd "$REPO_ROOT" || exit 1
+
+node "12-源码照搬/工具/验收.mjs"
+exit $?

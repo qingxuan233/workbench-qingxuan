@@ -83,7 +83,7 @@ if (!newId) die('建会话失败：HTTP ' + c.status + ' ' + String(c.t).slice(0
 say('✓ 新会话：' + newId);
 
 const rn = await rpc('session/rename', { request: { sessionId: newId, title } });
-if (rn.status !== 200) die('改名失败（HTTP ' + rn.status + '）⇒ 别把 id 写进 json');
+if (rn.status !== 200) die('改名失败（HTTP ' + rn.status + '）⇒ 别把 id 写进任何模板文件');
 say('✓ 已命名为「' + title + '」');
 
 // ── 开场消息（空会话不进侧边栏）+ 立刻打断（这轮不许干活）──
@@ -101,6 +101,5 @@ if (seedIt) {
 } else say('（--no-seed：没写开场消息，侧边栏可能要等它被打开过才显示）');
 
 say('\nsessionId = ' + newId);
-say('下一步：把下面两行写进 scenarios\\<场景id>.json 的 AI 面板：');
-say('  "sessionTitle": "' + title + '",');
-say('  "sessionId": "' + newId + '",');
+say('下一步：跑 node 工具\\实例化.mjs --apply，把会话绑定写进 工作台.json（实例真值只存那里）。');
+say('scenarios\\<场景id>.json 的 sessionId 保持 __待填__：那是模板占位，运行时由 main.js 叠加清单值。');

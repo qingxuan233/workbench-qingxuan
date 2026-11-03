@@ -14,8 +14,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const binding = require('../../工具/_场景绑定.js');
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const MANIFEST_PATH = path.join(path.dirname(root), '工作台.json');
 const HARNESS_DIR = process.env.DSH_HARNESS_DIR || path.join(path.dirname(root), '引擎数据');
 const DSH_HOME = process.env.DSH_CUSTOMER_HOME || path.join(path.dirname(root), '引擎数据', '.dsh');
 const DEFAULT_CWD = path.join(path.dirname(root), '工作区');
@@ -23,6 +28,10 @@ const KEEP_CWD = process.argv.includes('--keep-cwd');
 
 function readJson(p) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return null; }
+}
+
+function readManifest() {
+  return readJson(MANIFEST_PATH) || {};
 }
 
 // 引擎有两处会话索引：项目缓存总表 + 每会话缓存（文件名就是会话 id）
@@ -152,7 +161,8 @@ for (const sc of scenarios) {
   for (const p of panels) {
     checked++;
     const wantTitle = String(p.sessionTitle || '').trim();
-    const wantId = String(p.sessionId || '').trim();
+    const rawId = String(p.sessionId || '').trim();
+    const wantId = binding.effectiveSessionId(readManifest(), sc.id, p) || rawId;
     const targets = (Array.isArray(p.pinTarget) ? p.pinTarget : (p.pinTarget ? [p.pinTarget] : [])).map(t => String(t).trim()).filter(Boolean);
     const idHit = wantId ? sessions.find(s => s.id === wantId || s.id === wantId.replace(/^session-/, '')) : null;
     const exact = wantTitle ? sessions.find(s => s.title === wantTitle) : null;
@@ -261,14 +271,14 @@ if (rotating && !STRAY) {
   }
   if (!hit) die('没找到面板「' + ROTATE_ID + '」（写面板 id，如 dg-dsh，或直接写它的 sessionId）');
   else {
-    const oldId = String(hit.p.sessionId || '').trim();
+    const oldId = binding.effectiveSessionId(readManifest(), hit.sc.id, hit.p) || String(hit.p.sessionId || '').trim();
     const title = String(hit.p.sessionTitle || '').trim();
     const old = sessions.find((x) => x.id === oldId) || null;
     const cwd = (KEEP_CWD && old && old.cwd) ? old.cwd : DEFAULT_CWD;   // 默认新工作区；--keep-cwd 才沿用旧会话
     say('面板 ' + (hit.sc.id || hit.sc.file) + ' · ' + hit.p.id + '「' + (hit.p.title || '') + '」');
     say('  旧会话：' + (oldId || '(未绑定)') + '   标题「' + (old ? old.title : title) + '」   工作区 ' + cwd);
 
-    if (!oldId) die('这个面板没绑 sessionId，无需轮换');
+    if (!oldId || oldId === '__待填__') die('这个面板还没绑定真实会话（先跑 node 工具\\实例化.mjs --apply）');
     else if (!title) die('面板没写 sessionTitle —— 轮换靠标题认人，先把标题补上');
     else {
       // ② 交接闸门
@@ -383,16 +393,25 @@ if (rotating && !STRAY) {
               const obj = readJson(hit.sc.__path);
               let patched = 0;
               for (const p of (obj.panels || [])) {
-                if (p.type === 'harness' && p.id === hit.p.id) { p.sessionId = newId; patched++; }
+                // 场景 json 只是模板：轮换后仍写占位，真值写进 工作台.json（运行时由 main.js 叠加）
+                if (p.type === 'harness' && p.id === hit.p.id) { p.sessionId = '__待填__'; patched++; }
               }
               const tmp = hit.sc.__path + '.tmp';
               fs.writeFileSync(tmp, JSON.stringify(obj, null, 2) + '\n', 'utf8');
               fs.renameSync(tmp, hit.sc.__path);
-              say('  ✓ 已回写 ' + path.relative(root, hit.sc.__path) + '（改了 ' + patched + ' 处；备份 ' + path.relative(root, bfile) + '）');
-              // 2026-10-16 补（dg-dsh 派单 · 轮换后名册漂移）：**名册也要跟着改** ——
-              //   `scenarios\_场景身份索引.md` §二 那行是"这个面板绑哪条会话"的权威记载；以前只改 scenarios\*.json，
-              //   于是每次 --rotate 都留下"名册还写旧 id"的漂移（全量标准化体检因此报 2 条 ⛔：身份对不上 + 会话库里找不到）。
-              //   只改"同一行里既有旧 id、又有这个面板 id"的那一行 —— 免得误伤历史记录里提到的旧 id。
+              say('  ✓ 已回写 ' + path.relative(root, hit.sc.__path) + '（面板 id 保持模板占位；备份 ' + path.relative(root, bfile) + '）');
+              // 实例真值唯一落点：工作台.json（不入库）
+              try {
+                const mf = path.join(path.dirname(root), '工作台.json');
+                const man = readJson(mf) || {};
+                man.scenes = man.scenes || {};
+                man.scenes[hit.sc.id] = Object.assign({}, man.scenes[hit.sc.id], { sessionId: newId });
+                fs.writeFileSync(mf, JSON.stringify(man, null, 2) + '\n', 'utf8');
+                say('  ✓ 已同步 工作台.json（' + hit.sc.id + ' → ' + newId.slice(0, 20) + '…）');
+              } catch (e) { die('工作台.json 同步失败：' + ((e && e.message) || e)); }
+              // 2026-11-03：索引也是模板 —— 轮换后仍写 __待填__，真值只写 工作台.json。
+              //   以前把真实 id 回写进索引，会让「可提交模板」重新带上本机会话 id；
+              //   只有在旧实例仍写着真实 id 时才把它替换回占位。
               try {
                 const rp = path.join(root, 'scenarios', '_场景身份索引.md');
                 if (fs.existsSync(rp)) {
@@ -402,9 +421,9 @@ if (rotating && !STRAY) {
                     if (l.indexOf(oldId) < 0) return l;
                     if (l.indexOf('`' + hit.p.id + '`') < 0) return l;
                     rn++;
-                    return l.split(oldId).join(newId);
+                    return l.split(oldId).join('__待填__');
                   });
-                  if (rn) { fs.writeFileSync(rp, rl2.join('\n'), 'utf8'); say('  ✓ 已同步名册 scenarios\\_场景身份索引.md（' + oldId.slice(0, 20) + '… → ' + newId.slice(0, 20) + '…，改了 ' + rn + ' 行）'); }
+                  if (rn) { fs.writeFileSync(rp, rl2.join('\n'), 'utf8'); say('  ✓ 已同步名册 scenarios\\_场景身份索引.md（回模板占位 __待填__，改了 ' + rn + ' 行）'); }
                   else say('  （名册里这一行没写旧 id，无需同步）');
                 }
               } catch (e) { say('  ⚠ 名册同步失败：' + ((e && e.message) || e)); }

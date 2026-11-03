@@ -7,7 +7,7 @@ const { app, BrowserWindow, dialog, shell, ipcMain, webContents, nativeImage, sc
 const { spawn, spawnSync } = require('child_process');
 const http = require('http');
 const net = require('net');
-const path = require('path');
+const path = require('path'); const { applySceneInstance } = require('../工具/_场景绑定.js');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -58,10 +58,10 @@ const WORKBENCH_ROOT = path.dirname(__dirname);
 //   模板要能公开（里面只能是占位/可推导），实例要能跑（本机真值）。
 //   真值只存 工作台.json（不入库，见 .gitignore）；模板见 工作台.example.json。
 //   读不到就当没有（老机器 / 纯模板），一切回落到下面的推导逻辑。
-const MANIFEST = (function () {
+function readManifest() {
   try { return JSON.parse(fs.readFileSync(path.join(WORKBENCH_ROOT, '工作台.json'), 'utf8')) || {}; }
   catch (e) { return {}; }
-})();
+}
 // ---- 个人站场景：官网静态服务（WORKBENCH_ROOT → http://127.0.0.1:SITE_PORT）----
 const SITE_DIR = WORKBENCH_ROOT;
 // 2026-10-22：第二个预览源——DSH 社区站（本地目录，静态服务用 /__community/ 前缀直出，
@@ -377,7 +377,8 @@ function resolveNodeExe() {
 //   来源优先级：工作台.json 的 engine.cliPath → 环境变量 DSH_CMD → 无。
 //   都没有时这一档直接跳过，回落「内置入口 / pnpm」。
 function findDshCmd() {
-  const fromManifest = MANIFEST && MANIFEST.engine && MANIFEST.engine.cliPath;
+  const manifest = readManifest();
+  const fromManifest = manifest.engine && manifest.engine.cliPath;
   if (fromManifest && fs.existsSync(fromManifest)) return fromManifest;
   if (process.env.DSH_CMD && fs.existsSync(process.env.DSH_CMD)) return process.env.DSH_CMD;
   return null;
@@ -620,7 +621,7 @@ function listScenarios() {
 function getScenario(id) {
   const f = path.join(SCENARIOS_DIR, id + '.json');
   if (!fs.existsSync(f)) return null;
-  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return null; }
+  try { return applySceneInstance(JSON.parse(fs.readFileSync(f, 'utf8')), readManifest()); } catch (e) { return null; }
 }
 
 // ---- 多公司模板支持：当前场景的 meta（可覆盖 SSH/服务/映射/日志/网址）----
@@ -1097,7 +1098,6 @@ ipcMain.handle('harness:url', () => {
   return token ? (BASE + '/?token=' + token) : (BASE + '/');
 });
 ipcMain.handle('harness:ready', () => engineIsForeign || !!harnessToken);
-
 // ---- IPC：版本信息（左上角品牌区悬停显示）----
 // 放主进程读的原因：版本号来自各处 package.json，渲染层没有文件系统权限；
 // 运行时版本（Electron / Chromium / Node）也只有主进程能一次拿全。
@@ -4177,9 +4177,9 @@ function topbarWorkbenchSessions() {
     for (const f of fs.readdirSync(dir)) {
       if (!f.endsWith('.json') || f.startsWith('_')) continue;
       let j = null;
-      try { j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch (e) { continue; }
+      try { j = applySceneInstance(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')), readManifest()); } catch (e) { continue; }
       for (const p of (Array.isArray(j.panels) ? j.panels : [])) {
-        if (p && p.sessionId) out.push({ scene: j.title || j.id || f, panel: p.title || p.id || '', sessionId: p.sessionId });
+        if (p && p.sessionId && p.sessionId !== '__待填__') out.push({ scene: j.title || j.id || f, panel: p.title || p.id || '', sessionId: p.sessionId });
       }
     }
   } catch (e) { /* ignore */ }

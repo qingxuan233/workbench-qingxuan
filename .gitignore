@@ -47,6 +47,9 @@ desktop.ini
 .vscode/
 .idea/
 
+# 会话交接件（SWITCHMAN 生成的本地中间态，不进仓）
+.dsh-switchman/
+
 # 临时产物与截图
 *.tmp
 *.bak

@@ -227,7 +227,8 @@ else {
   say('  1) 启动工作台：双击 12-源码照搬\\启动.bat（缺依赖时它会告诉你跑哪条命令）');
   say('  2) 打开「命令」场景 → 在 AI 面板点一下，会按当前工作区新建会话');
   say(`  3) 四个场景各开一次面板后，回来跑：node 工具\\实例化.mjs --apply`);
-  say('     （它把真实 sessionId 回填进场景 json，并把清单的 fresh 置为 false）');
-  say('  4) 再跑一次 node 工具\\体检.mjs —— 这时应该 13 绿、0 待办');
+  say('     （它把真实 sessionId 写进 工作台.json，并把清单的 fresh 置为 false；');
+  say('       场景 json 里的 sessionId 仍是 __待填__，真实 id 只存本机实例清单，不入库）');
+  say('  4) 再跑一次 node 工具\\体检.mjs —— 这时应该 15 绿、0 待办');
 }
 process.exit(failed ? 1 : 0);

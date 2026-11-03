@@ -1,0 +1,40 @@
+{
+  // 轻量类型检查：只给 工具/ 与 外壳/scripts/ 开 checkJs，
+  // 不生成任何文件（noEmit），不引入构建步骤，源码仍然直跑。
+  // 大文件（renderers.js / main.js / renderer.js 等）明确排除，避免把编辑器的
+  // 类型检查拖进几万行的历史代码。
+  "compilerOptions": {
+    "checkJs": true,
+    "noEmit": true,
+    "allowJs": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": false,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    // Node 类型来自外壳已安装的 Electron 依赖树，不额外装包
+    "typeRoots": ["./外壳/node_modules/@types"],
+    "types": ["node"]
+  },
+  "include": [
+    "工具/**/*.mjs",
+    "外壳/scripts/**/*.mjs",
+    "外壳/scripts/**/*.js"
+  ],
+  "exclude": [
+    "外壳/renderer/renderers.js",
+    "外壳/renderer/renderer.js",
+    "外壳/renderer/topbar-status.js",
+    "外壳/renderer/webai-bridge.js",
+    "外壳/renderer/sector-data.js",
+    "外壳/renderer/us-sector-data.js",
+    "外壳/main.js",
+    "外壳/preload.js",
+    "外壳/node_modules",
+    "外壳/data",
+    "外壳/captures",
+    "引擎数据",
+    "_临时"
+  ]
+}

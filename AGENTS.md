@@ -4,6 +4,11 @@
 > 你（Agent）被要求"在某台新机器上把这个工作台跑起来"时，按 §2 顺序执行；
 > 每条命令都给了**期望输出**，对不上就去 §5 查；§6 是脚本做不了、必须人做的三件事。
 
+> **main 分支定位**：可通用部署模板 + 通用迭代主干。
+> 只保留通用机制和四个基础场景（`命令`、`B站`、`自我复盘`、`本地电脑`）；
+> 本机绝对路径、真实会话 id、客户/个人项目记忆一律不入库——它们只放 `工作台.json` 与本机实例数据。
+> `work-dev` 这类个人场景在独立分支维护，不进 `main`。
+
 ---
 
 ## §0 事实表（先读，别猜）
@@ -13,14 +18,26 @@
 | 仓库 | `https://github.com/qingxuan233/workbench-qingxuan.git`，分支 `main` |
 | 应用根 | `<仓库>/12-源码照搬`（下称 `$APP`） |
 | 启动入口 | `$APP\启动.bat`（外层：`<仓库>\启动工作台.bat`） |
-| 四个场景（标题必须一字不差） | `命令`、`B站`、`自我复盘`、`本地电脑` |
-| 端口 | 引擎 `3083`（环境变量 `DSH_PORT`）、站点 `31238`（写死）、网页版 AI 桥 `31239`（`WEB_AI_PORT`） |
 | 实例清单 | `$APP\工作台.json` —— **不入库**，由 `初始化.mjs` 生成 |
 | 数据根 | `$APP\引擎数据\.dsh`（会话 / 工作区 / 场景记忆） |
 | 启动日志 | `$APP\外壳\data\startup.log`；外壳日志 `$APP\外壳\server.log` |
 | 运行时 | Windows 10/11；Node.js ≥ 18（建议 20/22）；DSH 引擎可选但 AI 面板需要 |
 
----
+场景/面板/端口的**唯一口径**是下面这段生成块（`场景校验.mjs --stamp` 写、`--check` 校验）；
+标题必须一字不差，否则 `实例化.mjs` 配不上会话。
+
+<!-- 场景事实表:开始（工具\场景校验.mjs --stamp 生成；勿手改） -->
+| 项 | 值 |
+|---|---|
+| 场景数 | 4 |
+| 场景（id → 标题） | `bilibili` → B站；`command` → 命令；`pc-cleanup` → 本地电脑；`self-review` → 自我复盘 |
+| 面板总数 | 13 |
+| AI 面板（harness） | 4 |
+| 首屏场景 | `command` |
+| 端口 | 引擎 `3083`（`DSH_PORT`）；站点 `31238`（写死）；网页版 AI 桥 `31239`（`WEB_AI_PORT`） |
+| 场景配置目录 | `12-源码照搬\外壳\scenarios` |
+<!-- 场景事实表:结束 -->
+
 
 ## §1 前置检查（不通就别往下走）
 
@@ -127,7 +144,7 @@ node 外壳\scripts\sessions.mjs --check
 | `node 外壳\scripts\check-gui.mjs` | `全部通过 ✓（warning N）` | warning 属正常（缺内置引擎） |
 | `node 外壳\scripts\sessions.mjs --check` | `场景↔会话对照检查通过 ✓ 共 4 个 AI 面板` | §3、§5-5 |
 | 界面 | 四个场景的 AI 面板标题行都显示 `✓ 已钉绑定` | §5-5 |
-| 工具面板（顶栏） | `43 个工具` | 清单缺失见 §5-7 |
+| 工具面板（顶栏） | `47 个工具` | 清单缺失见 §5-7 |
 
 ---
 
@@ -223,3 +240,30 @@ human_required:
   - 网页版 AI 五站各登录一次
   - node 外壳/scripts/pc-scan.mjs 跑一次
 ```
+
+---
+
+## §10 提交前红线闸（可选启用）
+
+```powershell
+# 推荐：保留仓库现有的 .git/hooks/reference-transaction 上游闸，只补 pre-commit
+Copy-Item .githooks\pre-commit .git\hooks\pre-commit
+
+# 如果你确实要用 core.hooksPath，必须同时把上游闸放进 .githooks，
+# 否则 reference-transaction 不再生效（Git 只会读 core.hooksPath 指向的目录）：
+# git config core.hooksPath .githooks
+```
+
+`验收.mjs` 串行六步：编码检查 → 体检自检 → 身份索引 → 发布前检查（template · 仅
+`git ls-files` 清单 + 暂存新增）→ 场景校验 → 代码红线。第 4 步不看磁盘上的实例文件，
+只看「会被提交的文件」，所以 `工作台.json`、真实会话 id、本机绝对路径蒙混不过去。
+
+场景事实表（本文档 §0 的生成块）由 `node 12-源码照搬\工具\场景校验.mjs --stamp` 生成，
+不要手改标记区块内的行；`--check` 发现与场景 json 不一致会直接失败。
+
+体量红线：`node 12-源码照搬\工具\代码红线.mjs --check`（新文件 ≤800 行；存量
+超大文件只许变短；源码里禁止新增盘符硬编码、真实会话 id 与 eval）。
+
+> 模板/实例真值口径：`scenarios\*.json` 只写 `sessionId: "__待填__"`，真实会话 id
+> 只存 `工作台.json`；`main.js` 运行时叠加。提交前闸只扫已跟踪文件，所以实例文件
+> 不参与；但一旦真实 id / 本机路径被写进模板文件，闸会红。
