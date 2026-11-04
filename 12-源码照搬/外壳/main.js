@@ -35,8 +35,7 @@ const HARNESS_DIR = (function () {
 })();
 const NPM_BIN = path.join(os.homedir(), 'AppData', 'Roaming', 'npm');
 const PNPM_CMD = path.join(NPM_BIN, 'pnpm.cmd');
-const LOG_FILE = path.join(__dirname, 'server.log');
-const LOG_PREV = path.join(__dirname, 'server.log.prev');
+const LOG_FILE = path.join(__dirname, 'server.log'); const LOG_PREV = path.join(__dirname, 'server.log.prev');
 const LOG_MAX_BYTES = 4 * 1024 * 1024;   // 超过 4MB 就轮转，只留上一份（见 rotateLog）
 
 // ---- 日志轮转：日志只增不减会把根目录搞得乱七八糟（曾经涨到 3MB+ 且没有上限）----
@@ -719,7 +718,7 @@ function startSiteServer() {
       let rel = u.replace(/^\/__community\/?/, '');
       if (!rel) rel = 'index.html';
       let cp = path.normalize(path.join(cRoot, rel));
-      if (!cp.startsWith(cRoot)) { res.writeHead(403); res.end('forbidden'); return; }
+      if (!cp.startsWith(cRoot) || memGuard.sitePathForbidden(cRoot, cp)) { res.writeHead(403); res.end('forbidden'); return; }
       if (fs.existsSync(cp) && fs.statSync(cp).isDirectory()) cp = path.join(cp, 'index.html');
       if (!fs.existsSync(cp)) { res.writeHead(404); res.end('not found'); return; }
       fs.readFile(cp, function (err, data) {
@@ -732,7 +731,7 @@ function startSiteServer() {
     }
     if (!hasSite) { res.writeHead(404); res.end('no-site'); return; }
     let p = path.normalize(path.join(SITE_ROOT, u === '/' ? 'index.html' : u));
-    if (!p.startsWith(SITE_ROOT)) { res.writeHead(403); res.end('forbidden'); return; }
+    if (!p.startsWith(SITE_ROOT) || memGuard.sitePathForbidden(SITE_ROOT, p)) { res.writeHead(403); res.end('forbidden'); return; }
     if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) p = path.join(SITE_ROOT, 'index.html');
     fs.readFile(p, function (err, data) {
       if (err) { res.writeHead(404); res.end('not found'); return; }

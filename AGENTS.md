@@ -178,6 +178,13 @@ node 外壳\scripts\sessions.mjs --check
    判据：`startup.log` 里 `[skip] port 3083 already listening`，或第二个进程秒退。
    修：先关掉旧的；确实要并存，用**环境变量**换端口（见 §8）。
 
+9. **GPU 进程反复崩溃 / 内嵌网页视频发涩**（环境问题，代码只能兜底）
+   判据：`外壳\data\crash-log.jsonl` 里多条 `"type":"GPU","reason":"crashed","exitCode":34`。
+   原因：本机显卡驱动/安全软件与 Chromium GPU 沙箱不兼容（与「沙箱初始化失败 0x80000003、
+   只能走 `--no-sandbox` 兼容模式」同源）。应用侧已自动降级，建议：更新显卡驱动 /
+   把工作台目录加入安全软件白名单 / 关掉第三方硬件加速工具。
+   注：`--disable-gpu` 实测**不能**解决网页版 AI 的内存问题（那是 `theme-sync.js` 的事，已修）。
+
 ---
 
 ## §6 脚本做不了、必须人做的三件事

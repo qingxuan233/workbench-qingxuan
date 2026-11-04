@@ -18274,7 +18274,23 @@ renderers['review-doc'] = function (body, meta, head) {
           delete w.__dshParked;
         }
       });
+      // 2026-11-04：离开场景视图（切到 DSH 引擎页）超过 3 秒 ⇒ **真正释放**面板：
+      //   display:none 不会销毁独立 guest，实测连切 5 个场景后常驻 +150~960MB。
+      //   场景标签再点回来时 loadScenario 会整页重建 ⇒ 这里清理不会多丢状态。
+      if (hide) {
+        if (releaseTimer) return;
+        releaseTimer = setTimeout(function () {
+          releaseTimer = null;
+          try {
+            if (host.classList.contains('active')) return;      // 又切回去了
+            if (window.__dshUnloadScenario) window.__dshUnloadScenario();
+            each(function (w) { try { w.remove(); } catch (e) { /* ignore */ } });
+            if (window.console && console.info) console.info('[park] 场景视图已释放（离开 >3s）：webview 与面板定时器已清理');
+          } catch (e) { /* ignore */ }
+        }, 3000);
+      } else if (releaseTimer) { clearTimeout(releaseTimer); releaseTimer = null; }
     }
+    var releaseTimer = null;
     function sync() { park(!host.classList.contains('active')); }
 
     // ① 视图切换：盯 #scenario-view 的 class

@@ -10,8 +10,7 @@
 // 避免与 renderers.js 里的 el/makePanel/... 顶层声明冲突。
 'use strict';
 
-const kUtils = () => window.APP_RENDER_UTILS;
-const kRender = () => window.APP_RENDERERS || {};
+const kUtils = () => window.APP_RENDER_UTILS; const kRender = () => window.APP_RENDERERS || {};
 const mkEl = (tag, cls, text) => kUtils().el(tag, cls, text);
 const mkPanel = (meta, idx) => kUtils().makePanel(meta, idx);
 
@@ -933,6 +932,7 @@ function initBoot() {
 // 场景隔离：每次切换场景时，先销毁上一个场景所有面板的后台任务（定时器/网络预载/扫描），
 // 再渲染新场景；面板渲染函数可返回 cleanup 函数，由这里统一调用。
 let activeCleanups = [];
+window.__dshUnloadScenario = function () { activeCleanups.forEach(function (f) { try { f(); } catch (e) { /* ignore */ } }); activeCleanups = []; try { grid.innerHTML = ''; } catch (e) { /* ignore */ } };   // 2026-11-04 切到 DSH 页 3s 后由 renderers.js 调用，真正释放场景面板
 // ---- 多窗口（场景分离）状态 ----
 // 本窗口是不是「场景分离窗口」：主进程 loadFile 时带了 ?solo=1&scene=<id>
 const soloSceneId = (function () {

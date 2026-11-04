@@ -186,6 +186,24 @@ function installWebviewHygiene(app, log) {
   } catch (e) { /* ignore */ }
 }
 
+// ⑧ 31238 静态服务路径防护（2026-11-04 安全项）：
+//    原实现把整个应用根（12-源码照搬）当 HTTP 根 ⇒ 本机任意进程都能读
+//    引擎数据\.dsh\.credentials.yaml、sessions、外壳\node_modules、工作台.json、server.log 等。
+//    这里按"段/模式"黑名单拒绝；只放行官网类静态文件（本模板里实际只有 /chat 与 Blender 帧在用）。
+const SITE_DENY_SEG = new Set(['node_modules', '.git', '引擎数据', '外壳', '工具', '说明', '发布', '_临时', '诊断-内存']);
+function sitePathForbidden(root, p) {
+  try {
+    const rel = path.relative(root, p).replace(/\\/g, '/');
+    if (!rel || rel === '.' || rel.startsWith('..')) return true;
+    for (const s of rel.split('/')) {
+      if (SITE_DENY_SEG.has(s)) return true;
+      if (s.startsWith('.')) return true;                       // 隐藏文件/目录（.env、.gitignore、.credentials…）
+    }
+    if (/\.credentials|\.env$|(^|\/)工作台\.json$|(^|\/)server\.log(\.prev)?$/i.test(rel)) return true;
+    return false;
+  } catch (e) { return true; }
+}
+
 // 启动前一次性安装（main.js 只调这一个，保持 main.js 行数不增长）
 function install(app, log) {
   installCommandLine(app);
@@ -196,6 +214,7 @@ module.exports = {
   install: install,
   installCommandLine: installCommandLine,
   installWebviewHygiene: installWebviewHygiene,
+  sitePathForbidden: sitePathForbidden,
   injectShotOn: injectShotOn,
   injectCount: injectCount,
   maybeShot: maybeShot,
