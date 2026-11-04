@@ -3,7 +3,8 @@
   "private": true,
   "dependencies": {
     "@deepseek-ai/dsh-subagent-claude-code": "0.2.1-rc.5",
-    "@deepseek-ai/dsh-subagent-codex": "0.2.1-rc.5"
+    "@deepseek-ai/dsh-subagent-codex": "0.2.1-rc.5",
+    "dsh-atn": "file:E:/git_code/DeepSeek Harness/dsh-ATN/.artifacts/dsh-atn-0.6.3.tgz"
   },
   "dsh": {
     "profile": {
@@ -20,7 +21,8 @@
         "@deepseek-ai/dsh-experimental-ralph-bundle",
         "@deepseek-ai/dsh-experimental-plugin-market-bundle",
         "@deepseek-ai/dsh-subagent-claude-code",
-        "@deepseek-ai/dsh-experimental-session-titles-bundle"
+        "@deepseek-ai/dsh-experimental-session-titles-bundle",
+        "dsh-atn"
       ]
     }
   }

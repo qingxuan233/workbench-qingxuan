@@ -51,16 +51,10 @@ function hotReloadRenderers() {
     const css = document.querySelector('link[href*="styles.css"]');
     if (css) css.href = './styles.css?t=' + Date.now();
   } catch (e) { /* ignore */ }
-  // 板块数据（sector-data.js / us-sector-data.js）也热重载：
-  // 两文件已改 var 声明，重复加载不报错；renderers.js 在其后执行，能读到新数据
   try {
     ['sector-data.js', 'us-sector-data.js'].forEach(name => {
       const old = document.querySelector('script[data-hr="' + name + '"]');
-      if (old) old.remove();
-      const s = document.createElement('script');
-      s.src = './' + name + '?t=' + Date.now();
-      s.dataset.hr = name;
-      document.head.appendChild(s);
+      if (old) { old.remove(); const s = document.createElement('script'); s.src = './' + name + '?t=' + Date.now(); s.dataset.hr = name; document.head.appendChild(s); }
     });
   } catch (e) { /* ignore */ }
   return new Promise((resolve) => {
@@ -969,6 +963,7 @@ function detachedCard(sc) {
 async function loadScenario(id) {
   activeCleanups.forEach(fn => { try { fn(); } catch (e) { /* ignore */ } });
   activeCleanups = [];
+  try { if (window.APP_PANEL_REGISTRY) window.APP_PANEL_REGISTRY.pauseScene(activeScenarioId); } catch (e) {}
   const sc = await window.app.getScenario(id);
   if (!sc) return;
   // 场景可自定网格列数（`cols`，默认 4 = styles.css 里 #grid 的列数）。放在前面算，是因为下面"独立窗口占位卡"
@@ -1021,6 +1016,7 @@ async function loadScenario(id) {
   // 否则"这块放不下就往下挪"会在半路留出一大块空洞，还把网格行数撑多、把所有面板一起压扁（2026-09-26 用户截图）。
   try { if (kUtils().packAutoGrid) kUtils().packAutoGrid(grid); } catch (e) { /* ignore */ }
   applyBadges();
+  try { if (window.APP_PANEL_REGISTRY) window.APP_PANEL_REGISTRY.resumeScene(id); } catch (e) {}
 }
 
 // 渲染层兜底：任何一步失败都在界面上留痕，不出现"窗口开了但空白、还不知道为啥"
@@ -1174,7 +1170,7 @@ async function init() {
   // 命令（command，2026-10-26）：迷你神经元网（6 蓝节点 + 1 琥珀核心 + 连线）—— 与 renderers.js 的 SCENARIO_ICONS['command'] 同一份。
   const NEURON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.7 4.5 8 2.9l4.4 1.7M3 8.4l.7-3.9M8 2.9l.4 5.2M12.4 4.6 8.4 8.1M8.4 8.1l3.8 3.4M8.4 8.1l-3.8 4.1M3 8.4l5.4-.3" stroke="#8fb4ff" stroke-width=".85" stroke-linecap="round" opacity=".6"/><circle cx="3.7" cy="4.5" r="1.45" fill="#8fb4ff"/><circle cx="8" cy="2.9" r="1.15" fill="#8fb4ff" opacity=".85"/><circle cx="12.4" cy="4.6" r="1.25" fill="#8fb4ff"/><circle cx="3" cy="8.4" r="1.05" fill="#8fb4ff" opacity=".8"/><circle cx="8.4" cy="8.1" r="1.85" fill="#f0a35e"/><circle cx="12.2" cy="11.5" r="1.15" fill="#8fb4ff" opacity=".85"/><circle cx="4.6" cy="12.2" r="1.05" fill="#8fb4ff" opacity=".8"/></svg>';
   const ICONS = {
-  'bilibili': 'assets/bilibili-icon.png',
+    'webai': '🌐', 'bilibili': 'assets/bilibili-icon.png',
     'douyin': 'assets/douyin-icon.png',   // 2026-10-26 宿主新建「刷抖音」场景（抖音官方 favicon）   // 2026-10-19 宿主新建「B站」场景（官方 favicon.svg）
     'harness': 'assets/deepseek-whale.png',
     'oa-ops': 'data:image/svg+xml;utf8,' + encodeURIComponent(SERVER_SVG),  // 服务器图标（原为云朵 ☁️）

@@ -9,12 +9,20 @@ const http = require('http'); const net = require('net');
 const path = require('path'); const { applySceneInstance } = require('../工具/_场景绑定.js');
 const sceneStore = require('./main/scenes');
 const inventory = require('./main/inventory');
+const ipcGuard = require('./main/ipc-guard');
+const coreWindow = require('./main/core-window');
+const engineGuard = require('./main/engine-guard');
+const systemIo = require('./main/system-io');
+const legacyServices = require('./main/legacy-services');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
 
 const DSH_PORT = String(process.env.DSH_PORT || '3083');
-const BASE = 'http://127.0.0.1:' + DSH_PORT;
+const EFFECTIVE_DSH_PORT = String(process.env.DSH_PORT || (function () {
+  try { const m = readManifest(); return m && m.dshPort ? String(m.dshPort) : ''; } catch (e) { return ''; }
+})() || DSH_PORT);
+const BASE = 'http://127.0.0.1:' + EFFECTIVE_DSH_PORT;
 // 客户包：把外壳目录暴露给 preload / renderer（读 data\boot-animation.json 用）
 process.env.DSH_SHELL_DIR = __dirname;
 
@@ -276,10 +284,10 @@ function probe() {
 
 // 从 dsh web 输出中解析 token 与完整 URL
 function captureToken(text) {
-  const m = String(text).match(new RegExp('http:\\/\\/127\\.0\\.0\\.1:' + DSH_PORT + '\\/\\?token=([A-Za-z0-9_\\-]+)'));
-  if (m && m[1]) {
-    harnessToken = m[1];
-    log('[token] captured: ' + m[1]);
+  const m = String(text).match(/http:\/\/127\.0\.0\.1:(\d+)\/\?token=([A-Za-z0-9_\-]+)/);
+  if (m && m[2]) {
+    harnessToken = m[2];
+    log('[token] captured: ' + m[2]);
   }
 }
 
@@ -312,18 +320,11 @@ function dshHomeDir() {
 function serverSpawnEnv() {
   const env = Object.assign({}, process.env);
   env.Path = NPM_BIN + ';' + (env.Path || '');
-  // DSH_HOME 显式指向独立数据目录（数据盘隔离：会话/存储/缓存绝不落 C 盘）。
-  // 不设置的话 dsh 默认用 用户目录\.dsh，导致历史会话在界面里"消失"。
   env.DSH_HOME = dshHomeDir();
-  // 2026-11-01：引擎默认是受限模式，导致命令类工具全废。
-  //   dsh 的 web profile 里写死了 `mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'`，
-  //   而 Windows 的受限沙箱里，凡是要起子进程的工具（psh / glob / grep …）一律 EPERM：
-  //     mkdtemp 'C:\Users\...\Temp\dsh-subprocess-XXXXXX'、ripgrep launch failed
-  //   工作台等于不能干活。这是单机个人工具，默认给完全权限；想收回去就自己设 DSH_PERMISSION_MODE。
+  env.DSH_CUSTOMER_HOME = env.DSH_HOME;
+  env.DSH_PORT = EFFECTIVE_DSH_PORT;
   if (!env.DSH_PERMISSION_MODE) env.DSH_PERMISSION_MODE = 'danger-full-access';
-  // 2026-11-01：引擎在用户 %TEMP% 里建临时目录会被拦（EPERM）。实测同一个 exe 从普通命令行跑却正常，
-  //   说明是安全软件那一类按进程拦截，不是权限本身的问题（用户对 %TEMP% 是 FullControl）。
-  //   所以不去动系统环境变量（影响全局、还要重启），只把引擎这个进程的 TEMP/TMP 指到工作台自己的目录。
+  env.PYTHONIOENCODING = 'utf-8';
   const tmpDir = path.join(__dirname, 'data', 'temp');
   try { fs.mkdirSync(tmpDir, { recursive: true }) } catch (e) { log('[boot] 建临时目录失败: ' + (e && e.message)) }
   env.TEMP = tmpDir;
@@ -395,14 +396,14 @@ function findDshCmd() {
 function spawnServerDshCmd() {
   const dshCmd = findDshCmd();
   const env = serverSpawnEnv();
-  log('[boot] dsh.cmd: ' + dshCmd + ' web --no-open --port ' + DSH_PORT);
+  log('[boot] dsh.cmd: ' + dshCmd + ' web --no-open --port ' + EFFECTIVE_DSH_PORT);
   // ⚠ cwd 必须是一个**存在**的目录：之前用 HARNESS_DIR（引擎\，模板里并不存在），
   //   spawn 会异步抛 ENOENT；wireServerProc 没挂 error 监听 ⇒ 走 uncaughtException 弹致命框。
   //   工作台根一定存在，且 dsh CLI 不依赖 cwd，故用它。
   // ⚠ 不要在参数里手写引号：Node 在 Windows 上会把带空格的参数再转义一层，
   //   cmd 收到的是 \"D:\...dsh.cmd\" 这种带反斜杠的串 ⇒ 报「不是内部或外部命令」。
   //   交给 Node 自动加引号即可（真实事故，2026-11-01）。
-  const proc = spawn('cmd.exe', ['/c', dshCmd, 'web', '--no-open', '--port', DSH_PORT], {
+  const proc = spawn('cmd.exe', ['/c', dshCmd, 'web', '--no-open', '--port', EFFECTIVE_DSH_PORT], {
     cwd: WORKBENCH_ROOT,
     env: env,
     windowsHide: true,
@@ -428,12 +429,12 @@ function spawnServerDirect() {
   let cmd, args;
   if (nodeExe) {
     cmd = nodeExe;
-    args = [CLI_BUILT, 'web', '--no-open', '--port', DSH_PORT];
+    args = [CLI_BUILT, 'web', '--no-open', '--port', EFFECTIVE_DSH_PORT];
   } else {
     // Electron 二进制以纯 Node 运行（内置 Node 24.18，满足 engines 要求）
     env.ELECTRON_RUN_AS_NODE = '1';
     cmd = process.execPath;
-    args = [CLI_BUILT, 'web', '--no-open', '--port', DSH_PORT];
+    args = [CLI_BUILT, 'web', '--no-open', '--port', EFFECTIVE_DSH_PORT];
   }
   log('[boot] direct: ' + cmd + ' ' + args.join(' '));
   return wireServerProc(spawn(cmd, args, {
@@ -446,7 +447,7 @@ function spawnServerDirect() {
 
 // 方式二（兜底）：原来的 pnpm 脚本（走 tsx 实时转译，慢但兼容性最好）
 function spawnServerPnpm() {
-  return wireServerProc(spawn('cmd.exe', ['/c', PNPM_CMD + ' dsh web --no-open --port ' + DSH_PORT], {
+  return wireServerProc(spawn('cmd.exe', ['/c', PNPM_CMD + ' dsh web --no-open --port ' + EFFECTIVE_DSH_PORT], {
     cwd: engineCwd(),
     env: serverSpawnEnv(),
     windowsHide: true,
@@ -507,7 +508,7 @@ async function startServer() {
   const plans = [];
   const dshCmd = findDshCmd();
   if (dshCmd) {
-    plans.push({ label: 'DSH 官方 CLI', detail: 'dsh.cmd web --no-open --port ' + DSH_PORT, spawn: spawnServerDshCmd, budget: 45 });
+    plans.push({ label: 'DSH 官方 CLI', detail: 'dsh.cmd web --no-open --port ' + EFFECTIVE_DSH_PORT, spawn: spawnServerDshCmd, budget: 45 });
   }
   if (CLI_BUILT && fs.existsSync(CLI_BUILT)) {
     plans.push({ label: '内置入口', detail: 'apps/cli/lib/bin.js（跳过 pnpm / tsx）', spawn: spawnServerDirect, budget: 45 });
@@ -1324,145 +1325,8 @@ ipcMain.handle('app:reveal-path', (e, target) => {
   } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
 });
 
-// ---- 宿主通用能力：读写文本文件（2026-09-20 加，给「预览面板 / 流程画布节点」用）----
-// 为什么必须放主进程：渲染层在 file:// 下拿不到任意路径的文件内容（fetch 被禁、<webview> 只能看不能存），
-// 而"画布上一个节点 = 一个真实文件（文案.md / 字幕.srt …）"这套玩法必须能读、能改、能存。
-// 规矩：① 读任意存在的文件，但限大小（4 MB 以内，再大不给编辑器看）；
-//       ② **写只允许 <盘根>:\ 或 <盘根>:\**（本机铁律：产物/素材不进 C 盘）；
-//       ③ 先写 <文件>.kun-tmp 再改名覆盖 —— 避免写一半失败留下半个文件（原文件永远还在）。
-// 面板侧封装：preload 暴露成 app.file.{read,write,stat}；没有这个接口 = 主进程还没重启过。
-const FILE_TEXT_MAX = 4 * 1024 * 1024;
-ipcMain.handle('kun:file:stat', async (e, p) => {
-  const t = String(p || '');
-  if (!t) return { ok: false, err: 'empty' };
-  try {
-    const st = await fs.promises.stat(t);
-    return { ok: true, exists: true, isDir: st.isDirectory(), size: st.size, mtime: Math.floor(st.mtimeMs / 1000) };
-  } catch (ex) {
-    return { ok: true, exists: false, isDir: false, size: 0, mtime: 0 };
-  }
-});
-ipcMain.handle('kun:file:read', async (e, p) => {
-  const t = String(p || '');
-  if (!t) return { ok: false, err: 'empty' };
-  try {
-    const st = await fs.promises.stat(t);
-    if (st.isDirectory()) return { ok: false, err: '这是文件夹，不是文件' };
-    if (st.size > FILE_TEXT_MAX) return { ok: false, err: '文件太大（' + (st.size / 1048576).toFixed(1) + ' MB），编辑器只开到 4 MB' };
-    const text = await fs.promises.readFile(t, 'utf8');
-    return { ok: true, path: t, text: text, size: st.size, mtime: Math.floor(st.mtimeMs / 1000) };
-  } catch (ex) { return { ok: false, err: '读不到：' + String((ex && ex.message) || ex) }; }
-});
-ipcMain.handle('kun:file:write', async (e, p, text) => {
-  const t = String(p || '');
-  if (!t) return { ok: false, err: 'empty' };
-  if (!/^[DE]:[\\/]/i.test(t)) return { ok: false, err: '只允许写到 D: 或 E: 盘：' + t };
-  try {
-    await fs.promises.mkdir(path.dirname(t), { recursive: true });
-    const tmp = t + '.kun-tmp';
-    await fs.promises.writeFile(tmp, String(text == null ? '' : text), 'utf8');
-    await fs.promises.rename(tmp, t);
-    const st = await fs.promises.stat(t);
-    return { ok: true, path: t, size: st.size, mtime: Math.floor(st.mtimeMs / 1000) };
-  } catch (ex) { return { ok: false, err: '写不了：' + String((ex && ex.message) || ex) }; }
-});
-// ---- 宿主通用能力：选文件夹（2026-09-23 加，画布节点的「生成路径（文件夹）」用）----
-// 走系统对话框（openDirectory + createDirectory，可现场新建文件夹）：返回选中的文件夹绝对路径，取消返回 null。
-// 按发起方窗口寻址（分离窗口也能用），拿不到就退回主窗口。
-ipcMain.handle('kun:pick-folder', async (e) => {
-  const win = windowOfEvent(e) || mainWindow;
-  if (!win) return null;
-  try {
-    const r = await dialog.showOpenDialog(win, {
-      title: '选择生成路径（文件夹）',
-      buttonLabel: '选这个文件夹',
-      properties: ['openDirectory', 'createDirectory']
-    });
-    if (r.canceled || !r.filePaths || !r.filePaths.length) return null;
-    return r.filePaths[0];
-  } catch (ex) { return null; }
-});
-// ---- 宿主通用能力：选具体文件（2026-09-23 第十一轮加，参考素材节点的「路径」用）----
-// 与 pick-folder 对称：openFile，返回选中的文件绝对路径，取消返回 null。
-ipcMain.handle('kun:pick-file', async (e) => {
-  const win = windowOfEvent(e) || mainWindow;
-  if (!win) return null;
-  try {
-    const r = await dialog.showOpenDialog(win, {
-      title: '选择素材文件',
-      buttonLabel: '选这个文件',
-      properties: ['openFile']
-    });
-    if (r.canceled || !r.filePaths || !r.filePaths.length) return null;
-    return r.filePaths[0];
-  } catch (ex) { return null; }
-});
-// ---- 独立窗口置顶（2026-09-23 第十一轮）：分离窗口顶部菜单栏的「📌 置顶」按钮用 ----
-// win.setAlwaysOnTop(true/false)：窗口浮在最上层，缩小独立窗口后点主窗口/其它页面也不被遮挡。
-ipcMain.handle('kun:set-always-on-top', (e, flag) => {
-  const win = windowOfEvent(e);
-  if (!win || win.isDestroyed()) return { ok: false };
-  try {
-    win.setAlwaysOnTop(!!flag);
-    return { ok: true, on: !!flag };
-  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-
-// ---- 宿主通用能力：看本机某个端口在不在（2026-09-20 加，流程画布的「工具节点」状态点用）----
-// 为什么用 TCP connect 而不是像 site:probe 那样发 HTTP：
-//   ① 节点只需要"在不在跑"这一个事实，不需要页面内容；
-//   ② ComfyUI 控制台(8189)/工作台(8188) 都是本机 HTTP 服务，端口连得上 = 已经起来了；
-//   ③ HTTP 要等响应头，TCP 握手一成功就能返回，红点（没运作）也不会拖到几秒。
-// 两个坑写在这儿免得以后又踩：
-//   ① 本机开着 360 主动防御时，"连一个没人听的端口"要 ~2 秒才回（不是我们的锅，是它拦了一下），
-//      所以默认超时压到 1200 ms，并且**永远 resolve、从不 reject** —— 面板要的是"当前状态"而非异常；
-//   ② 只探测、不读也不写，参数校验到"是个端口号"为止（面板传的是场景里写死的本机端口）。
-// ================= 本地电脑场景（原名电脑清理，2026-10-06 立）：本机磁盘分区容量 =================
-// 用 Node 的 fs.statfsSync 只读算每个分区的总量/剩余（C/D/E/F；不存在的盘给 ok:false 而不是抛错）。
-// 只读、只返回数字、不执行任何命令 —— 面板 renderers['pc-drives'] 每 10 秒调一次。
-// ⚠ 这段在**主进程**里 ⇒ 改完要重启一次 GUI 才生效（面板本身是热更新的）。
-ipcMain.handle('kun:sys:disks', () => {
-  const drives = ['C', 'D', 'E', 'F'].map((letter) => {
-    const root = letter + ':\\';
-    const row = { drive: letter + ':', ok: false, total: 0, free: 0, used: 0, percent: 0, err: '' };
-    try {
-      const st = fs.statfsSync(root);
-      const bsize = Number(st.bsize) || 0;
-      const total = Number(st.blocks) * bsize;
-      const free = Number(st.bavail) * bsize;
-      if (!total) throw new Error('no-blocks');
-      row.ok = true;
-      row.total = total; row.free = free; row.used = Math.max(0, total - free);
-      row.percent = Math.round(row.used / total * 1000) / 10;
-    } catch (e) { row.err = (e && (e.code || e.message)) || 'unavailable'; }
-    return row;
-  });
-  return { ok: true, at: Date.now(), drives };
-});
-ipcMain.handle('kun:net:probe', (e, host, port, timeoutMs) => {
-  const h = String(host || '127.0.0.1');
-  const p = Number(port) || 0;
-  const wait = Math.max(120, Math.min(5000, Number(timeoutMs) || 1200));
-  if (!p || p < 1 || p > 65535) return { ok: false, err: '端口不对：' + String(port) };
-  return new Promise((resolve) => {
-    const t0 = Date.now();
-    let sock = null, done = false;
-    const fin = (open) => {
-      if (done) return;
-      done = true;
-      try { if (sock) sock.destroy(); } catch (x) { /* ignore */ }
-      resolve({ ok: true, host: h, port: p, open: !!open, ms: Date.now() - t0 });
-    };
-    const timer = setTimeout(() => fin(false), wait);
-    try {
-      sock = require('net').connect({ host: h, port: p });
-      sock.setTimeout(wait);
-      sock.on('connect', () => { clearTimeout(timer); fin(true); });
-      sock.on('timeout', () => { clearTimeout(timer); fin(false); });
-      sock.on('error', () => { clearTimeout(timer); fin(false); });
-    } catch (ex) { clearTimeout(timer); fin(false); }
-  });
-});
+// ---- 宿主通用能力与系统 I/O 已抽离至 main/system-io.js ----
+systemIo.setupSystemIO(ipcMain, { windowOfEvent, getMainWindow: () => mainWindow, logger: log });
 
 // ---- 个人站场景 IPC：官网预览地址 / 官网结构化信息 ----
 ipcMain.handle('site:preview', () => ({
@@ -1733,1206 +1597,13 @@ ipcMain.handle('kun:file:toPdf', function (e, p) {
   return officeToPdf(t);
 });
 
-// ================= Blender 场景（独立命名空间 app.blender，不读其它场景数据） =================
-let blenderCapProc = null;   // 抓帧子进程（blender-capture.ps1 循环）
+function stopBlenderCapture() {}
 
-// Blender 是否在运行（按进程名判断，不依赖窗口）；tasklist 是同步调用，加 4 秒缓存避免卡主进程
-let blenderRunCache = { at: 0, v: false };
-function blenderRunning() {
-  const now = Date.now();
-  if (now - blenderRunCache.at < 4000) return blenderRunCache.v;
-  let v = false;
-  try {
-    const r = spawnSync('tasklist', ['/FI', 'IMAGENAME eq blender.exe', '/NH'], { windowsHide: true, encoding: 'utf8' });
-    v = String((r && r.stdout) || '').toLowerCase().indexOf('blender.exe') >= 0;
-  } catch (e) { v = false; }
-  blenderRunCache = { at: now, v: v };
-  return v;
-}
+function releaseBlenderEmbedSync() {}
 
-// Blender 进程 PID 列表（关闭时用；同样走 tasklist，避免额外依赖）
-function blenderPidList() {
-  const pids = [];
-  try {
-    const r = spawnSync('tasklist',
-      ['/FI', 'IMAGENAME eq blender.exe', '/FO', 'CSV', '/NH'],
-      { windowsHide: true, encoding: 'utf8' });
-    String((r && r.stdout) || '').split(/\r?\n/).forEach(function (line) {
-      const m = line.match(/"blender\.exe","(\d+)"/i);
-      if (m) pids.push(parseInt(m[1], 10));
-    });
-  } catch (e) { /* ignore */ }
-  return pids;
-}
-// 抓帧进程：持续把 Blender 窗口画面写成 JPEG（被 GUI 遮挡也能抓到）
-function startBlenderCapture() {
-  if (blenderCapProc && blenderCapProc.exitCode === null) return true;
-  if (!fs.existsSync(BLENDER_CAPTURE_PS)) { log('[blender] 抓帧脚本缺失: ' + BLENDER_CAPTURE_PS); return false; }
-  // 收掉上一轮遗留的抓帧进程：脚本会把自己的 PID 写进 pid 文件，而 GUI 关闭时
-  // 子进程不会跟着死（Windows 上父进程退出不杀子进程）。不收的话每重启一次 GUI
-  // 就多一个进程抢写同一张 JPEG，实测曾累积到 6 个。
-  try {
-    if (fs.existsSync(BLENDER_CAPTURE_PID)) {
-      const oldPid = parseInt(fs.readFileSync(BLENDER_CAPTURE_PID, 'utf8').trim(), 10);
-      if (oldPid > 0) {
-        spawnSync('taskkill', ['/pid', String(oldPid), '/T', '/F'], { windowsHide: true });
-        log('[blender] 已收掉遗留抓帧进程 pid=' + oldPid);
-      }
-    }
-  } catch (e) { /* ignore */ }
-  try {
-    blenderCapProc = spawn('powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', BLENDER_CAPTURE_PS],
-      { windowsHide: true, stdio: 'ignore' });
-    blenderCapProc.on('exit', function (code) { log('[blender] 抓帧进程退出 code=' + code); blenderCapProc = null; });
-    log('[blender] 抓帧进程已启动');
-    return true;
-  } catch (e) {
-    log('[blender] 抓帧启动失败: ' + ((e && e.message) || e));
-    return false;
-  }
-}
-function stopBlenderCapture() {
-  if (!blenderCapProc) return;
-  try { spawnSync('taskkill', ['/pid', String(blenderCapProc.pid), '/T', '/F'], { windowsHide: true }); } catch (e) { /* ignore */ }
-  blenderCapProc = null;
-}
-function readBlenderMeta() {
-  try {
-    const raw = fs.readFileSync(BLENDER_LIVE_META, 'utf8').replace(/^\uFEFF/, '');
-    return JSON.parse(raw);
-  } catch (e) { return null; }
-}
-// MCP 端口是否在监听（Blender 插件里的 socket 服务，AI 助手靠它操作 Blender）
-// 用异步 TCP 连接探测（不 spawn 进程，不阻塞主进程），结果缓存 4 秒
-let mcpCache = { at: 0, v: false };
-function checkMcpPort(cb) {
-  const now = Date.now();
-  if (now - mcpCache.at < 4000) { cb(mcpCache.v); return; }
-  let done = false;
-  const finish = (v) => {
-    if (done) return;
-    done = true;
-    mcpCache = { at: Date.now(), v: v };
-    try { sock.destroy(); } catch (e) { /* ignore */ }
-    cb(v);
-  };
-  const sock = net.connect({ host: '127.0.0.1', port: BLENDER_MCP_PORT });
-  sock.setTimeout(600);
-  sock.on('connect', () => finish(true));
-  sock.on('timeout', () => finish(false));
-  sock.on('error', () => finish(false));
-}
+// 历史股票与 OA 业务已抽离至 main/legacy-services.js
 
-// 状态查询：是否运行 / 抓帧是否在跑 / 画面帧信息 / MCP 端口
-ipcMain.handle('blender:state', (e, opts) => new Promise((resolve) => {
-  if (!opts || opts.capture !== false) startBlenderCapture();
-  checkMcpPort(function (mcp) {
-    const st = fs.existsSync(BLENDER_LIVE_JPG) ? fs.statSync(BLENDER_LIVE_JPG) : null;
-    resolve({
-      running: blenderRunning(),
-      capturing: !!(blenderCapProc && blenderCapProc.exitCode === null),
-      mcp: mcp,
-      frame: st ? { size: st.size, mtime: st.mtimeMs } : null,
-      meta: readBlenderMeta(),
-      liveUrl: 'http://127.0.0.1:' + SITE_PORT + '/__blender/live.jpg',
-      workspace: BLENDER_DIR,
-      exe: BLENDER_EXE,
-      mcpPort: BLENDER_MCP_PORT
-    });
-  });
-}));
 
-// 启动 Blender（带 MCP 自启动脚本，省去手点 N 面板）
-ipcMain.handle('blender:launch', () => {
-  if (blenderRunning()) return { ok: true, already: true };
-  if (!fs.existsSync(BLENDER_EXE)) return { ok: false, err: '找不到 blender.exe：' + BLENDER_EXE };
-  try {
-    const args = fs.existsSync(BLENDER_AUTOSTART) ? ['--python', BLENDER_AUTOSTART] : [];
-    const child = spawn(BLENDER_EXE, args, {
-      cwd: path.dirname(BLENDER_EXE),
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: false
-    });
-    child.unref();
-    log('[blender] 已启动: ' + BLENDER_EXE + ' ' + args.join(' '));
-    startBlenderCapture();
-    return { ok: true };
-  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-
-// 关闭 Blender（面板「✕ 关闭」按钮）
-// 先解除内置再发关闭请求：否则保存确认框会挂在一个被剥了边框、被 owner 的窗口上。
-// taskkill 不带 /F 就是给该进程的顶层窗口发 WM_CLOSE —— Blender 会正常走退出流程，
-// 有未保存改动时弹自己的保存提示（所以不会静默丢数据）。force=true 时才是强杀。
-ipcMain.handle('blender:close', async (e, opts) => {
-  const force = !!(opts && opts.force);
-  blenderEmbedCssRect = null;
-  try { await blenderEmbedCommand({ cmd: 'release' }, 4000); } catch (ex) { /* ignore */ }
-
-  const pids = blenderPidList();
-  if (!pids.length) { stopBlenderCapture(); blenderRunCache = { at: Date.now(), v: false }; return { ok: true, already: true }; }
-
-  for (const pid of pids) {
-    const a = force ? ['/F', '/PID', String(pid)] : ['/PID', String(pid)];
-    try { spawnSync('taskkill', a, { windowsHide: true, encoding: 'utf8' }); } catch (ex) { /* ignore */ }
-  }
-  log('[blender] 已发送' + (force ? '强制' : '') + '关闭请求 pid=' + pids.join(','));
-
-  // 等一拍看是否真的退了（优雅关闭时可能还停在保存提示上）
-  await new Promise(function (res) { setTimeout(res, 1600); });
-  const left = blenderPidList();
-  if (!left.length) {
-    stopBlenderCapture();
-    blenderRunCache = { at: Date.now(), v: false };
-    return { ok: true, closed: true, requested: pids.length, forced: force };
-  }
-  return {
-    ok: true, closed: false, forced: force,
-    waiting: left.length, requested: pids.length,
-    hint: '已发送关闭请求；若 Blender 有未保存内容，请在它的保存提示框里选择'
-  };
-});
-
-// 停止抓帧（面板关闭实时画面时用）
-ipcMain.handle('blender:capture', (e, on) => {
-  if (on === false) { stopBlenderCapture(); return { ok: true, capturing: false }; }
-  return { ok: startBlenderCapture(), capturing: true };
-});
-
-// ================= Blender 内置（真把窗口嵌进面板，不是截图）=================
-// 安全性：Win32 里子窗口会随父窗口一起销毁，所以如果 GUI 崩了，被嵌入的 Blender
-// 会连窗口一起被系统销毁。代理脚本里有守护逻辑——一发现本进程（-ParentPid）没了，
-// 立刻把 Blender 还回桌面并还原原始样式与几何。任何情况下 Blender 都必须还能单独用。
-let blenderEmbedProc = null;
-let blenderEmbedSeq = 0;
-
-function startBlenderEmbedAgent() {
-  if (blenderEmbedProc && blenderEmbedProc.exitCode === null) return true;
-  if (!fs.existsSync(BLENDER_EMBED_AGENT)) { log('[blender] 内置代理缺失: ' + BLENDER_EMBED_AGENT); return false; }
-  try {
-    try { fs.unlinkSync(BLENDER_EMBED_RES); } catch (e) { /* ignore */ }
-    blenderEmbedProc = spawn('powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', BLENDER_EMBED_AGENT,
-        '-Cmd', BLENDER_EMBED_CMD, '-Res', BLENDER_EMBED_RES, '-ParentPid', String(process.pid)],
-      { windowsHide: true, stdio: 'ignore' });
-    blenderEmbedProc.on('exit', function (code) { log('[blender] 内置代理退出 code=' + code); blenderEmbedProc = null; });
-    log('[blender] 内置代理已启动 pid=' + blenderEmbedProc.pid);
-    return true;
-  } catch (e) {
-    log('[blender] 内置代理启动失败: ' + ((e && e.message) || e));
-    return false;
-  }
-}
-
-// 命令写进命令文件，等代理把同一个 seq 写回来（文件通道，避免 stdio 管道的阻塞坑）
-function blenderEmbedCommand(payload, timeoutMs) {
-  return new Promise(function (resolve) {
-    if (!startBlenderEmbedAgent()) { resolve({ ok: false, err: 'agent-unavailable' }); return; }
-    blenderEmbedSeq += 1;
-    const seq = blenderEmbedSeq;
-    try { fs.writeFileSync(BLENDER_EMBED_CMD, JSON.stringify(Object.assign({}, payload, { seq: seq }))); }
-    catch (e) { resolve({ ok: false, err: 'write-cmd-failed: ' + ((e && e.message) || e) }); return; }
-
-    const limit = timeoutMs || 8000;
-    const started = Date.now();
-    (function poll() {
-      if (Date.now() - started > limit) { resolve({ ok: false, err: 'timeout' }); return; }
-      let txt = null;
-      try { txt = fs.readFileSync(BLENDER_EMBED_RES, 'utf8').replace(/^\uFEFF/, ''); } catch (e) { txt = null; }
-      if (txt) {
-        let obj = null;
-        try { obj = JSON.parse(txt); } catch (e) { obj = null; }
-        if (obj && obj.seq === seq) { resolve(obj); return; }
-      }
-      setTimeout(poll, 40);
-    })();
-  });
-}
-
-// Electron 窗口句柄 -> 十进制字符串（代理侧按 int64 解析）
-function windowHandleToDecimal(win) {
-  try {
-    const buf = win.getNativeWindowHandle();
-    if (buf.length === 8) return buf.readBigUInt64LE(0).toString();
-    return String(buf.readUInt32LE(0));
-  } catch (e) { return '0'; }
-}
-
-// 面板给的是 CSS px（视口坐标），而覆盖式内置用的是「屏幕物理像素」：
-// Blender 保持顶层窗口（不 SetParent），所以坐标必须是屏幕坐标 —— 先加窗口内容区
-// 在屏幕上的位置（DIP），再整体乘缩放比转成物理像素。
-// 多窗口：坐标基准必须是「发起内置的那个窗口」（win），不能写死主窗口。
-function toScreenPhysicalRect(r, win) {
-  const base = (win && !win.isDestroyed()) ? win : mainWindow;
-  let scale = 1, cb = { x: 0, y: 0 };
-  try {
-    if (base && !base.isDestroyed()) {
-      cb = base.getContentBounds();
-      scale = screen.getDisplayMatching(base.getBounds()).scaleFactor || 1;
-    }
-  } catch (e) { scale = 1; }
-  const cssX = (r && r.x) || 0;
-  const cssY = (r && r.y) || 0;
-  return {
-    x: Math.round((cb.x + cssX) * scale),
-    y: Math.round((cb.y + cssY) * scale),
-    w: Math.max(80, Math.round(((r && r.w) || 0) * scale)),
-    h: Math.max(60, Math.round(((r && r.h) || 0) * scale))
-  };
-}
-
-// 覆盖式内置下 Blender 是独立顶层窗口，不会自己跟着 GUI 走 —— 得我们跟。
-// 缓存最近一次面板 CSS 矩形，窗口移动/缩放时重算并重发 move。
-// ★同时只能有一个窗口「内置」★：那是贴在某个窗口上的一块独立顶层窗口，
-// 另一个窗口再内置会互相抢 → 用 blenderEmbedOwner 记账，第二家退回抓帧模式。
-let blenderEmbedCssRect = null;
-let blenderEmbedOwner = null;
-let embedFollowTimer = null;
-function scheduleEmbedFollow(win) {
-  if (!blenderEmbedCssRect) return;
-  // 只有"拥有者窗口"移动/缩放才需要跟；别的窗口挪动跟这块画面无关
-  if (win && blenderEmbedOwner && win !== blenderEmbedOwner) return;
-  if (embedFollowTimer) clearTimeout(embedFollowTimer);
-  embedFollowTimer = setTimeout(function () {
-    if (!blenderEmbedCssRect) return;
-    const p = toScreenPhysicalRect(blenderEmbedCssRect, blenderEmbedOwner || mainWindow);
-    blenderEmbedCommand({ cmd: 'move', x: p.x, y: p.y, w: p.w, h: p.h }, 4000);
-  }, 120);
-}
-
-ipcMain.handle('blender:embed', async (e, on, rect) => {
-  const win = windowOfEvent(e) || mainWindow;
-  if (on === false) {
-    // 面板现在是「只内置」模式：释放后不再重开抓帧，避免白白占 CPU
-    // 只有拥有者能释放（别家窗口的"取消内置"不该把别人的画面收走）
-    if (blenderEmbedOwner && win && blenderEmbedOwner !== win) return { ok: true, skipped: true };
-    blenderEmbedCssRect = null;
-    blenderEmbedOwner = null;
-    const r = await blenderEmbedCommand({ cmd: 'release' }, 6000);
-    return Object.assign({ ok: true }, r || {});
-  }
-  if (!win) return { ok: false, err: 'no-window' };
-  if (blenderEmbedOwner && blenderEmbedOwner !== win && !blenderEmbedOwner.isDestroyed()) {
-    return { ok: false, err: '已在另一个窗口内置（这块画面只能贴一个窗口）' };
-  }
-  const p = toScreenPhysicalRect(rect || {}, win);
-  const res = await blenderEmbedCommand({
-    cmd: 'embed', parent: windowHandleToDecimal(win),
-    x: p.x, y: p.y, w: p.w, h: p.h
-  }, 12000);
-  if (res && res.ok) {
-    blenderEmbedCssRect = rect || null;
-    blenderEmbedOwner = win;
-    log('[blender] 内置画面已贴到窗口: ' + (win.kunScene || 'main'));
-    stopBlenderCapture();    // 已内置就不必再抓帧，省 CPU
-  }
-  return res;
-});
-
-ipcMain.handle('blender:embedMove', (e, rect) => {
-  const win = windowOfEvent(e) || blenderEmbedOwner || mainWindow;
-  if (blenderEmbedOwner && win && blenderEmbedOwner !== win) return { ok: false, err: 'not-owner' };
-  blenderEmbedCssRect = rect || null;
-  const p = toScreenPhysicalRect(rect || {}, win);
-  return blenderEmbedCommand({ cmd: 'move', x: p.x, y: p.y, w: p.w, h: p.h }, 4000);
-});
-
-ipcMain.handle('blender:embedStatus', () => blenderEmbedCommand({ cmd: 'status' }, 6000));
-
-// 退出时先请代理释放；真来不及也有代理里的守护兜底
-function releaseBlenderEmbedSync() {
-  try {
-    blenderEmbedSeq += 1;
-    fs.writeFileSync(BLENDER_EMBED_CMD, JSON.stringify({ cmd: 'quit', seq: blenderEmbedSeq }));
-  } catch (e) { /* ignore */ }
-}
-
-// 工作区文件浏览（只允许 BLENDER_DIR 内）
-
-// 公开版：OA / 行情 / SSH 业务实现不随包发布（保留空桩，等价于「未连接 / 无数据」）
-function __stubModule() { return new Proxy(function () {}, { get: () => () => undefined, apply: () => undefined }); }
-const stockStore = __stubModule();
-const oaStore = __stubModule();
-const oaSsh = __stubModule();
-// ===== app-window：把任意工业软件窗口内置成面板（2026-10-28 · 客户「<客户>」）=====
-// 与 blender 的 owner-overlay 同一套思路（见 scripts\app-embed-agent.ps1 头部：⛔ 不用 SetParent）。
-// 差异：目标进程名由渲染器传进来（Proc），一次只服务一个进程（换进程就重启 agent）。
-const APPW_AGENT = path.join(__dirname, 'scripts', 'app-embed-agent.ps1');
-const APPW_CMD = path.join(__dirname, 'data', 'appwin.cmd.json');
-const APPW_RES = path.join(__dirname, 'data', 'appwin.res.json');
-let appwProc = null, appwSeq = 0, appwProcName = '';
-let appwCssRect = null, appwOwner = null, appwFollowTimer = null;
-
-function startAppwAgent(procName) {
-  const name = String(procName || '').trim();
-  if (!name) return false;
-  if (appwProc && appwProc.exitCode === null && appwProcName === name) return true;
-  if (appwProc && appwProc.exitCode === null) { try { appwProc.kill(); } catch (e) { /* ignore */ } appwProc = null; }
-  if (!fs.existsSync(APPW_AGENT)) { log('[appwin] 内置代理缺失: ' + APPW_AGENT); return false; }
-  try {
-    try { fs.unlinkSync(APPW_RES); } catch (e) { /* ignore */ }
-    appwProcName = name;
-    appwProc = spawn('powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', APPW_AGENT,
-        '-Cmd', APPW_CMD, '-Res', APPW_RES, '-ParentPid', String(process.pid), '-Proc', name],
-      { windowsHide: true, stdio: 'ignore' });
-    appwProc.on('exit', function (code) { log('[appwin] 内置代理退出 code=' + code); appwProc = null; });
-    log('[appwin] 内置代理已启动 pid=' + appwProc.pid + ' · proc=' + name);
-    return true;
-  } catch (e) { log('[appwin] 内置代理启动失败: ' + ((e && e.message) || e)); return false; }
-}
-
-function appwCommand(payload, timeoutMs) {
-  return new Promise(function (resolve) {
-    if (!startAppwAgent(payload && payload.proc)) { resolve({ ok: false, err: 'agent-unavailable' }); return; }
-    appwSeq += 1;
-    const seq = appwSeq;
-    try { fs.writeFileSync(APPW_CMD, JSON.stringify(Object.assign({}, payload, { seq: seq }))); }
-    catch (e) { resolve({ ok: false, err: 'write-cmd-failed: ' + ((e && e.message) || e) }); return; }
-    const limit = timeoutMs || 8000;
-    const started = Date.now();
-    (function poll() {
-      if (Date.now() - started > limit) { resolve({ ok: false, err: 'timeout' }); return; }
-      let txt = null;
-      try { txt = fs.readFileSync(APPW_RES, 'utf8').replace(/^\uFEFF/, ''); } catch (e) { txt = null; }
-      if (txt) {
-        let obj = null;
-        try { obj = JSON.parse(txt); } catch (e) { obj = null; }
-        if (obj && obj.seq === seq) { resolve(obj); return; }
-      }
-      setTimeout(poll, 120);
-    })();
-  });
-}
-
-function scheduleAppwFollow(win) {
-  if (!appwCssRect) return;
-  if (win && appwOwner && win !== appwOwner) return;
-  if (appwFollowTimer) clearTimeout(appwFollowTimer);
-  appwFollowTimer = setTimeout(function () {
-    if (!appwCssRect) return;
-    const p = toScreenPhysicalRect(appwCssRect, appwOwner || mainWindow);
-    appwCommand({ cmd: 'move', proc: appwProcName, x: p.x, y: p.y, w: p.w, h: p.h }, 4000);
-  }, 120);
-}
-
-ipcMain.handle('appwin:status', (e, procName) => appwCommand({ cmd: 'status', proc: String(procName || '') }, 4000));
-
-ipcMain.handle('appwin:launch', (e, exe, args) => {
-  const p = String(exe || '').trim();
-  if (!p) return { ok: false, err: 'no-exe' };
-  if (!fs.existsSync(p)) return { ok: false, err: 'exe-not-found', path: p };
-  try {
-    const child = spawn(p, Array.isArray(args) ? args : [], { detached: true, stdio: 'ignore', cwd: path.dirname(p) });
-    child.unref();
-    return { ok: true, pid: child.pid };
-  } catch (err) { return { ok: false, err: String((err && err.message) || err) }; }
-});
-
-ipcMain.handle('appwin:embed', async (e, procName, rect) => {
-  const win = windowOfEvent(e) || mainWindow;
-  if (!win) return { ok: false, err: 'no-window' };
-  if (appwOwner && appwOwner !== win && !appwOwner.isDestroyed()) return { ok: false, err: '已在另一个窗口内置' };
-  const p = toScreenPhysicalRect(rect || {}, win);
-  const res = await appwCommand({
-    cmd: 'embed', proc: String(procName || ''), parent: windowHandleToDecimal(win),
-    x: p.x, y: p.y, w: p.w, h: p.h
-  }, 12000);
-  if (res && res.ok) { appwCssRect = rect || null; appwOwner = win; log('[appwin] 已贴到面板: ' + (win.kunScene || 'main')); }
-  return res || { ok: false, err: 'no-res' };
-});
-
-ipcMain.handle('appwin:move', async (e, rect) => {
-  const win = windowOfEvent(e) || mainWindow;
-  if (!appwCssRect) return { ok: false, err: 'not-embedded' };
-  const p = toScreenPhysicalRect(rect || {}, win || appwOwner || mainWindow);
-  appwCssRect = rect || null;
-  return appwCommand({ cmd: 'move', proc: appwProcName, x: p.x, y: p.y, w: p.w, h: p.h }, 4000);
-});
-
-ipcMain.handle('appwin:release', async () => {
-  appwCssRect = null; appwOwner = null;
-  return appwCommand({ cmd: 'release', proc: appwProcName }, 6000);
-});
-
-ipcMain.handle('blender:files', (e, relPath) => {
-  const root = path.resolve(BLENDER_DIR);
-  try { if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true }); } catch (ex) { /* ignore */ }
-  const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-  const full = rel ? path.resolve(root, rel) : root;
-  if (full !== root && !full.startsWith(root + path.sep)) return { ok: false, err: '越界路径：仅可浏览 Blender 工作区' };
-  let ents = [];
-  try { ents = fs.readdirSync(full, { withFileTypes: true }); }
-  catch (ex) { return { ok: false, err: '无法读取目录：' + full }; }
-  const rows = ents.map(en => {
-    let isDir = en.isDirectory(), size = 0, mtime = 0;
-    try {
-      const st = fs.statSync(path.join(full, en.name));
-      isDir = st.isDirectory(); size = isDir ? 0 : st.size; mtime = Math.floor(st.mtimeMs / 1000);
-    } catch (ex2) { /* ignore */ }
-    return { name: en.name, isDir: isDir, size: size, mtime: mtime };
-  }).filter(r => r.name !== '.gitkeep')
-    .sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, 'zh'));
-  return { ok: true, root: root, rel: rel, rows: rows };
-});
-
-// 打开路径：文件用系统默认程序，目录用资源管理器；也支持 http(s) 链接
-ipcMain.handle('blender:open', (e, target) => {
-  const t = String(target || '');
-  if (!t) return { ok: false, err: 'empty' };
-  try {
-    if (/^https?:\/\//i.test(t)) shell.openExternal(t);
-    else if (fs.existsSync(t)) shell.openPath(t);
-    else return { ok: false, err: '路径不存在：' + t };
-    return { ok: true };
-  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-
-// 在资源管理器里定位（选中）工作区内的条目
-ipcMain.handle('blender:reveal', (e, relPath) => {
-  const root = path.resolve(BLENDER_DIR);
-  const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-  const full = rel ? path.resolve(root, rel) : root;
-  if (full !== root && !full.startsWith(root + path.sep)) return { ok: false, err: '越界路径' };
-  try { shell.showItemInFolder(full); return { ok: true }; }
-  catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-
-// 个人站场景：把文件/文件夹「拖出去」给别的窗口 ——
-// 本地文件面板里按住条目拖到资源管理器＝复制一份，拖到浏览器/编辑器等＝把该文件直接交给它。
-// 必须由主进程调用 webContents.startDrag（渲染层只负责在 dragstart 时把相对路径发过来）。
-let siteDragIcon = null;
-function siteIcon() {
-  if (siteDragIcon && !siteDragIcon.isEmpty()) return siteDragIcon;
-  for (const f of ['icon.png', 'icon.ico']) {
-    try {
-      const img = nativeImage.createFromPath(path.join(__dirname, f));
-      if (img && !img.isEmpty()) { siteDragIcon = img; return img; }
-    } catch (ex) { /* 继续尝试下一个 */ }
-  }
-  return null;
-}
-ipcMain.on('site:drag', (event, relPath) => {
-  try {
-    const root = path.resolve(SITE_BROWSE_DIR);
-    const rel = String(relPath || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-    const full = rel ? path.resolve(root, rel) : root;
-    // 安全：只允许拖出项目工程目录内的条目（与 site:files:local 同一守卫）
-    if (full !== root && !full.startsWith(root + path.sep)) { log('[site:drag] 越界：' + full); return; }
-    if (!fs.existsSync(full)) { log('[site:drag] 不存在：' + full); return; }
-    const item = { file: full };
-    const ic = siteIcon();
-    if (ic) item.icon = ic;   // 拖动时跟手的缩略图
-    event.sender.startDrag(item);
-    log('[site:drag] 拖出：' + full);
-  } catch (ex) { log('[site:drag] 失败：' + (ex && ex.message || ex)); }
-});
-
-// ---- 股票助手：本地存储（记忆 / 聊天 / 行情缓存）----
-// 场景隔离强化：stock:chat:* / stock:mem:* 的 scenario 参数统一白名单归一化——
-// 只允许 stock / oa-ops / personal-site 三个场景，非法/未传值一律落回 'stock'，
-// 从主进程侧杜绝渲染层误传或越权把数据写进其他场景（三场景硬隔离）。
-const STOCK_SCENARIOS = ['stock', 'oa-ops', 'personal-site'];
-function normScenario(s) {
-  return STOCK_SCENARIOS.indexOf(String(s || '')) >= 0 ? String(s) : 'stock';
-}
-ipcMain.handle('stock:mem:add', (e, m) => stockStore.addMemory(Object.assign({}, m || {}, { scenario: normScenario(m && m.scenario) })));
-// 场景透传：不传时默认 'stock'，OA 场景必须显式传 'oa-ops'，避免串读
-ipcMain.handle('stock:mem:list', (e, kind, scenario) => stockStore.listMemories(kind, normScenario(scenario)));
-ipcMain.handle('stock:mem:update', (e, id, patch) => stockStore.updateMemory(id, patch));
-ipcMain.handle('stock:mem:delete', (e, id) => stockStore.deleteMemory(id));
-ipcMain.handle('stock:chat:create', (e, scenario, title) => stockStore.createSession(normScenario(scenario), title));
-ipcMain.handle('stock:chat:list', (e, scenario) => stockStore.listSessions(normScenario(scenario)));
-ipcMain.handle('stock:chat:messages', (e, sid) => stockStore.getMessages(sid));
-ipcMain.handle('stock:chat:send', (e, sid, role, content) => stockStore.addMessage(sid, role, content));
-ipcMain.handle('stock:chat:delete', (e, sid) => stockStore.deleteSession(sid));
-ipcMain.handle('stock:chat:rename', (e, sid, title) => stockStore.renameSession(sid, title));
-
-// ---- OA 运维场景：数据读写（D 盘 data/oa.db，与股票完全隔离）----
-// 服务器状态 / 操作日志 / 文件 / 网页站点 / 一键操作 / 终端 / 配置 / SSH
-let oaStatusCache = { ts: 0, data: null };
-let oaStatusError = null;
-
-// ---- OA 采集缓存（TTL + 单飞）----
-// 目的：面板高频轮询不再直接打 SSH（每次 SSH 采集要新起 Python + 新握手，实测约 0.74s，其中 82% 花在建通道）。
-// 策略：TTL 略小于面板轮询间隔 → 每次轮询都能拿到"新鲜"数据，但同一时刻的重复触发（手动刷新+定时）只采一次。
-// 规则：TTL 内直接命中缓存；同一 key 并发请求共享同一次采集（单飞）；手动刷新传 force 绕过。
-const oaCache = new Map();      // key -> { ts, val }
-const oaInflight = new Map();   // key -> Promise（单飞）
-const OA_TTL = { status: 15000, logs: 8000, files: 25000, sync: 55000, web: 20000 };
-function cachedOa(key, ttlMs, fn, force) {
-  const now = Date.now();
-  const hit = oaCache.get(key);
-  if (!force && hit && (now - hit.ts) < ttlMs) return Promise.resolve(hit.val);
-  const flying = oaInflight.get(key);
-  if (flying) return flying;
-  const p = Promise.resolve().then(fn).then((val) => {
-    oaCache.set(key, { ts: Date.now(), val: val });
-    oaInflight.delete(key);
-    return val;
-  }).catch((err) => {
-    oaInflight.delete(key);
-    throw err;
-  });
-  oaInflight.set(key, p);
-  return p;
-}
-function invalidateOaCache(prefix) {
-  for (const k of Array.from(oaCache.keys())) if (!prefix || k.indexOf(prefix) === 0) oaCache.delete(k);
-}
-
-// 读取状态：已配置 SSH 且缓存超 60s 时通过真实 SSH 采集并写库；未配置/失败回退存储快照（演示数据）
-async function getOaStatus(force) {
-  if (!oaSsh.isReady()) return oaStore.getStatus();
-  try {
-    const r = await cachedOa('status', OA_TTL.status, () => oaSsh.collectStatus(), force);
-    if (r && r.ok && r.status) {
-      oaStore.setStatus(r.status);
-      oaStatusError = null;
-      return r.status;
-    }
-    oaStatusError = (r && r.err) || '未知错误';
-  } catch (ex) {
-    oaStatusError = String((ex && ex.message) || ex);
-  }
-  const hit = oaCache.get('status');
-  if (hit && hit.val && hit.val.status) return hit.val.status;
-  return oaStore.getStatus();
-}
-ipcMain.handle('oa:status', (e, force) => getOaStatus(!!force));
-ipcMain.handle('oa:logs', (e, limit) => oaStore.getLogs(limit));
-// 真实日志：SSH 已连接 → 抓取 pm2 后端 / nginx / mysql 日志；结果缓存供 AI 上下文引用（面板轮询 30s + 30s TTL）
-let oaLogsCache = null;
-ipcMain.handle('oa:logs:real', async (e, kinds, lines, force) => {
-  if (!oaSsh.isReady()) return { ok: false, err: '未连接服务器', demo: true, rows: oaStore.getLogs(Number(lines) || 12) };
-  const key = 'logs:' + String(kinds) + ':' + String(lines || 12);
-  try {
-    const r = await cachedOa(key, OA_TTL.logs, () => oaSsh.fetchLogs(kinds, lines), !!force);
-    if (r && r.ok) {
-      oaLogsCache = { ts: Date.now(), sources: r.sources || {} };
-      return { ok: true, sources: r.sources || {}, ts: Date.now() };
-    }
-    return { ok: false, err: (r && r.err) || '日志抓取失败', demo: true, rows: oaStore.getLogs(Number(lines) || 12) };
-  } catch (ex) {
-    return { ok: false, err: String((ex && ex.message) || ex), demo: true, rows: oaStore.getLogs(Number(lines) || 12) };
-  }
-});
-// 云端文件：SSH 已连接 → 真实 SFTP 列表（60s TTL）；否则回退演示缓存
-ipcMain.handle('oa:files', async (e, remotePath, force) => {
-  const base = remotePath || oaStore.getConfig('oa.path.code') || '/opt/langchen_oa';
-  if (oaSsh.isReady()) {
-    try {
-      const r = await cachedOa('files:' + base, OA_TTL.files, () => oaSsh.listDir(base), !!force);
-      if (r && r.ok) return { ok: true, base: base, rows: r.entries || [], real: true };
-    } catch (ex) { /* 失败回退 */ }
-    return { ok: false, err: '列表获取失败', base: base, rows: oaStore.getFiles(base).rows, real: false };
-  }
-  const f = oaStore.getFiles(base);
-  return { ok: true, base: f.base, rows: f.rows, real: false };
-});
-// 本地文件：项目目录浏览（与云端无关，始终可用）
-ipcMain.handle('oa:files:local', async (e, localPath) => {
-  const base = localPath || oaStore.getConfig('oa.path.local') || path.join(WORKBENCH_ROOT, '工作区');
-  try {
-    // ★ 异步 + 并行 stat：不再阻塞主进程（原来用 readdirSync/statSync，大目录会卡住整个界面）
-    const ents = await fs.promises.readdir(base, { withFileTypes: true });
-    const rows = await Promise.all(ents.map(async (en) => {
-      let isDir = en.isDirectory(), size = 0, mtime = 0;
-      try {
-        const st = await fs.promises.stat(path.join(base, en.name));
-        isDir = st.isDirectory(); size = isDir ? 0 : st.size; mtime = Math.floor(st.mtimeMs / 1000);
-      } catch (err) { /* 忽略单个文件失败 */ }
-      return { name: en.name, isDir: isDir, size: size, mtime: mtime };
-    }));
-    rows.sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, 'zh'));
-    return { ok: true, base: base, rows: rows };
-  } catch (ex) {
-    return { ok: false, err: '无法读取目录: ' + base, base: base, rows: [] };
-  }
-});
-ipcMain.handle('oa:paths', () => {
-  const mp = scenarioMeta().paths || {};
-  return {
-    localRoot: mp.local || oaStore.getConfig('oa.path.local') || path.join(WORKBENCH_ROOT, '工作区'),
-    code: mp.code || oaStore.getConfig('oa.path.code') || '/opt/langchen_oa',
-    www: mp.www || oaStore.getConfig('oa.path.www') || '/var/www',
-    backups: mp.backups || oaStore.getConfig('oa.path.backups') || '/opt/langchen_oa_backups',
-    mappings: oaSsh.getMappings()
-  };
-});
-// 切换当前 OA 场景（多公司模板：切换后 SSH/服务/映射/日志/网址 全部随场景走）
-ipcMain.handle('oa:set-scenario', (e, sid) => applyOaScenario(sid));
-// 实时同步状态（本地 ↔ 云端 mtime+size 比对）；结果缓存 120s 供 AI 上下文引用，避免每次对话/轮询都全量比对
-let oaSyncCache = null;
-// ★ 原生拖拽：把面板里的文件拖到资源管理器 / 别的窗口
-ipcMain.on('oa:dragstart', (event, filePath) => {
-  // ★ 任何一步异常都不能外抛，否则主进程崩溃 = 整个工作台退出
-  try {
-    const fp = String(filePath || '');
-    if (!fp || !fs.existsSync(fp)) return;
-    // 图标必须是非空 NativeImage；空图会让 startDrag 直接抛异常
-    let icon = null;
-    try {
-      const img = nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
-      if (img && !img.isEmpty()) icon = img.resize({ width: 64 });
-    } catch (e) { icon = null; }
-    const payload = { file: fp };
-    if (icon && !icon.isEmpty()) payload.icon = icon;
-    event.sender.startDrag(payload);
-  } catch (ex) {
-    try { console.error('[oa:dragstart] 已忽略错误：', ex && ex.message); } catch (e2) {}
-  }
-});
-// ★ 读图（返回 dataURL，供面板大图显示）：支持本地绝对路径
-ipcMain.handle('oa:image', async (e, p) => {
-  try {
-    const fp = String(p || '');
-    if (!fp || !fs.existsSync(fp)) return { ok: false, err: '文件不存在' };
-    const st = fs.statSync(fp);
-    if (st.size > 12 * 1024 * 1024) return { ok: false, err: '图片过大（>12MB）' };
-    const ext = path.extname(fp).slice(1).toLowerCase();
-    const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif'
-      : ext === 'webp' ? 'image/webp' : ext === 'bmp' ? 'image/bmp' : 'image/jpeg';
-    const b64 = fs.readFileSync(fp).toString('base64');
-    return { ok: true, dataUrl: 'data:' + mime + ';base64,' + b64, name: path.basename(fp) };
-  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-// ★ OA 场景专用：打开本地文件夹 / 打开本地文件（保持场景隔离，只用 oa 命名空间）
-ipcMain.handle('oa:openFolder', async (e, dir) => {
-  try {
-    const d = String(dir || '');
-    if (!d || !fs.existsSync(d)) return { ok: false, err: '目录不存在: ' + d };
-    const r = await shell.openPath(d);
-    return r ? { ok: false, err: r } : { ok: true };
-  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-ipcMain.handle('oa:openPath', async (e, p) => {
-  try {
-    const t = String(p || '');
-    if (!t) return { ok: false, err: 'empty' };
-    if (/^https?:\/\//i.test(t)) { shell.openExternal(t); return { ok: true }; }
-    if (!fs.existsSync(t)) return { ok: false, err: '文件不存在: ' + t };
-    const r = await shell.openPath(t);
-    return r ? { ok: false, err: r } : { ok: true };
-  } catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-ipcMain.handle('oa:upload', async (e, localPath, remoteDir) => oaSsh.putFile(localPath, remoteDir));
-ipcMain.handle('oa:download', async (e, remotePath, localDir) => oaSsh.getFile(remotePath, localDir));
-ipcMain.handle('oa:sync:status', async (e, force) => {
-  try {
-    const r = await cachedOa('syncstatus', OA_TTL.sync, () => oaSsh.syncStatus(), !!force);
-    if (r && r.ok) oaSyncCache = r;
-    return r;
-  } catch (ex) {
-    return { ok: false, err: String((ex && ex.message) || ex) };
-  }
-});
-// 一键推送 / 拉取（与云控台同步规则一致；执行后刷新同步状态与操作日志）
-async function runSyncTransfer(mode, key) {
-  if (!oaSsh.isReady()) return { ok: false, err: '未连接服务器（配置 SSH 后可用）' };
-  const r = await oaSsh.syncTransfer(mode, key);
-  const m = oaSsh.getMappings().find(x => x.key === key);
-  const label = (m && m.label) || key;
-  const arrow = mode === 'push' ? '推送' : '拉取';
-  if (r && r.ok) {
-    // 同步完成 → 让文件/同步状态缓存立即失效，面板下次刷新拿到真实结果
-    invalidateOaCache('files:');
-    invalidateOaCache('syncstatus');
-    oaStore.addLog('info', 'sync', arrow + '「' + label + '」完成：更新 ' + r.total + ' 个文件' + (r.changed && r.changed.length ? '（' + r.changed.slice(0, 5).join(', ') + (r.total > 5 ? ' …' : '') + '）' : ''));
-    const st = await oaSsh.syncStatus();
-    if (st && st.ok) { oaSyncCache = st; oaCache.set('syncstatus', { ts: Date.now(), val: st }); }
-    return { ok: true, mode: mode, key: key, label: label, total: r.total, changed: r.changed || [] };
-  }
-  oaStore.addLog('err', 'sync', arrow + '「' + label + '」失败：' + ((r && r.err) || '未知'));
-  return { ok: false, mode: mode, key: key, label: label, err: (r && r.err) || '未知错误' };
-}
-ipcMain.handle('oa:sync:push', (e, key, via) => {
-  // via='ai' 表示由 AI 助手触发：受 AI 同步权限约束；用户手动点击按钮不受限
-  if (via === 'ai' && !getAiPermissions().sync) return { ok: false, err: 'AI 同步权限已关闭（请在 AI 助手面板的权限开关里开启）' };
-  return runSyncTransfer('push', key);
-});
-ipcMain.handle('oa:sync:pull', (e, key, via) => {
-  if (via === 'ai' && !getAiPermissions().sync) return { ok: false, err: 'AI 同步权限已关闭（请在 AI 助手面板的权限开关里开启）' };
-  return runSyncTransfer('pull', key);
-});
-ipcMain.handle('oa:web:list', () => oaStore.listWebSites());
-
-// ---- OA 相关网址（管理后台/教师端/家长端/官网/APK，来自云控台 config.json urls）----
-function oaUrls() {
-  const m = scenarioMeta();
-  // ① 场景 meta.urls 优先：多公司模板下，每家公司自带网址清单（含备用/附加链接）
-  if (Array.isArray(m.urls) && m.urls.length) {
-    return m.urls.filter(u => u && u.url).map(u => {
-      const it = { name: u.name || u.url, url: u.url };
-      if (u.backup) it.backup = u.backup;
-      if (Array.isArray(u.links) && u.links.length) it.links = u.links;
-      return it;
-    });
-  }
-  // ② 缺省：<客户>默认清单（可被 oa.db 的 oa.url.* 覆盖）
-  const def = [
-    { name: '管理后台', url: 'http://example.com:8083' },
-    { name: '教师端', url: 'http://example.com:8081' },
-    { name: '家长端', url: 'http://example.com:8082' },
-    // ★ 2026-09-28 新增教务端；★ 2026-09-29 用户要求标题去掉「·手机版」后缀 —— 就叫「教务端」（地址仍是 /m/ 手机版 H5）
-    { name: '教务端', url: 'http://example.com:8083/m/' },
-    {
-      name: '本地站点', url: 'http://127.0.0.1:8084',
-      links: [
-        { label: '备用1', url: 'http://example.com:8081/site/' },
-        { label: '备用2', url: 'http://example.com:8082/site/' },
-        { label: '备用3', url: 'http://example.com:8083/site/' }
-      ]
-    },
-    {
-      name: 'APK 下载', url: 'http://example.com:8081/apk/teacher.apk',
-      links: [
-        { label: '教师端', url: 'http://example.com:8081/apk/teacher.apk' },
-        { label: '家长端', url: 'http://example.com:8082/apk/parent.apk' },
-        // ★ 2026-09-29 新增教务端 APK（首个教务端包，2026-09-29 上架；官网上也已加教务端入口）
-        { label: '教务端', url: 'http://example.com:8083/apk/admin.apk' }
-      ]
-    }
-  ];
-  const out = [];
-  ['admin', 'teacher', 'parent', 'mobile', 'site', 'apk'].forEach((k, i) => {
-    const v = oaStore.getConfig('oa.url.' + k);
-    const item = { name: def[i].name, url: v || def[i].url };
-    if (def[i].backup) item.backup = def[i].backup;   // 官网备用入口（点卡片走主地址，点备用行走备用）
-    if (def[i].links) item.links = def[i].links;      // 附加链接（APK：教师端/家长端 共用一个卡片）
-    out.push(item);
-  });
-  return out;
-}
-// 单 URL HTTP 探测（code + 延迟）
-// ⚠️ 必须只取响应头：APK 等大文件若读正文，每轮探测都会下载整个包（31MB+，15 秒一次 → 每天数百 MB）
-// 策略：优先 HEAD（nginx 支持 → 正文 0 字节）；遇 405/501 再回退 GET 并在收到响应头后立即断开
-// 另：带 DSH-OA-Probe UA（服务器端可据此不写访问日志 → 真实流量更易检测）+ keep-alive 复用连接
-const PROBE_UA = 'DSH-OA-Probe/1.0';
-const probeAgent = new http.Agent({ keepAlive: true, maxSockets: 8, maxFreeSockets: 4 });
-function httpProbe(url, timeoutMs) {
-  const timeout = timeoutMs || 6000;
-  const once = (method) => new Promise((resolve) => {
-    const started = Date.now();
-    let done = false;
-    const finish = (r) => { if (!done) { done = true; resolve(r); } };
-    let req;
-    try {
-      req = http.request(String(url), {
-        method: method,
-        timeout: timeout,
-        agent: probeAgent,
-        headers: { 'User-Agent': PROBE_UA, 'Accept-Encoding': 'identity', 'Connection': 'keep-alive' }
-      }, (res) => {
-        const code = res.statusCode;
-        const ms = Date.now() - started;
-        try { res.destroy(); } catch (e) { /* ignore */ }   // 不读正文
-        finish({ ok: code >= 200 && code < 500, code: code, ms: ms });
-      });
-    } catch (ex) {
-      finish({ ok: false, code: null, ms: Date.now() - started, err: String((ex && ex.message) || ex) });
-      return;
-    }
-    req.on('error', (ex) => finish({ ok: false, code: null, ms: Date.now() - started, err: String((ex && ex.message) || ex) }));
-    req.on('timeout', () => { req.destroy(); finish({ ok: false, code: null, ms: Date.now() - started, err: '超时' }); });
-    req.end();
-  });
-  return once('HEAD').then((r) => ((r.code === 405 || r.code === 501) ? once('GET') : r));
-}
-// 实时监控网址状态（并发探测主地址 + 备用地址 + 附加链接；结果回写 oa.db web_sites，供窗口5与 AI 上下文使用）
-async function webCheck(urls) {
-  const list = (urls && urls.length) ? urls : oaUrls();
-  const out = await Promise.all(list.map(async (u) => {
-    const jobs = [httpProbe(u.url, 6000)];
-    if (u.backup) jobs.push(httpProbe(u.backup, 6000));
-    (u.links || []).forEach(lk => jobs.push(httpProbe(lk.url, 6000)));
-    const rs = await Promise.all(jobs);
-    let i = 0;
-    const item = Object.assign({ name: u.name, url: u.url }, rs[i++]);
-    if (u.backup) {
-      const b = rs[i++];
-      item.backup = u.backup;
-      item.backupOk = b.ok;
-      item.backupCode = b.code;
-      item.backupMs = b.ms;
-      item.backupErr = b.err;
-    }
-    if (u.links && u.links.length) {
-      item.links = u.links.map(lk => {
-        const r = rs[i++];
-        return Object.assign({}, lk, { ok: r.ok, code: r.code, ms: r.ms, err: r.err });
-      });
-    }
-    return item;
-  }));
-  oaStore.syncWebSites(out.map(o => ({
-    name: o.name, url: o.url,
-    status: o.ok ? '正常' : '异常',
-    note: (o.ok ? ('HTTP ' + o.code + ' · ' + o.ms + 'ms') : (o.err || '离线'))
-      + (o.backup ? ('｜备用 ' + (o.backupOk ? ('HTTP ' + o.backupCode + ' · ' + o.backupMs + 'ms') : (o.backupErr || '离线'))) : '')
-      + ((o.links && o.links.length)
-        ? ('｜' + o.links.map(lk => lk.label + ' ' + (lk.ok ? ('HTTP ' + lk.code) : (lk.err || '离线'))).join('｜'))
-        : '')
-  })));
-  return out;
-}
-ipcMain.handle('oa:urls', () => oaUrls());
-ipcMain.handle('oa:web:check', (e, urls, force) => cachedOa('webcheck', OA_TTL.web, () => webCheck(urls), !!force));
-ipcMain.handle('oa:open', (e, url) => {
-  try { shell.openExternal(String(url)); return { ok: true }; }
-  catch (ex) { return { ok: false, err: String((ex && ex.message) || ex) }; }
-});
-
-// ---- 「手机预览」：按 界面预览\打开*.bat 的配方把线上站点开成手机尺寸独立窗口（2026-09-18）----
-// 为什么要单开一条 IPC：面板点击走 shell.openExternal，只能呼出系统默认浏览器 ——
-// 既做不到 400×830 的手机窗口，也做不到「独立配置目录记住登录」（每次都要重新登录）。
-// ★ 2026-09-23 改版：窗口打开的是**本地包装页**（127.0.0.1:PREVIEW_PORT），包装页里 iframe 嵌线上站点，
-//   顶部左侧有一个 📌 置顶按钮 —— 按钮在窗口**内部**（不占场景面板），点它调本地 /api/pin → SetWindowPos 置顶。
-//   为什么包装页：外部浏览器 --app= 窗口没有"往窗口里加按钮"的通道，只能往页面内容里注入；
-//   包装页同时保留独立配置目录（--user-data-dir 不变，登录照样记住）。
-const PREVIEW_ROOT = path.join(WORKBENCH_ROOT, '工作区');
-const PREVIEW_PORT = Number(process.env.PREVIEW_PORT || 31240);
-const PREVIEW_APPS = {
-  parent: { name: '家长端', url: 'http://example.com:8082/', x: 70, y: 60 },
-  teacher: { name: '教师端', url: 'http://example.com:8081/', x: 510, y: 60 },
-  // ★ 2026-09-28 新增「教务端」＝教务后台**手机版 H5**（挂在 8083 的 /m/ 子路径，不是独立端口）
-  jiaowu: { name: '教务端', url: 'http://example.com:8083/m/', x: 950, y: 60 }
-};
-// ★ 2026-09-23 「置顶」：记住每个端最近一次打开的预览窗口 pid，切换置顶时按 pid 找窗口
-const PREVIEW_PIDS = {};   // which -> pid（每次打开都覆盖；窗口关了 pid 就失效，pin 会返回"找不到"）
-let PREVIEW_PINNED = {};   // which -> true/false（包装页按钮状态回显用）
-let previewServer = null;
-
-// 包装页 HTML：顶部一条**顶栏**（右侧 📌 置顶按钮，紧挨系统缩小/放大/关闭那排按钮的下方）+ 下方 iframe 嵌线上站点。
-// 2026-09-23 按反馈改：按钮不悬浮（悬浮会挡 iframe 内容），而是做进顶栏 —— 顶栏右侧就是"缩小按键旁边"。
-// 系统窗口按钮画在系统标题栏（页面内容上方），本页顶栏贴在标题栏正下方，按钮放顶栏右端，视觉上紧挨那排按钮。
-function previewShellHtml(which) {
-  const app = PREVIEW_APPS[String(which)] || PREVIEW_APPS.parent;
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<title>${app.name} · 预览</title>
-<style>
-  html, body { margin:0; padding:0; height:100%; background:#fff; overflow:hidden; }
-  #bar {
-    position:fixed; left:0; right:0; top:0; height:34px; z-index:9999;
-    display:flex; align-items:center; justify-content:flex-end; gap:8px;
-    padding:0 8px; box-sizing:border-box;
-    background:linear-gradient(180deg,#f5f5f5,#e9e9e9);
-    border-bottom:1px solid rgba(0,0,0,.12);
-    -webkit-app-region:no-drag;
-  }
-  #barTitle {
-    margin-right:auto; font-size:12px; color:#666;
-    font-family:"Microsoft YaHei",sans-serif; user-select:none;
-  }
-  #pinBtn {
-    display:flex; align-items:center; gap:4px;
-    padding:4px 10px; font-size:12px; line-height:1;
-    font-family:"Microsoft YaHei",sans-serif; cursor:pointer;
-    background:#fff; color:#555;
-    border:1px solid rgba(0,0,0,.22); border-radius:999px;
-    box-shadow:0 1px 2px rgba(0,0,0,.12);
-    user-select:none; -webkit-user-select:none;
-  }
-  #pinBtn:hover { background:#fafafa; color:#333; }
-  #pinBtn.on { background:#f59e0b; border-color:#d97706; color:#fff; box-shadow:0 1px 6px rgba(217,119,6,.45); }
-  iframe { position:fixed; left:0; right:0; top:34px; bottom:0; width:100%; height:calc(100% - 34px); border:0; }
-</style>
-</head>
-<body>
-<div id="bar">
-  <span id="barTitle">${app.name} · 预览</span>
-  <button id="pinBtn" title="置顶预览窗口（浮在最上层，边聊天边看）">📌 置顶</button>
-</div>
-<iframe src="${app.url}" allow="geolocation; camera; microphone"></iframe>
-<script>
-(function () {
-  var btn = document.getElementById('pinBtn');
-  var on = false;
-  function paint() { btn.classList.toggle('on', on); btn.textContent = on ? '📌 已置顶' : '📌 置顶'; }
-  function setState(s) { on = !!s; paint(); }
-  function callPin(next) {
-    fetch('http://127.0.0.1:${PREVIEW_PORT}/api/pin?which=${which}&on=' + (next ? 1 : 0))
-      .then(function (r) { return r.json(); })
-      .then(function (d) { if (d && d.ok) setState(!!d.pinned); })
-      .catch(function () { /* 服务不在（GUI 已关）就不动状态 */ });
-  }
-  btn.addEventListener('click', function () { callPin(!on); });
-  // 打开时回显主进程记住的置顶状态（同一窗口重开 / 从面板重开都准）
-  fetch('http://127.0.0.1:${PREVIEW_PORT}/api/pin-state?which=${which}')
-    .then(function (r) { return r.json(); })
-    .then(function (d) { if (d && d.ok) setState(!!d.pinned); })
-    .catch(function () {});
-})();
-</script>
-</body>
-</html>`;
-}
-
-// 本地预览服务：出包装页 + /api/pin + /api/pin-state（跨域放开，因为包装页 fetch 自带的 origin）
-function startPreviewServer() {
-  if (previewServer) return;
-  previewServer = http.createServer(function (req, res) {
-    const u = decodeURIComponent((req.url || '/').split('?')[0]);
-    const q = (req.url || '').split('?')[1] || '';
-    const get = (k) => { const m = new RegExp('[?&]' + k + '=([^&]*)').exec('?' + q); return m ? decodeURIComponent(m[1]) : ''; };
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    if (u === '/api/pin') {
-      const which = get('which');
-      const on = get('on') === '1';
-      const app = PREVIEW_APPS[which];
-      if (!app) { res.writeHead(400); res.end('bad which'); return; }
-      doPinPreview(which, on).then(function (r) {
-        res.writeHead(r.ok ? 200 : 409, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify(r));
-      }).catch(function (ex) {
-        res.writeHead(500); res.end(JSON.stringify({ ok: false, err: String((ex && ex.message) || ex) }));
-      });
-      return;
-    }
-    if (u === '/api/pin-state') {
-      const which = get('which');
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ ok: true, pinned: !!PREVIEW_PINNED[which], pid: PREVIEW_PIDS[which] || 0 }));
-      return;
-    }
-    const which = u.replace(/^\//, '').replace(/\.html$/, '');
-    if (PREVIEW_APPS[which]) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(previewShellHtml(which));
-      return;
-    }
-    res.writeHead(404); res.end('not found');
-  });
-  // ★ 2026-09-26：同机多壳（dev 工作台 + 安装版）时端口只能被一个占住 —— 占不到就**安静退让**，
-  //   别抛未捕获的 EADDRINUSE（那会弹「DSH 引擎 出错」框，实测被多开实例触发过）。
-  previewServer.on('error', function (e) {
-    log('[preview] 端口 ' + PREVIEW_PORT + ' 没占上（' + ((e && e.code) || e) + '）⇒ 本实例不提供预览包装页，'
-      + '由已在跑的那个壳提供');
-    previewServer = null;
-  });
-  previewServer.listen(PREVIEW_PORT, '127.0.0.1', function () {
-    log('[preview] 预览包装页服务已就绪: http://127.0.0.1:' + PREVIEW_PORT + '/parent（教师端 /teacher）');
-  });
-}
-// .bat 的浏览器查找顺序：Edge(x86) → Edge → Chrome → Chrome(x86) → Chrome(用户级)
-function findBrowser() {
-  const cands = [
-    process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Microsoft\\Edge\\Application\\msedge.exe'),
-    process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'Microsoft\\Edge\\Application\\msedge.exe'),
-    process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'Google\\Chrome\\Application\\chrome.exe'),
-    process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Google\\Chrome\\Application\\chrome.exe'),
-    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Google\\Chrome\\Application\\chrome.exe')
-  ].filter(Boolean);
-  for (const c of cands) { try { if (fs.existsSync(c)) return c; } catch (e) { /* ignore */ } }
-  return '';
-}
-ipcMain.handle('oa:appWindow', (e, which) => {
-  try {
-    const app = PREVIEW_APPS[String(which)];
-    if (!app) return { ok: false, err: '未知的预览端：' + which };
-    const exe = findBrowser();
-    if (!exe) return { ok: false, err: '没找到 Edge / Chrome，请先装一个浏览器' };
-    startPreviewServer();   // 包装页服务：窗口内容走本地页（含 📌 置顶按钮）
-    const prof = path.join(PREVIEW_ROOT, 'data', String(which));
-    try { if (!fs.existsSync(prof)) fs.mkdirSync(prof, { recursive: true }); } catch (ex) { /* 目录建不了也让浏览器自己试 */ }
-    const args = [
-      '--app=http://127.0.0.1:' + PREVIEW_PORT + '/' + String(which),
-      '--window-size=400,830',
-      '--window-position=' + app.x + ',' + app.y,
-      '--user-data-dir=' + prof,
-      '--no-first-run', '--no-default-browser-check',
-      '--disable-features=Translate,msEdgeSidebarV2,msEdgeBingSidebar',
-      '--hide-crash-restore-bubble', '--disable-sync'
-    ];
-    const child = spawn(exe, args, { detached: true, stdio: 'ignore', windowsHide: false });
-    child.unref();
-    // ★ 2026-09-23 记住 pid：置顶开关要用它找窗口
-    PREVIEW_PIDS[which] = child.pid;
-    // 重新打开 = 新窗口：置顶状态还原成"没置顶"，由包装页按钮重新决定
-    PREVIEW_PINNED[which] = false;
-    return { ok: true, name: app.name, url: app.url, exe: path.basename(exe), pid: child.pid };
-  } catch (ex) {
-    return { ok: false, err: String((ex && ex.message) || ex) };
-  }
-});
-
-// ★ 2026-09-23 「置顶预览窗口」核心：按 pid 找窗口句柄，调 user32.SetWindowPos 切 HWND_TOPMOST/NOTOPMOST。
-// 为什么用 powershell：Node 里没有现成的 Win32 绑定；不引第三方依赖，调系统 PowerShell 一行脚本最稳。
-// 失败场景（返回 ok:false 但不算崩溃）：窗口已关（pid 无效）、或窗口还没有可见句柄（正在启动）。
-// 两个入口共用：① 包装页按钮 → 本地 /api/pin；② IPC oa:appWindow:pin（保留，面板侧万一要用）。
-function doPinPreview(which, wantPin) {
-  return new Promise(function (resolve) {
-    try {
-      const app = PREVIEW_APPS[String(which)];
-      if (!app) return resolve({ ok: false, err: '未知的预览端：' + which });
-      const pid = PREVIEW_PIDS[String(which)];
-      if (!pid) return resolve({ ok: false, err: '还没打开过' + app.name + '预览' });
-      const ps = [
-        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
-        `Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public class W {
-  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lp);
-  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
-  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint f);
-  public delegate bool EnumWindowsProc(IntPtr h, IntPtr lp);
-}
-'@
-$found = [IntPtr]::Zero
-$cb = [W+EnumWindowsProc]{ param($h, $lp)
-  $p = 0
-  [W]::GetWindowThreadProcessId($h, [ref]$p) | Out-Null
-  if ($p -eq $env:pid) { $script:found = $h; return $false }
-  return $true
-}
-[W]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
-if ($script:found -eq [IntPtr]::Zero) { Write-Output 'NO_WINDOW'; exit 0 }
-$top = if ($env:want -eq '1') { [IntPtr]-1 } else { [IntPtr]-2 }
-$r = [W]::SetWindowPos($script:found, $top, 0, 0, 0, 0, 0x0001 -bor 0x0002 -bor 0x0040)
-Write-Output ($(if ($r) { 'OK' } else { 'FAIL' }))`
-      ];
-      const { execFile } = require('child_process');
-      execFile('powershell.exe', ps, { windowsHide: true, timeout: 12000, env: Object.assign({}, process.env, { pid: String(pid), want: wantPin ? '1' : '0' }) },
-        (err, stdout) => {
-          const out = String(stdout || '').trim();
-          if (err && !out) return resolve({ ok: false, err: '置顶失败（powershell 未响应）' });
-          if (out.indexOf('NO_WINDOW') >= 0) return resolve({ ok: false, err: '预览窗口已关闭（重新打开再置顶）' });
-          if (out.indexOf('OK') < 0) return resolve({ ok: false, err: '置顶失败（窗口句柄未就绪？）' });
-          PREVIEW_PINNED[String(which)] = wantPin;
-          return resolve({ ok: true, pinned: wantPin, pid: pid });
-        });
-    } catch (ex) {
-      return resolve({ ok: false, err: String((ex && ex.message) || ex) });
-    }
-  });
-}
-ipcMain.handle('oa:appWindow:pin', (e, which, on) => doPinPreview(which, !!on));
-ipcMain.handle('oa:appWindow:pinState', (e, which) => ({ ok: true, pinned: !!PREVIEW_PINNED[String(which)], pid: PREVIEW_PIDS[String(which)] || 0 }));
-
-// ---- AI 助手权限：读代码 / 改代码 / 同步 开关 + 确认模式（ask 写入同步确认｜auto 全自动｜strict 全确认） ----
-const AI_PERM_DEFAULTS = { read: true, write: true, sync: true, confirmMode: 'ask' };
-function getAiPermissions() {
-  const p = Object.assign({}, AI_PERM_DEFAULTS);
-  try {
-    const raw = oaStore.getConfig('ai.permission');
-    if (raw) Object.assign(p, JSON.parse(raw));
-  } catch (e) { /* 忽略坏配置 */ }
-  return p;
-}
-function saveAiPermissions(p) {
-  const clean = {
-    read: !!(p && p.read), write: !!(p && p.write), sync: !!(p && p.sync),
-    confirmMode: p && ['ask', 'auto', 'strict'].indexOf(p.confirmMode) >= 0 ? p.confirmMode : 'ask'
-  };
-  oaStore.setConfig('ai.permission', JSON.stringify(clean));
-  return clean;
-}
-ipcMain.handle('oa:ai:perms', () => getAiPermissions());
-ipcMain.handle('oa:ai:perms:set', (e, p) => saveAiPermissions(p || {}));
-
-// ---- AI 代码修改（安全边界：仅 backend/ 与 web/ 源码；禁止 .env；写入前自动备份到 D 盘 data/oa-code-backups） ----
-const OA_CODE_ROOTS = ['backend', 'web'];
-const OA_CODE_BACKUP_DIR = path.join(__dirname, 'data', 'oa-code-backups');
-function resolveOaCodePath(rel) {
-  const root = oaStore.getConfig('oa.path.local') || path.join(WORKBENCH_ROOT, '工作区');
-  const r = String(rel || '').replace(/^[\\/]+/, '').replace(/\\/g, '/');
-  if (!r || r === '.' || r.startsWith('..') || r.indexOf('/../') >= 0 || r.indexOf('\0') >= 0) return null;
-  const seg = r.split('/')[0];
-  if (OA_CODE_ROOTS.indexOf(seg) < 0) return null;
-  const rootRes = path.resolve(root);
-  const full = path.resolve(root, r);
-  if (full !== rootRes && !full.startsWith(rootRes + path.sep)) return null;
-  if (/(^|[\\/])\.env($|\.)/.test(full)) return null;
-  return full;
-}
-ipcMain.handle('oa:code:read', (e, rel) => {
-  if (!getAiPermissions().read) return { ok: false, err: 'AI 读取代码权限已关闭（请在 AI 助手面板的权限开关里开启）' };
-  const full = resolveOaCodePath(rel);
-  if (!full) return { ok: false, err: '路径不允许：仅可读写 backend/ 与 web/ 源码，禁止 .env' };
-  try {
-    const content = fs.readFileSync(full, 'utf8');
-    return { ok: true, rel: String(rel), path: full, lines: content.split('\n').length, content };
-  } catch (ex) {
-    return { ok: false, err: '读取失败：' + String((ex && ex.message) || ex) };
-  }
-});
-ipcMain.handle('oa:code:write', (e, rel, content) => {
-  if (!getAiPermissions().write) return { ok: false, err: 'AI 修改代码权限已关闭（请在 AI 助手面板的权限开关里开启）' };
-  const full = resolveOaCodePath(rel);
-  if (!full) return { ok: false, err: '路径不允许：仅可读写 backend/ 与 web/ 源码，禁止 .env' };
-  const body = String(content == null ? '' : content);
-  const newLines = body.split('\n').length;
-  try {
-    let backupRel = null;
-    if (fs.existsSync(full)) {
-      const orig = fs.readFileSync(full, 'utf8');
-      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      const safeName = String(rel).replace(/[\\/]+/g, '__');
-      backupRel = ts + '__' + safeName;
-      fs.mkdirSync(OA_CODE_BACKUP_DIR, { recursive: true });
-      fs.writeFileSync(path.join(OA_CODE_BACKUP_DIR, backupRel), orig, 'utf8');
-    }
-    fs.writeFileSync(full, body, 'utf8');
-    oaStore.addLog('info', 'code', 'AI 修改文件 ' + rel + '（新 ' + newLines + ' 行）' + (backupRel ? '，已备份' : '（新建）'));
-    return { ok: true, rel: String(rel), path: full, lines: newLines, backup: backupRel };
-  } catch (ex) {
-    return { ok: false, err: '写入失败：' + String((ex && ex.message) || ex) };
-  }
-});
-ipcMain.handle('oa:backups', (e, limit) => oaStore.listBackups(limit));
-ipcMain.handle('oa:action:list', () => oaStore.listActions());
-ipcMain.handle('oa:action:run', (e, id) => runOaAction(id));
-ipcMain.handle('oa:shell:exec', (e, cmd) => runOaShell(cmd));
-ipcMain.handle('oa:shell:history', (e, limit) => oaStore.getShellHistory(limit));
-// ---- 助手→SSH 终端可见通道：助手把命令写入 inbox，SSH 面板拾取后走与手动输入相同的执行路径，结果回写 outbox ----
-const AGENT_INBOX = path.join(__dirname, 'data', 'agent-shell-inbox.jsonl');
-const AGENT_OUTBOX = path.join(__dirname, 'data', 'agent-shell-outbox.jsonl');
-const agentReadLines = (f) => {
-  try {
-    if (!fs.existsSync(f)) return [];
-    return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean)
-      .map(l => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
-  } catch (e) { return []; }
-};
-const agentWriteLines = (f, arr) => {
-  try { fs.writeFileSync(f, arr.map(x => JSON.stringify(x)).join('\n') + (arr.length ? '\n' : ''), 'utf8'); } catch (e) { }
-};
-ipcMain.handle('oa:agent:dequeue', () => {
-  const lines = agentReadLines(AGENT_INBOX);
-  if (!lines.length) return null;
-  const first = lines[0];
-  agentWriteLines(AGENT_INBOX, lines.slice(1)); // 取出即移除，防重复执行
-  return { seq: String(first.seq || ''), cmd: String(first.cmd || '') };
-});
-ipcMain.handle('oa:agent:ack', (e, r) => {
-  if (!r || !r.seq) return false;
-  const arr = agentReadLines(AGENT_OUTBOX);
-  arr.push({ seq: String(r.seq), ok: !!r.ok, out: String(r.out || ''), err: String(r.err || ''), ts: Date.now() });
-  agentWriteLines(AGENT_OUTBOX, arr);
-  return true;
-});
-ipcMain.handle('oa:config:get', (e, key) => oaStore.getConfig(key));
-ipcMain.handle('oa:config:set', (e, key, value) => oaStore.setConfig(key, value));
-ipcMain.handle('oa:ssh:status', () => {
-  const cfg = oaSsh.getConfig();
-  return {
-    ready: oaSsh.isReady(),
-    connected: oaSsh.isReady(),
-    host: cfg.host,
-    user: cfg.user,
-    port: cfg.port,
-    auth: cfg.auth,
-    passwordSet: cfg.passwordSet,
-    passwordEnv: cfg.envSource,
-    lastError: oaStatusError
-  };
-});
 
 // ================= OA 运维：上下文收集 / 系统提示 / 动作执行 / 终端执行 =================
 // 只读 oa-store（D 盘 data/oa.db），绝不含任何股票数据；接入真实 SSH 后采集器把真实数据写入 oa.db。
@@ -3127,68 +1798,6 @@ async function runOaShell(cmd) {
   return { ok: true, cmd: c, out: out, demo: true };
 }
 
-
-ipcMain.handle('stock:watch:set', (e, code, name) => stockStore.setWatch(code, name));
-ipcMain.handle('stock:watch:list', () => stockStore.listWatch());
-ipcMain.handle('stock:watch:remove', (e, code) => stockStore.removeWatch(code));
-ipcMain.handle('stock:pos:set', (e, code, name, shares, cost) => stockStore.setPosition(code, name, shares, cost));
-ipcMain.handle('stock:pos:list', () => stockStore.listPositions());
-ipcMain.handle('stock:pos:update', (e, code, patch) => stockStore.updatePosition(code, patch));
-ipcMain.handle('stock:pos:remove', (e, code) => stockStore.removePosition(code));
-// ---- 交易（同花顺口径：费用 / 摊薄成本 / T+1 / 已实现盈亏）----
-ipcMain.handle('stock:trade:buy', (e, code, name, shares, price) => stockStore.buyStock(code, name, shares, price));
-ipcMain.handle('stock:trade:sell', (e, code, name, shares, price) => stockStore.sellStock(code, name, shares, price));
-ipcMain.handle('stock:trade:close', (e, code, price) => stockStore.closePosition(code, price));
-ipcMain.handle('stock:trade:list', (e, limit) => stockStore.listTrades(limit));
-ipcMain.handle('stock:trade:stats', () => stockStore.tradeStats());
-// 费率设置（佣金/印花税/过户费）
-ipcMain.handle('stock:fee:get', () => stockStore.getFeeConfig());
-ipcMain.handle('stock:fee:set', (e, patch) => stockStore.setFeeConfig(patch));
-ipcMain.handle('stock:quote:cache', (e, code, payload) => stockStore.cacheQuote(code, payload));
-ipcMain.handle('stock:quote:latest', (e, code) => stockStore.latestQuote(code));
-ipcMain.handle('stock:kline:cache', (e, code, period, payload) => stockStore.cacheKline(code, period, payload));
-ipcMain.handle('stock:kline:latest', (e, code, period) => stockStore.latestKline(code, period));
-// ---- 板块每日快照（趋势看板历史数据：按 市场+日期 存当天各板块行情概况）----
-ipcMain.handle('stock:sector:daily:set', (e, market, date, snapshots) => {
-  // snapshots = { sectorId: { avg, up, down, quotes } }
-  if (!snapshots || typeof snapshots !== 'object') return { ok: false };
-  Object.keys(snapshots).forEach(sid => {
-    try { stockStore.cacheSectorDaily(market, date, sid, snapshots[sid]); } catch (ex) { /* 单条失败不影响整体 */ }
-  });
-  return { ok: true, n: Object.keys(snapshots).length };
-});
-ipcMain.handle('stock:sector:daily:get', (e, market, date) => stockStore.getSectorDaily(market, date));
-ipcMain.handle('stock:sector:daily:history', (e, market, sectorId, limit) => stockStore.listSectorDaily(market, sectorId, limit));
-// ---- 账户 / 总资产（现金、资产快照）----
-ipcMain.handle('stock:acct:init', (e, amount) => stockStore.initCash(amount));
-ipcMain.handle('stock:acct:cash', () => stockStore.getCash());
-ipcMain.handle('stock:acct:account', () => stockStore.getAccount());
-ipcMain.handle('stock:acct:set-total', (e, amount) => stockStore.setTotalAsset(amount));
-ipcMain.handle('stock:acct:set-cash', (e, amount) => stockStore.setCash(amount));
-ipcMain.handle('stock:acct:adjust', (e, delta) => stockStore.adjustCash(delta));
-ipcMain.handle('stock:acct:snapshot', (e, snap) => stockStore.addAssetSnapshot(snap));
-ipcMain.handle('stock:acct:snapshots', (e, limit) => stockStore.listAssetSnapshots(limit));
-
-// ---- 股票助手：运行 Python 数据脚本（akshare / baostock）----
-const PYTHON = process.env.DSH_PYTHON || 'python';
-ipcMain.handle('stock:script:run', (e, script) => new Promise((resolve) => {
-  if (!script || typeof script !== 'string') return resolve({ ok: false, out: '', err: '脚本为空' });
-  // 用 utf-8 环境变量避免中文乱码
-  const env = Object.assign({}, process.env, { PYTHONIOENCODING: 'utf-8' });
-  const proc = spawn(PYTHON, ['-c', script], { env, windowsHide: true });
-  let out = '', err = '';
-  proc.stdout.on('data', d => { out += String(d); });
-  proc.stderr.on('data', d => { err += String(d); });
-  const timer = setTimeout(() => { proc.kill(); resolve({ ok: false, out, err: err + '\n[超时 30s 已终止]' }); }, 30000);
-  proc.on('close', code => {
-    clearTimeout(timer);
-    resolve({ ok: code === 0, out, err });
-  });
-  proc.on('error', ex => {
-    clearTimeout(timer);
-    resolve({ ok: false, out, err: String(ex && ex.message || ex) });
-  });
-}));
 
 // ---- 股票助手：真实行情（腾讯行情接口，批量 0.5s 级）----
 ipcMain.handle('stock:quote:realtime', (e, codes) => new Promise((resolve) => {
@@ -3819,7 +2428,12 @@ const MODEL_PATCH_FILES = () => {
   try {
     const base = path.join(DSH_DATA_DIR, 'profiles');
     if (fs.existsSync(base)) {
-      for (const d of fs.readdirSync(base)) {
+      const dirs = fs.readdirSync(base).sort((a, b) => {
+        if (a === 'web') return -1;
+        if (b === 'web') return 1;
+        return a.localeCompare(b);
+      });
+      for (const d of dirs) {
         const p = path.join(base, d, 'cordis.patch.yml');
         if (fs.existsSync(p)) out.push(p);
       }
@@ -3839,6 +2453,7 @@ function parseModelConfig(text) {
   let cur = null;
   let inModels = false;
   let inDef = false, defIndent = -1;
+  let modelsIndent = -1;
   for (const raw of lines) {
     if (/^\s*#/.test(raw)) continue;
     const line = raw.replace(/\s+#.*$/, '').replace(/\s+$/, '');
@@ -3847,7 +2462,7 @@ function parseModelConfig(text) {
     const t = line.trim();
     // 默认模型（三种写法都认：`- id: agent-default-model` ← 当前引擎实际写法 / `agent-default-model:` / `id: ...`）
     if (/^(?:-\s*)?(?:id:\s*)?agent-default-model:?\s*$/.test(t)) {
-      inDef = true; defIndent = indent; provIndent = -1; cur = null; inModels = false; continue;
+      inDef = true; defIndent = indent; provIndent = -1; cur = null; inModels = false; modelsIndent = -1; continue;
     }
     if (inDef) {
       if (indent <= defIndent) { inDef = false; }
@@ -3857,20 +2472,26 @@ function parseModelConfig(text) {
         continue;
       }
     }
-    if (/^providers:\s*$/.test(t)) { provIndent = indent; cur = null; inModels = false; continue; }
+    if (/^providers:\s*$/.test(t)) { provIndent = indent; cur = null; inModels = false; modelsIndent = -1; continue; }
     if (provIndent < 0) continue;
-    if (indent <= provIndent) { provIndent = -1; cur = null; inModels = false; continue; }
+    if (indent <= provIndent) { provIndent = -1; cur = null; inModels = false; modelsIndent = -1; continue; }
     if (indent === provIndent + 2 && /^[A-Za-z0-9_.\-]+:\s*$/.test(t)) {
       cur = { id: t.slice(0, -1), models: [] };
-      providers.push(cur); inModels = false; continue;
+      providers.push(cur); inModels = false; modelsIndent = -1; continue;
     }
     if (!cur) continue;
+    if (inModels) {
+      if (indent < modelsIndent || (indent === modelsIndent && !t.startsWith('-'))) {
+        inModels = false;
+        modelsIndent = -1;
+      }
+    }
     if (inModels) {
       const m = t.match(/^-?\s*id:\s*(.+)$/);
       if (m) cur.models.push(m[1].trim().replace(/^['"]|['"]$/g, ''));
       continue;
     }
-    if (/^models:\s*$/.test(t)) { inModels = true; continue; }
+    if (/^models:\s*$/.test(t)) { inModels = true; modelsIndent = indent; continue; }
     const m2 = t.match(/^(displayName|apiKeyEnv|api|baseURL):\s*(.+)$/);
     if (m2) cur[m2[1]] = m2[2].trim().replace(/^['"]|['"]$/g, '');
   }
@@ -3879,7 +2500,13 @@ function parseModelConfig(text) {
 
 ipcMain.handle('models:list', () => {
   const files = MODEL_PATCH_FILES();
-  const out = { settingsPath: files[0] || SETTINGS_PATH, default: null, providers: [], sourceFiles: files };
+  const primaryFile = files.find(f => {
+    try {
+      const txt = fs.readFileSync(f, 'utf8');
+      return /providers:\s*$/m.test(txt) || /agent-default-model/m.test(txt);
+    } catch (e) { return false; }
+  }) || files[0] || SETTINGS_PATH;
+  const out = { settingsPath: primaryFile, default: null, providers: [], sourceFiles: files };
   try {
     // 引擎已登记的密钥名（.credentials.yaml 的 refs: 段）
     const refs = new Set();
@@ -3887,7 +2514,7 @@ ipcMain.handle('models:list', () => {
       if (fs.existsSync(CREDENTIALS_PATH)) {
         const ct = fs.readFileSync(CREDENTIALS_PATH, 'utf8');
         for (const l of ct.split(/\r?\n/)) {
-          const m = l.match(/^\s{2}([A-Za-z0-9_]+):/);
+          const m = l.match(/^\s{2}([A-Za-z0-9_.\-]+):/);
           if (m) refs.add(m[1]);
         }
       }

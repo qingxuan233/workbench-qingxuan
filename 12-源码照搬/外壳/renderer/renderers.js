@@ -3711,12 +3711,12 @@ function webAiFree(o) {
 function webAiShow(key) {
   const o = webAiEnsure(key, '');
   if (!o) return;
+  if (o.hibernateTimer) { clearTimeout(o.hibernateTimer); o.hibernateTimer = null; }
+  try { if (o.wv && o.wv.setAudioMuted) o.wv.setAudioMuted(false); } catch (e) {}
   o.el.classList.remove('warm', 'mini');
   const mb = o.el.querySelector('.webai-tb[data-act="mini"]');
   if (mb) mb.textContent = '▁';
   webAiRaise(o);
-  // 不做"开一个就收别的"：五个窗口互相独立（豆包和 Kimi 可以并排摆着看），
-  // 每个图标只管自己那扇窗；要收就再点一次自己的图标，或点自己标题栏的 ✕。
   webAiMarkOn();
   try {
     if (o.wv && o.wv.focus) setTimeout(function () { try { o.wv.focus(); } catch (e) {} }, 0);
@@ -3728,6 +3728,14 @@ function webAiHide(key) {
   o.el.classList.add('warm');
   webAiRecordGeometry(key);
   webAiMarkOn();
+  if (o.hibernateTimer) clearTimeout(o.hibernateTimer);
+  o.hibernateTimer = setTimeout(function () {
+    try {
+      if (o.el.classList.contains('warm') && o.wv && (!window.__webaiBridgeBusy || !window.__webaiBridgeBusy[key])) {
+        if (o.wv.setAudioMuted) o.wv.setAudioMuted(true);
+      }
+    } catch (e) {}
+  }, 60000);
 }
 // 打开 / 收起一个站点的窗口 —— **顶栏图标和画布上的「网页版 AI 节点」共用这一个函数**
 // （一个功能只留一处实现：另写一份就会出现两套窗口、两份登录态、两份 guest 内存）。

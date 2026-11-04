@@ -15,12 +15,32 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
 const exists = (p) => fs.existsSync(path.join(ROOT, p));
+
+function safeSpawnSync(cmd, args, opts = {}) {
+  const tmp = path.join(os.tmpdir(), `cg-spawn-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`);
+  let fd;
+  try {
+    fd = fs.openSync(tmp, 'w+');
+    const childOpts = { ...opts, stdio: ['ignore', fd, fd] };
+    const r = spawnSync(cmd, args, childOpts);
+    fs.closeSync(fd);
+    fd = null;
+    const out = fs.readFileSync(tmp, 'utf8');
+    return { status: r.status, error: r.error, stdout: out, stderr: out };
+  } catch (err) {
+    return { status: 1, error: err, stdout: '', stderr: String(err) };
+  } finally {
+    if (fd != null) { try { fs.closeSync(fd); } catch {} }
+    try { fs.unlinkSync(tmp); } catch {}
+  }
+}
 
 let fails = 0;
 let warns = 0;
@@ -43,7 +63,7 @@ for (const f of REQUIRED_JS.concat(OPTIONAL_JS)) {
     bad(f + ' 不存在（要么是必需文件，要么 index.html 还在引用它）');
     continue;
   }
-  const r = spawnSync(process.execPath, ['--check', path.join(ROOT, f)], { encoding: 'utf8' });
+  const r = safeSpawnSync(process.execPath, ['--check', path.join(ROOT, f)], { encoding: 'utf8' });
   if (r.status === 0) ok(f);
   else bad(f + ' 语法错误：\n' + String(r.stderr || '').split('\n').slice(0, 6).join('\n'));
 }
@@ -55,9 +75,12 @@ const main = read('main.js');
 // IPC 实现源 = main.js **加上 scripts/ 下的模块**（2026-09-26：官方能力搬迁后，新能力都写成独立模块，
 // 例如 scripts/sidebar.js 里的 browser-sidebar:* ⇒ 只扫 main.js 会误报"没实现"）
 const moduleFiles = (() => {
-  try { return fs.readdirSync(ROOT + '/scripts').filter((f) => f.endsWith('.js')) } catch (e) { return [] }
+  const list = [];
+  try { list.push(...fs.readdirSync(ROOT + '/scripts').filter((f) => f.endsWith('.js')).map((f) => 'scripts/' + f)); } catch (e) {}
+  try { if (fs.existsSync(ROOT + '/main')) list.push(...fs.readdirSync(ROOT + '/main').filter((f) => f.endsWith('.js')).map((f) => 'main/' + f)); } catch (e) {}
+  return list;
 })();
-const implSources = main + '\n' + moduleFiles.map((f) => read('scripts/' + f)).join('\n');
+const implSources = main + '\n' + moduleFiles.map((f) => read(f)).join('\n');
 const declared = new Set(), handled = new Set();
 for (const m of pre.matchAll(/ipcRenderer\.invoke\(\s*'([^']+)'/g)) declared.add(m[1]);
 for (const m of pre.matchAll(/ipcRenderer\.on\(\s*'([^']+)'/g)) declared.add(m[1] + ' (event)');
@@ -357,7 +380,7 @@ for (const f of ['start.vbs', 'icon.ico', 'scripts/check-gui.mjs', 'scripts/back
 head('9. AI 面板：注入脚本与场景↔会话对照');
 for (const s of ['scripts/check-injected.mjs', 'scripts/sessions.mjs']) {
   if (!exists(s)) { warn(s + ' 缺失，跳过'); continue; }
-  const r = spawnSync(process.execPath, [s, ...(s.includes('sessions') ? ['--check'] : [])], { cwd: ROOT, encoding: 'utf8' });
+  const r = safeSpawnSync(process.execPath, [s, ...(s.includes('sessions') ? ['--check'] : [])], { cwd: ROOT, encoding: 'utf8' });
   const out = String(r.stdout || '') + String(r.stderr || '');
   const lines = out.split(/\r?\n/).filter((l) => l.trim());
   const badLines = lines.filter((l) => /^✗/.test(l.trim()));
@@ -484,7 +507,7 @@ if (fs.existsSync(path.join(_engineDir, 'apps', 'cli'))) {
 // 再加两条壳侧自身的检查。
 head('11. 引擎接线（产物配套 · 上游实现 · 插件接线 · 适配版本）');
 if (exists('scripts/engine-after.mjs')) {
-  const r = spawnSync(process.execPath, ['scripts/engine-after.mjs'], { cwd: ROOT, encoding: 'utf8' });
+  const r = safeSpawnSync(process.execPath, ['scripts/engine-after.mjs'], { cwd: ROOT, encoding: 'utf8' });
   const lines = (String(r.stdout || '') + String(r.stderr || '')).split(/\r?\n/).filter((l) => l.trim());
   for (const l of lines) {
     const t = l.trim();

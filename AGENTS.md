@@ -29,10 +29,10 @@
 <!-- 场景事实表:开始（工具\场景校验.mjs --stamp 生成；勿手改） -->
 | 项 | 值 |
 |---|---|
-| 场景数 | 4 |
-| 场景（id → 标题） | `bilibili` → B站；`command` → 命令；`pc-cleanup` → 本地电脑；`self-review` → 自我复盘 |
-| 面板总数 | 13 |
-| AI 面板（harness） | 4 |
+| 场景数 | 5 |
+| 场景（id → 标题） | `bilibili` → B站；`command` → 命令；`pc-cleanup` → 本地电脑；`self-review` → 自我复盘；`webai` → 网页AI |
+| 面板总数 | 17 |
+| AI 面板（harness） | 5 |
 | 首屏场景 | `command` |
 | 端口 | 引擎 `3083`（`DSH_PORT`）；站点 `31238`（写死）；网页版 AI 桥 `31239`（`WEB_AI_PORT`） |
 | 场景配置目录 | `12-源码照搬\外壳\scenarios` |
@@ -95,13 +95,14 @@ node 工具\初始化.mjs --install    # 真做 + 装 Electron（首次约 200 M
 
 > ⚠ 只认**本次启动之后新写**的日志（启动器会记 `offset`）。历史成功不算数。
 
-### ④ 建 4 条会话（最容易漏，一定要做）
+### ④ 建 5 条会话（最容易漏，一定要做）
 
 ```powershell
 node 外壳\scripts\建会话.mjs --title "命令"     --cwd "$((Get-Location).Path)"
 node 外壳\scripts\建会话.mjs --title "B站"       --cwd "$((Get-Location).Path)"
 node 外壳\scripts\建会话.mjs --title "自我复盘"  --cwd "$((Get-Location).Path)"
 node 外壳\scripts\建会话.mjs --title "本地电脑"  --cwd "$((Get-Location).Path)"
+node 外壳\scripts\建会话.mjs --title "网页AI"    --cwd "$((Get-Location).Path)"
 node 工具\实例化.mjs --apply
 ```
 
@@ -144,8 +145,8 @@ node 外壳\scripts\sessions.mjs --check
 | `node 工具\编码检查.mjs` | `✓ 没有会导致乱码或静默失效的编码问题。` | §5-4 |
 | `node 外壳\scripts\check-gui.mjs` | `全部通过 ✓（warning N）` | warning 属正常（缺内置引擎） |
 | `node 外壳\scripts\ui-check.mjs` | `✓ UI 自检全部通过` | UI 模块语法 / 加载顺序 / DOM 挂载点 |
-| `node 外壳\scripts\sessions.mjs --check` | `场景↔会话对照检查通过 ✓ 共 4 个 AI 面板` | §3、§5-5 |
-| 界面 | 四个场景的 AI 面板标题行都显示 `✓ 已钉绑定` | §5-5 |
+| `node 外壳\scripts\sessions.mjs --check` | `场景↔会话对照检查通过 ✓ 共 5 个 AI 面板` | §3、§5-5 |
+| 界面 | 五个场景的 AI 面板标题行都显示 `✓ 已钉绑定` | §5-5 |
 | 工具面板（顶栏） | `48 个工具` | 清单缺失见 §5-7 |
 
 ---
@@ -211,12 +212,12 @@ node 外壳\scripts\sessions.mjs --check
 
 ---
 
-## §8 已知口径差异（别被配置文件误导）
+## §8 已知口径说明
 
 | 现象 | 实际情况 |
 |---|---|
-| `工作台.example.json` 里有 `dshPort` / `sitePort` | `main.js` **只读环境变量** `DSH_PORT`（默认 3083）；`sitePort` 写死 31238。改 `工作台.json` 的 `dshPort` **目前不生效** |
-| 想同机并存两个工作台 | 引擎端口用 `DSH_PORT=3084` 之类；但 31238 只能被一个壳占住，第二个壳取主界面地址会走别的路子 |
+| `工作台.example.json` 里有 `dshPort` / `sitePort` | `main.js` 现在优先从 `工作台.json` 中读取 `dshPort`（无配置时回落至环境变量 `DSH_PORT` / 默认 3083），支持单机灵活修改配置文件多实例并存；`sitePort` 默认 31238 |
+| 想同机并存两个工作台 | 引擎端口在 `工作台.json` 设 `dshPort: 3084` 或设环境变量 `DSH_PORT=3084`；31238 只能被一个壳占住，第二个壳取主界面地址会走保命代理 |
 | 源码直跑（仓库里没有 `引擎\`） | `check-gui` 全部通过（warning 0）：没有内置引擎时按「源码直跑」跳过引擎侧检查；`engine-after.mjs` 自报「不适用」 |
 
 ---
@@ -228,14 +229,14 @@ repo: https://github.com/qingxuan233/workbench-qingxuan.git
 branch: main
 app_root: 12-源码照搬
 entry: 12-源码照搬/启动.bat
-scenes: {command: 命令, bilibili: B站, self-review: 自我复盘, pc-cleanup: 本地电脑}
+scenes: {command: 命令, bilibili: B站, self-review: 自我复盘, pc-cleanup: 本地电脑, webai: 网页AI}
 ports: {engine: 3083, site: 31238, webai_bridge: 31239}
 env_overrides: {engine_port: DSH_PORT, webai_port: WEB_AI_PORT, engine_cli: DSH_CMD}
 steps:
   - node 工具/初始化.mjs --dry
   - node 工具/初始化.mjs --install
   - 启动.bat
-  - 建会话 4 条（--title 与上文一字不差，--cwd=app_root）
+  - 建会话 5 条（--title 与上文一字不差，--cwd=app_root）
   - node 工具/实例化.mjs --apply
   - node 工具/体检.mjs
 gate_ok:
@@ -244,7 +245,7 @@ gate_ok:
   编码检查: "没有会导致乱码或静默失效的编码问题"
   check_gui: "全部通过"
   ui_check: "UI 自检全部通过"
-  sessions_check: "4 个 AI 面板"
+  sessions_check: "5 个 AI 面板"
 human_required:
   - 顶栏「模型与提供方」填 API key
   - 网页版 AI 五站各登录一次

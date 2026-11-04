@@ -32,7 +32,30 @@ const HERE = path.dirname(fileURLToPath(import.meta.url))
 const APP = path.resolve(HERE, '..')
 const VERBOSE = process.argv.includes('--verbose')
 
-const git = (args) => execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd: APP, encoding: 'utf8' })
+function safeSpawnSync(cmd, args, opts = {}) {
+  const tmp = path.join(os.tmpdir(), `wb-spawn-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`);
+  let fd;
+  try {
+    fd = fs.openSync(tmp, 'w+');
+    const childOpts = { ...opts, stdio: ['ignore', fd, fd] };
+    const r = spawnSync(cmd, args, childOpts);
+    fs.closeSync(fd);
+    fd = null;
+    const out = fs.readFileSync(tmp, 'utf8');
+    return { status: r.status, error: r.error, stdout: out, stderr: out };
+  } catch (err) {
+    return { status: 1, error: err, stdout: '', stderr: String(err) };
+  } finally {
+    if (fd != null) { try { fs.closeSync(fd); } catch {} }
+    try { fs.unlinkSync(tmp); } catch {}
+  }
+}
+
+const git = (args) => {
+  const r = safeSpawnSync('git', ['-c', 'core.quotepath=false', ...args], { cwd: APP });
+  if (r.status !== 0) throw new Error(r.stderr || (r.error && r.error.message) || 'git error');
+  return r.stdout;
+}
 const read = (p) => { try { return fs.readFileSync(p, 'utf8') } catch { return null } }
 
 /** 已跟踪文件 + 暂存新增（相对 APP；越出 APP 的条目丢弃） */
@@ -91,7 +114,7 @@ const STEP_NAMES = [
 ]
 
 function runStep(index, cmd, args, extra) {
-  const r = spawnSync(process.execPath, [path.join(HERE, cmd), ...args], { cwd: APP, encoding: 'utf8' })
+  const r = safeSpawnSync(process.execPath, [path.join(HERE, cmd), ...args], { cwd: APP, encoding: 'utf8' })
   const raw = String(r.stdout || '') + String(r.stderr || '')
   const lines = raw.split(/\r?\n/).filter((l) => l.trim())
   const tag = `[${index + 1}/6] ${STEP_NAMES[index]}`
