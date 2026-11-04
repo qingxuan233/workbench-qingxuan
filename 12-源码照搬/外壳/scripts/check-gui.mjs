@@ -34,7 +34,7 @@ head('1. JS 语法');
 // 必需文件（缺 = 壳跑不起来）与公开版剔除的业务模块（缺 = 设计如此）。
 // 业务模块只有在 index.html 仍引用它时才必须存在 —— 那才是真的会加载失败。
 const REQUIRED_JS = ['main.js', 'preload.js', 'renderer/renderer.js', 'renderer/renderers.js', 'renderer/theme-sync.js'];
-const OPTIONAL_JS = ['stock-store.js', 'oa-store.js', 'oa-ssh.js'];
+const OPTIONAL_JS = ['stock-store.js', 'oa-store.js', 'oa-ssh.js', 'renderer/ui/preload-ui.js', 'renderer/ui/ui-core.js', 'renderer/ui/ui-panels.js', 'renderer/ui/ui-command.js', 'renderer/ui/ui-shell.js'];
 const _indexHtml = read('renderer/index.html');
 const isReferenced = (f) => new RegExp('["\'][^"\']*' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '["\']').test(_indexHtml);
 for (const f of REQUIRED_JS.concat(OPTIONAL_JS)) {
@@ -382,7 +382,7 @@ for (const s of ['scripts/check-injected.mjs', 'scripts/sessions.mjs']) {
 //   10.6 引擎侧扩展点结构正确：技能必须有 SKILL.md；插件目录要有开发约定
 head('10. 目录契约（哪里放什么 · 防乱建）');
 
-const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', '.git', 'GUI改造的项目信息', '.electron-cache', '.npm-cache'];   // 2026-10-16：归档并进 scenarios\归档，顶层不再有 归档；2026-11-01：.electron-cache/.npm-cache = npm/electron 的安装缓存，允许留在顶层
+const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', 'main', '.git', 'GUI改造的项目信息', '.electron-cache', '.npm-cache'];   // 2026-10-16：归档并进 scenarios\归档，顶层不再有 归档；2026-11-01：.electron-cache/.npm-cache = npm/electron 的安装缓存，允许留在顶层；2026-11-04：main = 主进程按域拆出的模块
 const ALLOWED_FILES = [
   'main.js', 'preload.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js', 'updater.js', 'crash.js',
   'package.json', 'package-lock.json', 'start.vbs', 'icon.ico', 'icon.png',

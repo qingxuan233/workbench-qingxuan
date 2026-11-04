@@ -9,7 +9,11 @@
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: file: http://127.0.0.1:31238; media-src 'self' data: blob: file:; frame-src 'self' file: http://127.0.0.1:3080 http://127.0.0.1:31238;">
   <title>DSH 引擎 · 清玄的工作台</title>
+  <!-- UI 2.0：先决定版本（classic / v2），再加载样式，避免首帧闪跳 -->
+  <script src="ui/preload-ui.js"></script>
   <link rel="stylesheet" href="styles.css" />
+  <!-- UI 2.0 壳层样式：只命中 body.wb-v2，经典模式不受影响 -->
+  <link rel="stylesheet" href="ui/ui.css" />
 </head>
 <body>
   <!-- 自定义标题栏（无边框窗口） -->
@@ -121,5 +125,10 @@
   <script src="public-links.js"></script>
   <!-- 外观同步：外壳深/浅色推给内嵌 DSH（DSH 自己的 ui-theme 偏好不会跟） -->
   <script src="theme-sync.js"></script>
+  <!-- UI 2.0：模块化壳层（core → panels → command → shell）。全部只读旧 DOM/按钮，不做业务改写。 -->
+  <script src="ui/ui-core.js"></script>
+  <script src="ui/ui-panels.js"></script>
+  <script src="ui/ui-command.js"></script>
+  <script src="ui/ui-shell.js"></script>
 </body>
 </html>

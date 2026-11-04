@@ -7,6 +7,8 @@ const { app, BrowserWindow, dialog, shell, ipcMain, webContents, nativeImage, sc
 const { spawn, spawnSync } = require('child_process');
 const http = require('http'); const net = require('net');
 const path = require('path'); const { applySceneInstance } = require('../工具/_场景绑定.js');
+const sceneStore = require('./main/scenes');
+const inventory = require('./main/inventory');
 const os = require('os');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -58,10 +60,14 @@ const WORKBENCH_ROOT = path.dirname(__dirname);
 //   模板要能公开（里面只能是占位/可推导），实例要能跑（本机真值）。
 //   真值只存 工作台.json（不入库，见 .gitignore）；模板见 工作台.example.json。
 //   读不到就当没有（老机器 / 纯模板），一切回落到下面的推导逻辑。
-function readManifest() {
-  try { return JSON.parse(fs.readFileSync(path.join(WORKBENCH_ROOT, '工作台.json'), 'utf8')) || {}; }
-  catch (e) { return {}; }
-}
+//   ＊2026-11-04：场景读取 / 实例叠加 / 标签顺序已抽到 main/scenes.js。
+sceneStore.init({
+  root: WORKBENCH_ROOT,
+  scenariosDir: SCENARIOS_DIR,
+  orderFile: path.join(__dirname, 'data', 'scene-tab-order.json'),
+  log: function (m) { log(m); },
+});
+function readManifest() { return sceneStore.readManifest(); }
 // ---- 个人站场景：官网静态服务（WORKBENCH_ROOT → http://127.0.0.1:SITE_PORT）----
 const SITE_DIR = WORKBENCH_ROOT;
 // 2026-10-22：第二个预览源——DSH 社区站（本地目录，静态服务用 /__community/ 前缀直出，
@@ -568,63 +574,14 @@ function killServer() {
   }
 }
 
-// ---- 场景标签顺序：读 / 写 / 应用（见 SCENE_ORDER_FILE 处的说明）----
-function readSceneTabOrder() {
-  try {
-    const j = JSON.parse(fs.readFileSync(SCENE_ORDER_FILE, 'utf8'));
-    if (j && Array.isArray(j.ids)) return j.ids.filter((x) => typeof x === 'string' && x);
-  } catch (e) { /* 没有文件 / 内容坏了，都按"没存过"处理 */ }
-  return [];
-}
-function saveSceneTabOrder(ids) {
-  const clean = [];
-  for (const raw of (Array.isArray(ids) ? ids : [])) {
-    if (typeof raw !== 'string') continue;
-    const id = raw.trim();
-    if (!id || clean.indexOf(id) >= 0) continue;   // 去空、去重
-    clean.push(id);
-    if (clean.length >= 200) break;                // 上限：坏数据也写不爆文件
-  }
-  try {
-    fs.mkdirSync(path.dirname(SCENE_ORDER_FILE), { recursive: true });
-    fs.writeFileSync(SCENE_ORDER_FILE, JSON.stringify({
-      version: 1, savedAt: new Date().toISOString(), ids: clean
-    }, null, 2));
-  } catch (e) { log('[tabs] 保存场景标签顺序失败: ' + ((e && e.message) || e)); }
-  return clean;
-}
-/** 按存下来的顺序排：已删掉的场景自动丢、新场景按 json 自然序追加在后面；标了 first 的场景固定在最前。 */
-function applySceneTabOrder(list) {
-  const saved = readSceneTabOrder();
-  if (!saved.length) return list;
-  const byId = {};
-  list.forEach((s) => { byId[s.id] = s; });
-  const ordered = saved.map((id) => byId[id]).filter(Boolean)
-    .concat(list.filter((s) => saved.indexOf(s.id) < 0));
-  return ordered.filter((s) => s.first).concat(ordered.filter((s) => !s.first));
-}
+// ---- 场景标签顺序：读 / 写 / 应用（实现已抽到 main/scenes.js，这里只保留兼容入口）----
+function readSceneTabOrder() { return sceneStore.readSceneTabOrder(); }
+function saveSceneTabOrder(ids) { return sceneStore.saveSceneTabOrder(ids); }
 
-// ---- 读取场景配置（scenarios/*.json）----
-function listScenarios() {
-  const out = [];
-  if (!fs.existsSync(SCENARIOS_DIR)) return out;
-  for (const f of fs.readdirSync(SCENARIOS_DIR).sort()) {
-    if (f.startsWith('_')) continue;   // 客户版：_模板-*.json 不参与场景列表
-    if (!f.endsWith('.json')) continue;
-    try {
-      const s = JSON.parse(fs.readFileSync(path.join(SCENARIOS_DIR, f), 'utf8'));
-      if (s && s.id) out.push({ id: s.id, name: s.name, description: s.description || '', first: !!s.first });
-    } catch (e) { /* skip bad json */ }
-  }
-  // 在这里就排好 ⇒ 任何消费方（主窗口标签栏 / 独立场景窗口 / 以后的新界面）拿到的顺序天然一致
-  return applySceneTabOrder(out);
-}
+// ---- 读取场景配置（scenarios/*.json；实现已抽到 main/scenes.js）----
+function listScenarios() { return sceneStore.listScenarios(); }
 
-function getScenario(id) {
-  const f = path.join(SCENARIOS_DIR, id + '.json');
-  if (!fs.existsSync(f)) return null;
-  try { return applySceneInstance(JSON.parse(fs.readFileSync(f, 'utf8')), readManifest()); } catch (e) { return null; }
-}
+function getScenario(id) { return sceneStore.getScenario(id); }
 
 // ---- 多公司模板支持：当前场景的 meta（可覆盖 SSH/服务/映射/日志/网址）----
 // meta 缺省 → 全部回落 oa.db 全局配置（原有场景行为不变）
@@ -1103,23 +1060,7 @@ ipcMain.handle('harness:ready', () => engineIsForeign || !!harnessToken);
 // ---- IPC：版本信息（左上角品牌区悬停显示）----
 // 放主进程读的原因：版本号来自各处 package.json，渲染层没有文件系统权限；
 // 运行时版本（Electron / Chromium / Node）也只有主进程能一次拿全。
-ipcMain.handle('app:version', () => {
-  const readVer = (p) => {
-    try { return JSON.parse(fs.readFileSync(p, 'utf8')).version || null; } catch (e) { return null; }
-  };
-  return {
-    gui: readVer(path.join(__dirname, 'package.json')),
-    // HARNESS_DIR 为空（没有 引擎\ 这一层）时，path.join('', 'package.json') 会读到**外壳自己**的
-    //   package.json，把外壳的版本当成引擎版本显示。所以空串一律给 null。
-    engine: HARNESS_DIR ? readVer(path.join(HARNESS_DIR, 'package.json')) : null,
-    cli: HARNESS_DIR ? readVer(path.join(HARNESS_DIR, 'apps', 'cli', 'package.json')) : null,
-    engineDir: HARNESS_DIR,
-    electron: process.versions.electron || '',
-    chrome: process.versions.chrome || '',
-    node: process.versions.node || '',
-    app: (() => { try { return app.getVersion(); } catch (e) { return ''; } })(),
-  };
-});
+ipcMain.handle('app:version', () => inventory.versionInfo(app.getVersion()));
 
 // ---- 内嵌 Harness 面板精简模式：主进程向 webview 注入（只保留聊天流 + 输入框）----
 // 隐藏：左侧菜单栏 / 右侧详情列（框架内联 grid-template-columns「Npx minmax(0,1fr) Npx」，
@@ -3661,178 +3602,29 @@ const PLUGINS_DIR = HARNESS_DIR ? path.join(HARNESS_DIR, '插件') : '';
 const DSH_DATA_DIR = dshHomeDir();
 const SETTINGS_PATH = path.join(DSH_DATA_DIR, 'settings.yaml');
 
-// 已安装插件清单：扫描 dsh 项目的「插件」目录（每个子目录一个插件，含 package.json 元信息）
-ipcMain.handle('plugins:list', () => {
-  const out = {
-    pluginsDir: PLUGINS_DIR,
-    dataDir: DSH_DATA_DIR,
-    plugins: [],
-    builtinDir: HARNESS_DIR ? path.join(HARNESS_DIR, 'packages') : '',
-    builtinCount: 0
-  };
-  try {
-    if (fs.existsSync(PLUGINS_DIR)) {
-      for (const d of fs.readdirSync(PLUGINS_DIR)) {
-        const dir = path.join(PLUGINS_DIR, d);
-        let st = null;
-        try { st = fs.statSync(dir); } catch (e) { continue; }
-        if (!st.isDirectory()) continue;   // 跳过 开发约定.md 等文件
-        let name = d, version = null, description = '';
-        const pkgPath = path.join(dir, 'package.json');
-        if (fs.existsSync(pkgPath)) {
-          try {
-            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-            name = pkg.name || d;
-            version = pkg.version || null;
-            description = pkg.description || '';
-          } catch (e) { /* 忽略坏 JSON */ }
-        }
-        const plugin = { name, displayName: d, version, description, path: dir };
-        // 插件自身的 缓存/ 与 配置/ 目录（展示本地化数据位置）
-        for (const sub of ['缓存', 'data', 'cache']) {
-          const sp = path.join(dir, sub);
-          try { if (fs.statSync(sp).isDirectory()) { plugin.cacheDir = sp; break; } } catch (e) { /* ignore */ }
-        }
-        for (const sub of ['配置', 'config']) {
-          const sp = path.join(dir, sub);
-          try { if (fs.statSync(sp).isDirectory()) { plugin.configDir = sp; break; } } catch (e) { /* ignore */ }
-        }
-        out.plugins.push(plugin);
-      }
-    }
-    // 内置插件包数量（packages/client + packages/host 下的包）
-    let n = 0;
-    const pkgRoot = HARNESS_DIR ? path.join(HARNESS_DIR, 'packages') : '';
-    for (const base of pkgRoot ? [path.join(pkgRoot, 'client'), path.join(pkgRoot, 'host')] : []) {
-      try {
-        n += fs.readdirSync(base).filter(x => { try { return fs.statSync(path.join(base, x)).isDirectory(); } catch (e) { return false; } }).length;
-      } catch (e) { /* ignore */ }
-    }
-    out.builtinCount = n;
-  } catch (e) { /* ignore */ }
-  return out;
-});
-
-// ---- 技能（Skill）清单：扫描 DSH 技能根目录 ----
-// 约定来源 @deepseek-ai/dsh-skill-filesystem：
-//   用户级 <dshHome>/skills（本机 = <工作台>\引擎\.dsh\skills）
-//   项目级 <项目根>/.dsh/skills 与 <项目根>/.agents/skills
-//   自定义 settings.yaml 的 customSkillDirs
-// 技能格式（只在根目录顶层被发现）：<名字>/SKILL.md 目录包，或 <名字>.md 单文件；
-// SKILL.md 顶部 YAML frontmatter 必需 name + description，可选 whenToUse 等。
 const SKILLS_DIR = path.join(DSH_DATA_DIR, 'skills');
+const CREDENTIALS_PATH = path.join(DSH_DATA_DIR, '.credentials.yaml');
 
-// 极简 frontmatter 解析：只取 --- 块里的 name / description / whenToUse（其余字段忽略）
-function parseSkillFrontmatter(text) {
-  const meta = {};
-  const m = String(text || '').match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/);
-  if (!m) return meta;
-  for (const line of m[1].split(/\r?\n/)) {
-    const kv = line.match(/^([A-Za-z][\w-]*)\s*:\s*(.*)$/);
-    if (!kv) continue;
-    const key = kv[1];
-    let val = kv[2].trim();
-    val = val.replace(/^["']|["']$/g, '').replace(/\s+#.*$/, '').trim();
-    if (key === 'name' || key === 'description' || key === 'whenToUse') meta[key] = val;
-  }
-  return meta;
-}
-
-// 读取一个技能（目录包或单文件），返回目录条目
-function readSkill(file, dirPath, format) {
-  const entry = {
-    name: '', description: '', whenToUse: '',
-    file: file, dir: dirPath, format: format, valid: false, error: ''
-  };
-  try {
-    const text = fs.readFileSync(file, 'utf8');
-    const meta = parseSkillFrontmatter(text);
-    entry.name = meta.name || '';
-    entry.description = meta.description || '';
-    entry.whenToUse = meta.whenToUse || '';
-    const st = fs.statSync(file);
-    entry.mtime = st.mtimeMs;
-    entry.size = st.size;
-    if (!entry.name || !entry.description) {
-      entry.error = 'frontmatter 缺少 name 或 description（引擎会丢弃该技能）';
-    } else {
-      entry.valid = true;
-    }
-  } catch (e) {
-    entry.error = '读取失败：' + (e && e.message || e);
-  }
-  return entry;
-}
-
-ipcMain.handle('skills:list', () => {
-  const out = { skillsDir: SKILLS_DIR, roots: [], skills: [] };
-  // 扫描根：用户级 + 项目级（工作台所在目录）+ 自定义目录
-  const roots = [
-    { source: 'user-dsh', rank: 400, dir: SKILLS_DIR },
-    { source: 'project-dsh', rank: 100, dir: path.join(__dirname, '.dsh', 'skills') },
-    { source: 'project-agents', rank: 200, dir: path.join(__dirname, '.agents', 'skills') }
-  ];
-  for (const r of roots) {
-    let exists = false;
-    try { exists = fs.statSync(r.dir).isDirectory(); } catch (e) { exists = false; }
-    out.roots.push({ source: r.source, rank: r.rank, dir: r.dir, exists: exists });
-    if (!exists) continue;
-    let names = [];
-    try { names = fs.readdirSync(r.dir); } catch (e) { continue; }
-    for (const n of names) {
-      if (n === '.system' || n === '.git' || n.startsWith('_') || n.startsWith('.')) continue;   // 跳过系统/说明目录
-      const full = path.join(r.dir, n);
-      let st = null;
-      try { st = fs.statSync(full); } catch (e) { continue; }
-      if (st.isDirectory()) {
-        const entryFile = path.join(full, 'SKILL.md');
-        if (!fs.existsSync(entryFile)) continue;   // 目录包必须有 SKILL.md
-        const entry = readSkill(entryFile, full, 'bundle');
-        if (!entry.name) entry.name = n;
-        entry.source = r.source;
-        out.skills.push(entry);
-      } else if (st.isFile() && /\.md$/i.test(n)) {
-        const entry = readSkill(full, r.dir, 'flat');
-        if (!entry.name) entry.name = n.replace(/\.md$/i, '');
-        entry.source = r.source;
-        out.skills.push(entry);
-      }
-    }
-  }
-  // 优先级高（rank 小）的排前面；同名去重，保留优先级高的
-  out.skills.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  const seen = {};
-  out.skills = out.skills.filter(s => {
-    const key = String(s.name || '').toLowerCase();
-    if (seen[key]) return false;
-    seen[key] = true;
-    return true;
-  });
-  return out;
+// 清点类接口（插件 / 技能 / 设置 / 工具清单）已抽离至 main/inventory.js
+inventory.init({
+  harnessDir: HARNESS_DIR,
+  pluginsDir: PLUGINS_DIR,
+  dshDataDir: DSH_DATA_DIR,
+  toolsCatalogFile: path.join(__dirname, 'data', '工具清单.json'),
+  settingsPath: SETTINGS_PATH,
+  credentialsPath: CREDENTIALS_PATH,
+  skillsDir: SKILLS_DIR,
+  projectDir: __dirname,
 });
 
-// 打开技能目录 / 打开单个技能正文（系统默认程序）
+ipcMain.handle('plugins:list', () => inventory.listPlugins());
+ipcMain.handle('skills:list', () => inventory.listSkills());
 ipcMain.handle('skills:open', (e, target) => {
   const p = target ? String(target) : SKILLS_DIR;
   try { if (fs.existsSync(p)) { shell.openPath(p); return { ok: true, path: p }; } } catch (ex) { /* ignore */ }
   return { ok: false, err: '路径不存在：' + p };
 });
-
-// ---- 设置：读取 / 打开 Harness 配置文件（.dsh/settings.yaml + .credentials.yaml，凭据脱敏）----
-const CREDENTIALS_PATH = path.join(DSH_DATA_DIR, '.credentials.yaml');
-ipcMain.handle('settings:list', () => {
-  const out = { settingsPath: SETTINGS_PATH, credentialsPath: CREDENTIALS_PATH, files: {} };
-  try { if (fs.existsSync(SETTINGS_PATH)) out.files.settings = fs.readFileSync(SETTINGS_PATH, 'utf8'); } catch (e) { /* ignore */ }
-  try {
-    if (fs.existsSync(CREDENTIALS_PATH)) {
-      let t = fs.readFileSync(CREDENTIALS_PATH, 'utf8');
-      // 脱敏：把行尾 12+ 位长的值（密钥/token）打码，保留短配置项
-      t = t.replace(/(:\s*)(["']?)([A-Za-z0-9_\-.]{12,})(["']?)(\s*(#.*)?)$/gm, '$1$2••••••（已隐藏）$4$5');
-      out.files.credentials = t;
-    }
-  } catch (e) { /* ignore */ }
-  return out;
-});
+ipcMain.handle('settings:list', () => inventory.readSettings());
 ipcMain.handle('settings:open', (e, which) => {
   const f = which === 'credentials' ? CREDENTIALS_PATH : SETTINGS_PATH;
   if (fs.existsSync(f)) {
@@ -4645,15 +4437,7 @@ async function guardCheckAfterBoot() {
   } catch (e2) { /* ignore */ }
 }
 
-ipcMain.handle('tools:catalog', () => {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(__dirname, 'data', '工具清单.json'), 'utf8'));
-  } catch (e) {
-    // 文件不在 = 这份工作台还没登记工具（不是故障）⇒ 给 missing，让面板出"怎么建"的提示而不是红字 ENOENT
-    if (e && e.code === 'ENOENT') return { updated: null, groups: [], missing: true };
-    return { updated: null, groups: [], error: String((e && e.message) || e) };
-  }
-});
+ipcMain.handle('tools:catalog', () => inventory.readToolCatalog());
 ipcMain.handle('topbar:open', (e, p) => {
   const f = path.resolve(String(p || ''));
   if (f.indexOf(TOPBAR_ROOT) !== 0) return { ok: false, error: '只允许打开项目根目录里的文件' };   // 白名单：别让它变成任意路径打开器

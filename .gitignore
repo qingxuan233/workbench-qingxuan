@@ -67,6 +67,7 @@ _tmp/
 # 本机自用的「优化版」补丁（2026-11-01 用户要求：留本地、不进 git）
 # 内容是这台机器验证过的模型/插件接线；换机器不跟走，用不用由本人决定
 cordis.patch.optimized.yml
+preset-*.optimized.patch.yml
 
 # 引擎/插件的本机运行时目录与配置（登录态 Cookie、每台机器各自的接线）
 12-源码照搬/引擎数据/.dsh/dsh-builtin-browser-host/

@@ -28,6 +28,17 @@ node 工具\体检.mjs      # 15 条断言；刚装好时「未绑会话」算�
 **红了就按它给的路径修，别改断言让它变绿。** 判据清单与「什么时候不该用」见
 [说明\判据与工具.md](说明/判据与工具.md)。
 
+## 界面 2.0（2026-11-03）
+
+顶栏合并为一条：品牌 / 全局搜索 / 引擎状态 / 窗口动作；场景与面板导航收进左栏，低频工具收进「工具箱」。
+`Ctrl/⌘ K` 打开命令面板（切场景、找面板、开工具、打开目录），`Ctrl B` 收起左栏，`Ctrl Shift F` 聚焦当前面板，`Alt 1…9` 切场景。
+
+- 想回旧界面：顶栏 `⋯ → 切换 2.0 / 经典界面`，或地址加 `?ui=classic`；
+- 改界面后自检：`node 外壳\scripts\ui-check.mjs`；
+- 渲染器死代码审计：`node 外壳\scripts\renderer-audit.mjs`（2026-11-04 已清理：1.1 MB → 580 KB，36 → 10 种）；
+- 不连引擎看界面：`cd 外壳 && .\node_modules\.bin\electron scripts\ui-preview.cjs`（可加 `--shot=data\ui-preview.png --scene=command`）；
+- 结构与后续拆分计划见 [说明\架构分析与UI重构-2026-11-03.md](说明/架构分析与UI重构-2026-11-03.md)。
+
 ## 四个场景
 
 | 场景 | 干什么 |
@@ -128,6 +139,8 @@ node 工具\封装.mjs --out <盘根>:\发布
 - 改面板/加场景：看 `外壳\scenarios\*.json` 和 `外壳\renderer\renderers.js`
 - 加场景：复制一个 json、改 id/name、配 panels，再同步 `_场景身份索引.md`、跑 `建会话.mjs`
 - 改完在 GUI 里点顶栏 ⟳ 刷新面板
+- 主进程场景模块：`外壳\main\scenes.js`；改完跑 `node 外壳\scripts\scenes-store.test.mjs`
+- 渲染器死代码审计：`node 外壳\scripts\renderer-audit.mjs`
 
 ## 许可
 

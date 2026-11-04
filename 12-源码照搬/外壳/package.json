@@ -5,7 +5,12 @@
   "description": "清玄的工作台 · 公开模板（4 场景：命令 / B站 / 自我复盘 / 本地电脑）",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "check": "node scripts/check-gui.mjs",
+    "check:ui": "node scripts/ui-check.mjs",
+    "audit:renderers": "node scripts/renderer-audit.mjs",
+    "test:scenes": "node scripts/scenes-store.test.mjs",
+    "test:inventory": "node scripts/inventory.test.mjs"
   },
   "devDependencies": {
     "electron": "43.4.0",

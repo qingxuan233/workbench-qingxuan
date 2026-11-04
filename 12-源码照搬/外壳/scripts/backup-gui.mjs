@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
  * backup-gui.mjs —— 给工作台源码打快照（改任何东西之前先跑它）
  *
@@ -23,7 +23,7 @@ const FILES = [
   'package.json', 'package-lock.json', 'start.vbs', 'icon.ico', 'icon.png',
   '.gitignore', '项目信息.md', 'GUI改造私有记忆.md', '官方能力搬迁计划.md', '迁移手册.md'
 ];
-const DIRS = ['renderer', 'scenarios', 'scripts', 'GUI改造的项目信息'];   // 归档已并入 scenarios\归档（2026-10-16）
+const DIRS = ['renderer', 'scenarios', 'scripts', 'main', 'GUI改造的项目信息'];   // 归档已并入 scenarios\归档（2026-10-16）
 
 const list = () => {
   if (!fs.existsSync(BK_DIR)) return [];
@@ -74,3 +74,4 @@ console.log('✓ 快照完成: ' + dst);
 for (const old of removedBefore) console.log('  已清理旧快照: ' + old);
 console.log('  当前快照 ' + list().length + ' 个（上限 ' + KEEP + '）');
 console.log('  回滚命令: node scripts/restore-gui.mjs');
+

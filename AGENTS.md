@@ -118,10 +118,11 @@ node 工具\实例化.mjs --apply
 node 工具\体检.mjs
 node 工具\编码检查.mjs
 node 外壳\scripts\check-gui.mjs
+node 外壳\scripts\ui-check.mjs
 node 外壳\scripts\sessions.mjs --check
 ```
 
-期望片段见 §4 表格，**四组都要对上**。
+期望片段见 §4 表格，**五组都要对上**。
 
 ---
 
@@ -142,6 +143,7 @@ node 外壳\scripts\sessions.mjs --check
 | `node 工具\体检.mjs --self-test` | `自检：35 通过 · 0 失败` | — |
 | `node 工具\编码检查.mjs` | `✓ 没有会导致乱码或静默失效的编码问题。` | §5-4 |
 | `node 外壳\scripts\check-gui.mjs` | `全部通过 ✓（warning N）` | warning 属正常（缺内置引擎） |
+| `node 外壳\scripts\ui-check.mjs` | `✓ UI 自检全部通过` | UI 模块语法 / 加载顺序 / DOM 挂载点 |
 | `node 外壳\scripts\sessions.mjs --check` | `场景↔会话对照检查通过 ✓ 共 4 个 AI 面板` | §3、§5-5 |
 | 界面 | 四个场景的 AI 面板标题行都显示 `✓ 已钉绑定` | §5-5 |
 | 工具面板（顶栏） | `48 个工具` | 清单缺失见 §5-7 |
@@ -241,6 +243,7 @@ gate_ok:
   体检自检: "35 通过 · 0 失败"
   编码检查: "没有会导致乱码或静默失效的编码问题"
   check_gui: "全部通过"
+  ui_check: "UI 自检全部通过"
   sessions_check: "4 个 AI 面板"
 human_required:
   - 顶栏「模型与提供方」填 API key
