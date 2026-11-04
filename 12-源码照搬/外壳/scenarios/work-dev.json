@@ -40,13 +40,14 @@
     {
       "id": "wd-urls",
       "title": "开发服务与网址",
-      "sub": "本地服务与常用接口状态",
+      "sub": "跟随当前开发工程",
       "type": "code-urls",
+      "scope": "project",
+      "baseTitle": "工作台自身服务",
       "urls": [
-        { "name": "工作台主界面", "url": "http://127.0.0.1:31238", "note": "Web 站点 · 端口 31238" },
-        { "name": "DSH 引擎 API", "url": "http://127.0.0.1:3083", "note": "Harness 引擎 · 端口 3083" },
-        { "name": "网页版 AI 桥", "url": "http://127.0.0.1:31239", "note": "WebAI Bridge · 端口 31239" },
-        { "name": "本地开发调试", "url": "http://127.0.0.1:3000", "note": "项目 Dev Server 预留" }
+        { "name": "工作台主界面", "url": "http://127.0.0.1:31238", "note": "站点 31238 · /chat 带 token 进引擎（AI 面板坏了时的保命入口）" },
+        { "name": "DSH 引擎 API", "url": "http://127.0.0.1:3083", "note": "引擎 3083 · AI 面板背后就是它（界面/接口）" },
+        { "name": "网页版 AI 桥", "url": "http://127.0.0.1:31239", "note": "桥 31239 · 给网页版 AI（豆包/千问…）派活的 HTTP 口" }
       ],
       "col": 1,
       "row": 3,

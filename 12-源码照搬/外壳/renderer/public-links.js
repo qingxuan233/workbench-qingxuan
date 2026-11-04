@@ -1,10 +1,9 @@
-/* public-links.js —— 顶栏两个外链入口（开源模板版）
+/* public-links.js —— 顶栏外链入口（开源模板版）
  * 点击用系统浏览器打开；不改余额/连接逻辑；无新依赖。
  */
 (function () {
   var LINKS = [
     ['btn-market', 'https://www.mydsh.xyz/'],
-    ['btn-donate', 'https://linyujia.me/#donate'],
   ];
   function openExternal(url) {
     try {

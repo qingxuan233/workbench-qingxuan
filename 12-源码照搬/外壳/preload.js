@@ -79,9 +79,13 @@ contextBridge.exposeInMainWorld('app', {
     guideImage: () => ipcRenderer.invoke('remoteAccess:guideImage'),
     action: (a) => ipcRenderer.invoke('remoteAccess:action', a)
   },
-  // ---- 外观：同步窗口底色（浅色主题避免闪黑）----
+  // ---- 外观：同步窗口底色（浅色主题避免闪黑）+ 把三档主题落到 nativeTheme ----
+  //   setSource(mode)：'dark' | 'light' | 'system'。
+  //   为什么要进主进程：内嵌网页（网页版 AI / 站点面板）的 prefers-color-scheme 是
+  //   Chromium 的全局参数，只有 nativeTheme.themeSource 能改；渲染层改不了别人家的页面。
   theme: {
-    setWindowBg: (color) => ipcRenderer.invoke('theme:set-window-bg', color)
+    setWindowBg: (color) => ipcRenderer.invoke('theme:set-window-bg', color),
+    setSource: (mode) => ipcRenderer.invoke('theme:set-source', mode)
   },
   // ---- 宿主通用能力（不属于任何场景，任何场景都可调用）----
   app: {
@@ -173,7 +177,10 @@ contextBridge.exposeInMainWorld('app', {
   },
   // ---- 程序开发场景：把项目 H5 用手机尺寸窗口打开（400×830，独立持久会话记住登录）----
   code: {
-    phoneWindow: (url, title) => ipcRenderer.invoke('code:phone-window', url, title)
+    phoneWindow: (url, title) => ipcRenderer.invoke('code:phone-window', url, title),
+    // 当前开发工程的服务清单（2026-11-04）：主进程扫工程自身文件得出，面板 renderer/code-urls.js 用。
+    // 缺这个成员 = 主进程还是旧的 ⇒ 面板退回 data\dev-services-cache.json 缓存（重启一次工作台即实时识别）。
+    devServices: (opts) => ipcRenderer.invoke('code:dev-services', opts)
   },
   // ---- 自我复盘场景：本地 md 文档树（只读；根＝<工作台>\自我复盘，路径由主进程夹在本目录内）----
   review: {

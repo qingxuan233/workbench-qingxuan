@@ -37,7 +37,6 @@
       <button class="tb-btn tb-tools" id="btn-tools" title="工具（Tools）：查看引擎原有与新增工具，带位置和大白话说明">🛠</button>
       <button class="tb-btn tb-tools" id="btn-models" title="查看模型与提供方">🤖</button>
       <button class="tb-btn tb-tools" id="btn-market" title="DSH 集市" data-url="https://www.mydsh.xyz/">🛍</button>
-      <button class="tb-btn tb-tools" id="btn-donate" title="赞助小鱼干" data-url="https://linyujia.me/#donate">🐟</button>
       <span class="tb-sep"></span>
       <button class="tb-btn" id="btn-min" title="最小化">─</button>
       <button class="tb-btn" id="btn-max" title="最大化">□</button>
@@ -113,11 +112,16 @@
 
   <script data-hr="sector-data.js" src="sector-data.js"></script>
   <script data-hr="us-sector-data.js" src="us-sector-data.js"></script>
+  <!-- 「开发服务与网址」面板实现（2026-11-04 外置：renderers.js 只留注册转发）
+       放在 renderers.js 之前：renderers.js 末尾的按需注入看到它已加载就不再重复拉一遍 -->
+  <script src="code-urls.js"></script>
   <script id="renderers-script" src="renderers.js"></script>
   <script src="renderer.js"></script>
   <!-- 顶栏状态区（2026-10-16 新增 · 压力灯 / 谁在等我 / 快照回滚）：纯增量，不动上面任何脚本 -->
   <script src="topbar-status.js"></script>
   <script src="public-clean.js"></script>
   <script src="public-links.js"></script>
+  <!-- 外观同步：外壳深/浅色推给内嵌 DSH（DSH 自己的 ui-theme 偏好不会跟） -->
+  <script src="theme-sync.js"></script>
 </body>
 </html>

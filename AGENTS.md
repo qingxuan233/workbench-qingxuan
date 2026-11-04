@@ -137,10 +137,10 @@ node 外壳\scripts\sessions.mjs --check
 | `node 工具\体检.mjs` | `汇总：15 条断言 · 15 绿 · 0 红` | §5-6、§6 |
 | `node 工具\体检.mjs --self-test` | `自检：35 通过 · 0 失败` | — |
 | `node 工具\编码检查.mjs` | `✓ 没有会导致乱码或静默失效的编码问题。` | §5-4 |
-| `node 外壳\scripts\check-gui.mjs` | `全部通过 ✓（warning N）` | warning 属正常（缺内置引擎） |
-| `node 外壳\scripts\sessions.mjs --check` | `场景↔会话对照检查通过 ✓ 共 5 个 AI 面板` | §3、§5-5 |
+| `node 外壳\scripts\check-gui.mjs` | `全部通过 ✓（warning 0）` | 有 `!` 行按提示处理；缺内置引擎会自动按「源码直跑」跳过 |
+| `node 外壳\scripts\sessions.mjs --check` | 5 个面板各 `✓ id 命中「…」（身份校验通过）` · 末行 `场景↔会话对照检查通过 ✓ 共 5 个 AI 面板` | §3、§5-5 |
 | 界面 | 五个场景的 AI 面板标题行都显示 `✓ 已钉绑定` | §5-5 |
-| 工具面板（顶栏） | `43 个工具` | 清单缺失见 §5-7 |
+| 工具面板（顶栏） | `45 个工具`（与 `外壳\data\工具清单.json` 条目数一致） | 清单缺失见 §5-7 |
 
 ---
 
@@ -204,7 +204,7 @@ node 外壳\scripts\sessions.mjs --check
 |---|---|
 | `工作台.example.json` 里有 `dshPort` / `sitePort` | `main.js` **只读环境变量** `DSH_PORT`（默认 3083）；`sitePort` 写死 31238。改 `工作台.json` 的 `dshPort` **目前不生效** |
 | 想同机并存两个工作台 | 引擎端口用 `DSH_PORT=3084` 之类；但 31238 只能被一个壳占住，第二个壳取主界面地址会走别的路子 |
-| 源码直跑（仓库里没有 `引擎\`） | `check-gui` 的 4 条 warning 属正常；`engine-after.mjs` 会自报「不适用」 |
+| 源码直跑（仓库里没有 `引擎\`） | `check-gui` 全部通过（0 warning）：没有内置引擎时按「源码直跑」跳过引擎侧检查；`engine-after.mjs` 自报「不适用」 |
 
 ---
 

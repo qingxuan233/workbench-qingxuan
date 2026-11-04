@@ -519,8 +519,8 @@
       var hw = el('div', 'tbs-acc');
       if (HEALTH.state === 'loading') hw.appendChild(el('div', 'tbs-pop-hint', '读取中…'));
       else if (HEALTH.state === 'none') {
-        hw.appendChild(el('div', 'tbs-pop-hint', '还没跑过体检（现在改成每周日 12:30 自动跑一次）。'));
-        hw.appendChild(el('div', 'tbs-pop-hint', '想现在跑：让任意会话执行 `全量标准化体检.mjs`，回来点「重新读一次」即可。'));
+        hw.appendChild(el('div', 'tbs-pop-hint', '还没跑过体检（公开版没有自动任务；手动跑一次即可）。'));
+        hw.appendChild(el('div', 'tbs-pop-hint', '想现在跑：让任意会话执行 `node 工具\\全量标准化体检.mjs`，回来点开这张卡即可。'));
       } else if (HEALTH.state === 'error') hw.appendChild(el('div', 'tbs-pop-hint', '读不到：' + HEALTH.err));
       else {
         (HEALTH.groups || []).forEach(function (g, gi) {
@@ -629,7 +629,7 @@
   }
   function healthFoot() {
     if (!HEALTH.totals) return '生成 ' + (HEALTH.time || '—') + '　·　明细全文见 说明\\体检报告.md';
-    return '生成 ' + (HEALTH.time || '—') + '　·　共 ' + HEALTH.totals.items + ' 项明细 · 来源 ' + ((HEALTH.sources || []).length || '?') + ' 个子检查 · 每周日 12:30 自动　·　明细全文见 说明\\体检报告.md';
+    return '生成 ' + (HEALTH.time || '—') + '　·　共 ' + HEALTH.totals.items + ' 项明细 · 来源 ' + ((HEALTH.sources || []).length || '?') + ' 个子检查 · 手动 / 任意会话可重跑　·　明细全文见 说明\\体检报告.md';
   }
   function loadHealth() {
     if (HEALTH.at && Date.now() - HEALTH.at < 60000 && HEALTH.state) return;
@@ -1201,8 +1201,8 @@
       var hw = el('div', 'tbs-acc');
       if (HEALTH.state === 'loading') hw.appendChild(el('div', 'tbs-pop-hint', '读取中…'));
       else if (HEALTH.state === 'none') {
-        hw.appendChild(el('div', 'tbs-pop-hint', '还没跑过体检（现在改成每周日 12:30 自动跑一次）。'));
-        hw.appendChild(el('div', 'tbs-pop-hint', '想现在跑：让任意会话执行 `全量标准化体检.mjs`，回来点「重新读一次」即可。'));
+        hw.appendChild(el('div', 'tbs-pop-hint', '还没跑过体检（公开版没有自动任务；手动跑一次即可）。'));
+        hw.appendChild(el('div', 'tbs-pop-hint', '想现在跑：让任意会话执行 `node 工具\\全量标准化体检.mjs`，回来点开这张卡即可。'));
       } else if (HEALTH.state === 'error') hw.appendChild(el('div', 'tbs-pop-hint', '读不到：' + HEALTH.err));
       else {
         (HEALTH.groups || []).forEach(function (g, gi) {
@@ -1311,7 +1311,7 @@
   }
   function healthFoot() {
     if (!HEALTH.totals) return '生成 ' + (HEALTH.time || '—') + '　·　明细全文见 说明\\体检报告.md';
-    return '生成 ' + (HEALTH.time || '—') + '　·　共 ' + HEALTH.totals.items + ' 项明细 · 来源 ' + ((HEALTH.sources || []).length || '?') + ' 个子检查 · 每周日 12:30 自动　·　明细全文见 说明\\体检报告.md';
+    return '生成 ' + (HEALTH.time || '—') + '　·　共 ' + HEALTH.totals.items + ' 项明细 · 来源 ' + ((HEALTH.sources || []).length || '?') + ' 个子检查 · 手动 / 任意会话可重跑　·　明细全文见 说明\\体检报告.md';
   }
   function loadHealth() {
     if (HEALTH.at && Date.now() - HEALTH.at < 60000 && HEALTH.state) return;

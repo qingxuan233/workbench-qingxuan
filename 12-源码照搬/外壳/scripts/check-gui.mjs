@@ -31,8 +31,18 @@ const head = (m) => console.log('\n== ' + m + ' ==');
 
 // ---------- 1) 语法 ----------
 head('1. JS 语法');
-for (const f of ['main.js', 'preload.js', 'renderer/renderer.js', 'renderer/renderers.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js']) {
-  if (!exists(f)) { warn(f + ' 不存在，跳过'); continue; }
+// 必需文件（缺 = 壳跑不起来）与公开版剔除的业务模块（缺 = 设计如此）。
+// 业务模块只有在 index.html 仍引用它时才必须存在 —— 那才是真的会加载失败。
+const REQUIRED_JS = ['main.js', 'preload.js', 'renderer/renderer.js', 'renderer/renderers.js', 'renderer/theme-sync.js'];
+const OPTIONAL_JS = ['stock-store.js', 'oa-store.js', 'oa-ssh.js'];
+const _indexHtml = read('renderer/index.html');
+const isReferenced = (f) => new RegExp('["\'][^"\']*' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '["\']').test(_indexHtml);
+for (const f of REQUIRED_JS.concat(OPTIONAL_JS)) {
+  if (!exists(f)) {
+    if (OPTIONAL_JS.includes(f) && !isReferenced(f)) { ok(f + '：公开版不含（index.html 未引用），无需检查'); continue; }
+    bad(f + ' 不存在（要么是必需文件，要么 index.html 还在引用它）');
+    continue;
+  }
   const r = spawnSync(process.execPath, ['--check', path.join(ROOT, f)], { encoding: 'utf8' });
   if (r.status === 0) ok(f);
   else bad(f + ' 语法错误：\n' + String(r.stderr || '').split('\n').slice(0, 6).join('\n'));
@@ -436,12 +446,11 @@ if (exists('scripts/backup-gui.mjs')) {
 }
 
 // 引擎侧扩展点（技能 / 插件）结构是否正确
-// 引擎目录：2026-10-10 起 main.js 把它改成了「与本工作台同级」自动推导（带写死兜底），
-// 所以这里两种写法都认 —— 先认老的字面量，认不到再取推导式里那个兜底字面量。
-const _mainSrc = read('main.js');
-const harnessDir = ((_mainSrc.match(/const HARNESS_DIR = '([^']+)'/) || [])[1])
-  || ((_mainSrc.match(/HARNESS_DIR[\s\S]{0,600}?return '([^']+)'/) || [])[1]);
-if (harnessDir && fs.existsSync(harnessDir)) {
+// 引擎目录口径（与 main.js / 体检 A15 同一处）：与本工作台同级的 引擎\ 且 apps\cli 在 ⇒ 才算装好。
+// 公开版是「源码直跑」：没有 引擎\ 是设计如此（引擎由 DSH 提供），不是异常 —— 跳过而不报警。
+const _engineDir = path.join(ROOT, '..', '引擎');
+if (fs.existsSync(path.join(_engineDir, 'apps', 'cli'))) {
+  const harnessDir = _engineDir;
   const skillsDir = path.join(harnessDir, '.dsh', 'skills');
   if (fs.existsSync(skillsDir)) {
     const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
@@ -465,7 +474,7 @@ if (harnessDir && fs.existsSync(harnessDir)) {
     else warn('插件目录里没有「开发约定.md」→ 建议补一份，避免后来人乱放');
   } else warn('没找到 ' + pluginDir + '（引擎侧插件落点）');
 } else {
-  warn('读不到引擎目录（main.js 的 HARNESS_DIR），跳过引擎侧结构检查');
+  console.log('  · 源码直跑：没有内置引擎目录（引擎装好后自动生效），跳过引擎侧结构检查');
 }
 
 // ---------- 11. 引擎接线（升级后最容易"静默降级"的地方） ----------

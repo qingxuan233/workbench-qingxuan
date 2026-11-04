@@ -690,26 +690,27 @@ function setStatus(text, busy) {
   document.getElementById('status-dot').className = 'status-dot' + (busy ? ' busy' : '');
 }
 
-// ---------- 外观切换：深色 / 浅色 / 跟随系统（同 DSH 自带设置的三档） ----------
+// ---------- 外观切换：深色 / 浅色 / 跟随系统（同 DSH 自带设置的三档；网页版 AI 也跟着变） ----------
 const THEME_KEY = 'guiTheme';
-function currentThemeMode() {
-  const v = localStorage.getItem(THEME_KEY);
-  return (v === 'light' || v === 'system') ? v : 'dark';
-}
-function applyTheme(mode) {
-  const light = window.matchMedia('(prefers-color-scheme: light)').matches;
-  const resolved = mode === 'system' ? (light ? 'light' : 'dark') : mode;
+function currentThemeMode() { const v = localStorage.getItem(THEME_KEY); return (v === 'light' || v === 'system') ? v : 'dark'; }
+function systemResolved() { return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; }
+function applyTheme(mode, resolvedOverride) {
+  const resolved = (resolvedOverride === 'light' || resolvedOverride === 'dark') ? resolvedOverride : (mode === 'system' ? systemResolved() : mode);
   document.documentElement.dataset.theme = resolved;
   const btn = document.getElementById('btn-theme');
   if (btn) {
     btn.textContent = resolved === 'light' ? '☀️' : '🌙';
-    btn.title = '外观：' + (mode === 'system' ? '跟随系统' : (mode === 'dark' ? '深色' : '浅色'))
-      + '（当前 ' + (resolved === 'light' ? '浅色' : '深色') + '）';
+    btn.title = '外观：' + (mode === 'system' ? '跟随系统' : (mode === 'dark' ? '深色' : '浅色')) + '（当前 ' + (resolved === 'light' ? '浅色' : '深色') + '）';
   }
-  // 同步窗口底色，避免浅色下缩放/重绘闪黑
+  try { if (window.app.theme && window.app.theme.setWindowBg) window.app.theme.setWindowBg(resolved === 'light' ? '#f5f7fa' : '#0b0d12'); } catch (e) { /* ignore */ }
+}
+// 切换外观：先落渲染层，再把同一档交给主进程（theme-source.js）—— 内嵌网页的 prefers-color-scheme 一起变。
+function setThemeMode(mode) {
+  try { localStorage.setItem(THEME_KEY, mode); } catch (e) { /* ignore */ }
+  applyTheme(mode);
   try {
-    if (window.app.theme && window.app.theme.setWindowBg) {
-      window.app.theme.setWindowBg(resolved === 'light' ? '#f5f7fa' : '#0b0d12');
+    if (window.app && window.app.theme && window.app.theme.setSource) {
+      Promise.resolve(window.app.theme.setSource(mode)).then((r) => applyTheme(mode, r && r.resolved)).catch(() => { /* 老壳无此 IPC */ });
     }
   } catch (e) { /* ignore */ }
 }
@@ -729,16 +730,15 @@ function initTheme() {
       b.appendChild(mkEl('span', 'theme-item-ico', it[1]));
       b.appendChild(mkEl('span', 'theme-item-txt', it[2]));
       b.addEventListener('click', () => {
-        localStorage.setItem(THEME_KEY, it[0]);
-        applyTheme(it[0]);
+        setThemeMode(it[0]);
         closeMenu();
       });
       menu.appendChild(b);
     });
     document.body.appendChild(menu);
-    const r = btn.getBoundingClientRect();
-    menu.style.top = (r.bottom + 5) + 'px';
-    menu.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+    let r = btn.getBoundingClientRect();   // 可能被收进 ⋯（.tb-moved=display:none）⇒ rect 全 0：改贴「更多」药丸
+    if (!r.width && !r.height) { const p = document.querySelector('.tbs-pill[title^="更多"]'); const q = p ? p.getBoundingClientRect() : null; r = (q && q.width) ? q : { bottom: 47, right: window.innerWidth - 12 }; }
+    menu.style.top = (r.bottom + 5) + 'px'; menu.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
     setTimeout(() => document.addEventListener('click', onDoc, true), 0);
   };
   btn.addEventListener('click', (e) => {
@@ -750,7 +750,7 @@ function initTheme() {
   const onSys = () => { if (currentThemeMode() === 'system') applyTheme('system'); };
   if (mq.addEventListener) mq.addEventListener('change', onSys);
   else if (mq.addListener) mq.addListener(onSys);
-  applyTheme(currentThemeMode());
+  setThemeMode(currentThemeMode());
 }
 
 // ---------- 余额实时显示（DeepSeek 平台；密钥只在主进程，渲染层只拿数值） ----------

@@ -11583,6 +11583,10 @@ function decorateBrand() {
 // 站点表字段：key/name/icon/fallback/url 必填；另有两个可选开关 ——
 //   partition：覆盖默认的 `persist:webai-<key>`（**只在"要跟别的面板共用登录态"时才写**）；
 //   noWarm   ：不参加启动预热（点开时才建 webview，省一份常驻 guest 内存）；
+//              ★2026-11-04★ 默认**全部 noWarm**：实测"启动即预热 4 站"会让内存 2 分钟从 1.2GB
+//              涨到 7.2GB（3 个隐藏 guest 主线程锁死），随后 OOM。见 诊断-内存\内存问题诊断报告.md。
+//              想恢复"秒开"：设 window.__DSH_WEB_AI_WARM = true 或 localStorage['webai.warm']='1'
+//              （见 decorateWebAi 里的 warmWanted），且**分离窗口永不预热**。
 //   userAgent：'chrome' = 换成纯 Chrome UA（站点认 Electron 就会盖一层「使用环境异常」弹窗）。
 // ⚠ deepseek 这一项**故意**用 `persist:embed-sr-site-bl`：它和自我复盘场景（scenarios\self-review.json）
 //   左下角那个 DeepSeek 面板（面板 id `sr-site-bl`，同一个 chat.deepseek.com）**是同一个 webview 分区**
@@ -11594,18 +11598,18 @@ var WEB_AI = [
     userAgent: 'chrome', noWarm: true,
     tip: '与自我复盘场景的 DeepSeek 面板共用登录态（同一个 webview 分区）' },
   { key: 'doubao', name: '豆包', icon: 'assets/webai/doubao.png', fallback: '豆',
-    url: 'https://www.doubao.com/chat/' },
+    url: 'https://www.doubao.com/chat/', noWarm: true },
   { key: 'tongyi', name: '千问', icon: 'assets/webai/tongyi.png', fallback: '通',
     // 2026-11-01：tongyi.aliyun.com/qianwen/ 已并入 qianwen.com（品牌改叫「千问」）。
     // 老地址还能跳，但会落到根路径，且可能拿到未渲染的 Velocity 模板源码（页面显示成 #set(...)）。
     // key 仍叫 tongyi：分区 persist:webai-tongyi 里的登录态要能继续用。
     // userAgent:'chrome'：Electron 默认 UA 里带 Electron/xx，阿里侧的 WAF 会回一个空壳页面
     //   （实测 bodyLen=0、只有 3 个元素、标题是域名本身、控制台无报错）。换成真实 Chrome UA 再试。
-    url: 'https://www.qianwen.com/', userAgent: 'chrome' },
+    url: 'https://www.qianwen.com/', userAgent: 'chrome', noWarm: true },
   { key: 'chatglm', name: '智谱清言', icon: 'assets/webai/chatglm.png', fallback: '智',
-    url: 'https://chatglm.cn/main/alltoolsdetail' },
+    url: 'https://chatglm.cn/main/alltoolsdetail', noWarm: true },
   { key: 'kimi', name: 'Kimi', icon: 'assets/webai/kimi.png', fallback: 'K',
-    url: 'https://www.kimi.com/' },
+    url: 'https://www.kimi.com/', noWarm: true, warmOptIn: true },
 ];
 
 // ★状态为什么挂在 window 上★ ⟳ 会**重新求值本文件**却**不重建 DOM**（同一个页面上下文）：
@@ -12041,20 +12045,46 @@ function decorateWebAi() {
         strip.appendChild(btn);
       }
     });
-    // ★预热★ 只排一轮（按站点表下标错峰 700ms 一个，别在启动瞬间五个站点一起抢网络）。
-    // 状态记在 WEB_AI_ST.warmed 上 ⇒ 点「⟳」重跑这个函数也不会再排第二轮、不会再建第二套窗口。
-    // ★但必须先确认壳侧放行了这些站点的"自身跳转"（app.caps.webaiGuestFreeNav）：
-    //   老壳（main.js 未换）会把站点自己的一次跳转/登录 SSO 丢给系统浏览器并取消导航 ⇒
-    //   一开 GUI 就自动弹出豆包/智谱的网页，而且千问/智谱的登录框被掐掉。
-    //   老壳下干脆不预热（点开时才加载），重启一次 GUI 后这个能力位出现，预热自动恢复。
+    // ★2026-11-04 内存修复（实测 7.2GB / OOM，见 诊断-内存\内存问题诊断报告.md）★
+    //   ① 默认**不预热**（站点表已全部 noWarm）：点开时才建 webview，启动只留 1 个 harness guest；
+    //   ② 想恢复"秒开"：显式设 window.__DSH_WEB_AI_WARM = true 或 localStorage['webai.warm']='1'；
+    //   ③ **分离窗口永不预热**（以前每个分离窗口都会再建一整套 4 站，+0.4~0.8GB）；
+    //   ④ 即使开启预热，也只在窗口**可见且用户已交互过**之后再做，且一次只预 1 个 —— 不排队占满。
+    const warmWanted = (function () {
+      try {
+        if (document.body.classList.contains('solo')) return false;      // 分离窗口：不预热
+        if (window.__DSH_WEB_AI_WARM === true) return true;             // 显式开关（调试/回归用）
+        return localStorage.getItem('webai.warm') === '1';              // 用户自选"秒开"
+      } catch (e) { return false; }
+    })();
     const warmOk = !!(window.app && window.app.caps && window.app.caps.webaiGuestFreeNav);
-    if (!WEB_AI_ST.warmed && warmOk) {
-      WEB_AI_ST.warmed = true;
-      WEB_AI.forEach(function (s, k) {   // k 只是站点表下标、用来错峰（跳过 noWarm 的站会留个空档，无害）
-        if (s.noWarm) return;             // 不预热的站：点开时才建 webview（省一份常驻 guest 内存）
-        setTimeout(function () { try { webAiEnsure(s.key, 'warm'); } catch (e) { /* 单个站点失败不影响别的 */ } }, k * 700);
-      });
-    } else if (!WEB_AI_ST.warmed && !WEB_AI_ST.warmOff) {
+    if (!WEB_AI_ST.warmed && warmWanted && warmOk) {
+      // 只取"允许预热"的那 1 个站（warmOptIn）。实测证明：同时预热多个隐藏站点会失控
+      // （豆包/千问/智谱三个都跑飞）⇒ 即使开启秒开，也只预 1 个，且选实测最稳的（kimi）。
+      const warmList = WEB_AI.filter(function (s) { return s.warmOptIn; }).slice(0, 1);
+      const kick = function () {
+        warmList.forEach(function (s, k) {
+          setTimeout(function () { try { webAiEnsure(s.key, 'warm'); } catch (e) { /* 单个站点失败不影响别的 */ } }, 1200 + k * 700);
+        });
+      };
+      // 只有真的有可预热站点才置位（否则以后加正站也不会再触发）
+      if (warmList.length) WEB_AI_ST.warmed = true;
+      // 交互信号：指针 + 键盘都算（纯键盘用户不点鼠标）
+      const arm = function () {
+        if (WEB_AI_ST.interacted) return;
+        WEB_AI_ST.interacted = true;
+        try { document.removeEventListener('pointerdown', arm); } catch (e) { /* ignore */ }
+        try { document.removeEventListener('keydown', arm); } catch (e) { /* ignore */ }
+        kick();
+      };
+      try {
+        if (WEB_AI_ST.interacted) kick();
+        else {
+          document.addEventListener('pointerdown', arm, { once: true, passive: true });
+          document.addEventListener('keydown', arm, { once: true });
+        }
+      } catch (e) { /* ignore */ }
+    } else if (!WEB_AI_ST.warmed && warmWanted && !warmOk && !WEB_AI_ST.warmOff) {
       WEB_AI_ST.warmOff = true;
       if (window.console && console.info) {
         console.info('[webai] 壳还是旧策略（main.js/preload.js 需重启 GUI）→ 暂不预热，避免自动弹出系统浏览器');
@@ -16000,161 +16030,27 @@ renderers['site-urls'] = (body, meta, head) => {
   return () => { disposed = true; };
 };
 
-// ============ code-urls（程序开发场景「网址」）：项目相关网址的实时状态（点击用系统浏览器打开）============
-// 数据来自场景 json：meta.urls = [{ name, url, note? }] —— 换项目只改 json，不动渲染器。
-// 只用宿主通用能力：app.site.probe（主进程发 HTTP，绕开渲染器跨域限制）/ app.site.open（系统浏览器打开）。
-// 首个用户：code-dev 场景「网址」窗口（取代原来那个空的「项目管理」预留位）。
-renderers['code-urls'] = (body, meta, head) => {
+// ============ code-urls（工作项目开发「开发服务与网址」）：跟随「当前开发工程」 ============
+// 2026-11-04 用户反馈：左下跟右上「开发项目工程」里指定的当前工程对不上（永远只有工作台自己那 4 条）。
+// 现在面板按「当前开发工程」列出它的服务与调试地址（工作台自身服务折叠成紧凑行放在下面一组）。
+// 实现搬到 renderer/code-urls.js：renderers.js 是存量大文件（代码红线按基线只许变短），这里只留注册 + 转发；
+// 本文件热更新（⟳）后实现还在 ⇒ 照样能用；实现还没加载时先给占位，等它载入后回调 pending 重画。
+renderers['code-urls'] = function (body, meta, head) {
+  if (!window.__wbCodeUrlsStale && typeof window.__wbCodeUrls === 'function') return window.__wbCodeUrls(body, meta, head);
+  var clean = null, cancelled = false;
   body.classList.add('web-panel');
-  const K = window.app && window.app.site;
-  const items = (Array.isArray(meta.urls) ? meta.urls : [])
-    .filter((u) => u && u.url)
-    .map((u) => ({
-      name: String(u.name || u.url),
-      url: String(u.url),
-      note: String(u.note || ''),
-      phone: !!u.phone,   // true = 标题栏出现 📱 按钮，用手机尺寸窗口打开
-      ok: null,      // null=未探测 true=在线 false=离线
-      code: 0,
-      ms: null
-    }));
-  let timer = null;
-  let disposed = false;
-
-  const summary = el('span', 'stat-refresh web-summary', '');
-  const probeBtn = el('button', 'file-refresh', '🔄 探测');
-  probeBtn.title = '立即重新探测所有网址状态';
-  if (head) {
-    // 与<客户>「网址」面板同一套窄排样式（.kun-web-head）
-    head.classList.add('kun-web-head');
-    head.appendChild(el('span', 'stat-refresh', '30秒'));
-    head.appendChild(summary);
-    const acts = el('div', 'file-head-acts');
-    // 📱 手机预览：条目带 "phone": true 才有（用户端 / 师傅端 H5）；点击开 400×830 独立窗口
-    const phoneApi = window.app && window.app.code;
-    items.filter((it) => it.phone).forEach((it) => {
-      const pb = el('button', 'file-refresh web-preview-btn');
-      pb.type = 'button';
-      pb.title = '用手机尺寸窗口打开「' + it.name + '」（400×830，独立会话记住登录）';
-      pb.appendChild(el('span', 'ico', '📱'));
-      pb.appendChild(el('span', 'lb', it.name.replace(/\s*H5\s*$/i, '')));
-      pb.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        if (!phoneApi || !phoneApi.phoneWindow) {
-          if (summary) summary.textContent = '手机预览需重启一次工作台';
-          return;
-        }
-        Promise.resolve(phoneApi.phoneWindow(it.url, it.name)).then((r) => {
-          if (r && r.ok === false && summary) summary.textContent = '打不开：' + (r.err || '未知');
-        }).catch(() => {
-          if (summary) summary.textContent = '手机预览打不开';
-        });
-      });
-      acts.appendChild(pb);
-    });
-    acts.appendChild(probeBtn);
-    head.appendChild(acts);
-  } else {
-    body.appendChild(probeBtn);
-  }
-
-  const grid = el('div', 'web-grid');
-  body.appendChild(grid);
-
-  const openUrl = (url) => {
-    if (K && K.open) K.open(url);
-    else if (window.app && window.app.openExternal) window.app.openExternal(url);
-    else window.open(url);
+  body.appendChild(el('div', 'dev-empty', '正在加载「开发服务与网址」面板实现（renderer/code-urls.js）…'));
+  window.__wbCodeUrlsPending = function () {
+    if (cancelled || typeof window.__wbCodeUrls !== 'function') return;
+    window.__wbCodeUrlsPending = null;
+    body.innerHTML = '';
+    try { clean = window.__wbCodeUrls(body, meta, head); }
+    catch (e) { body.appendChild(el('div', 'dev-empty', '面板渲染失败：' + ((e && e.message) || e))); }
   };
-  const copyUrl = (url, btn) => {
-    const done = (pass) => {
-      btn.textContent = pass ? '✓' : '✕';
-      setTimeout(() => { btn.textContent = '⧉'; }, 1100);
-    };
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).then(() => done(true)).catch(() => done(false));
-        return;
-      }
-    } catch (e) { /* ignore */ }
-    done(false);
+  return function () {
+    cancelled = true;
+    if (typeof clean === 'function') { try { clean(); } catch (e) { /* ignore */ } }
   };
-  const card = (u) => {
-    const c = el('div', 'web-card ' + (u.ok === false ? 'is-off' : 'is-ok'));
-    const top = el('div', 'web-card-top');
-    top.appendChild(el('span', 'web-name', u.name));
-    top.appendChild(el('span', 'web-dot ' + (u.ok === true ? 'ok' : (u.ok === false ? 'down' : '')),
-      u.ok === true ? '● 在线' : (u.ok === false ? '● 离线' : '● 待探测')));
-    c.appendChild(top);
-    const row = el('div', 'web-url-row');
-    row.appendChild(el('span', 'web-url', u.url.replace(/^https?:\/\//, '')));
-    const cb = el('button', 'web-copy', '⧉');
-    cb.type = 'button';
-    cb.title = '复制地址';
-    cb.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      ev.preventDefault();
-      copyUrl(u.url, cb);
-    });
-    row.appendChild(cb);
-    c.appendChild(row);
-    if (u.note) c.appendChild(el('div', 'web-meta', u.note));
-    const state = u.ok === true
-      ? 'HTTP ' + (u.code || '--') + ' · ' + (u.ms != null ? u.ms + 'ms' : '')
-      : (u.ok === false ? '无法连接' + (u.ms != null ? ' · ' + u.ms + 'ms' : '') : '探测中…');
-    c.appendChild(el('div', 'web-meta', state));
-    c.appendChild(el('div', 'web-open', '点击在浏览器中打开 ↗'));
-    c.addEventListener('click', () => openUrl(u.url));
-    return c;
-  };
-  const paint = () => {
-    grid.innerHTML = '';
-    if (!items.length) {
-      grid.appendChild(el('div', 'web-empty', '（未配置网址：在场景 json 的 urls 里加）'));
-      return;
-    }
-    items.forEach((u) => grid.appendChild(card(u)));
-    if (!summary) return;
-    const up = items.filter((u) => u.ok === true).length;
-    const down = items.filter((u) => u.ok === false).length;
-    if (down > 0) {
-      summary.textContent = up + '/' + items.length + ' · ' + down + '异常';
-      summary.style.color = 'var(--err)';
-      summary.title = '离线：' + items.filter((u) => u.ok === false).map((u) => u.name).join('、');
-    } else if (up === 0) {
-      summary.textContent = '探测中…';
-      summary.style.color = '';
-      summary.title = '';
-    } else {
-      summary.textContent = up + '/' + items.length;
-      summary.style.color = '';
-      summary.title = '全部在线';
-    }
-  };
-  const probe = () => {
-    if (!K || !K.probe) { paint(); return; }
-    probeBtn.disabled = true;
-    Promise.all(items.map((u) => {
-      const t0 = Date.now();
-      return Promise.resolve(K.probe(u.url)).then((r) => {
-        u.ok = !!(r && r.ok);
-        u.code = (r && r.status) || 0;
-        u.ms = Date.now() - t0;
-      }).catch(() => {
-        u.ok = false;
-        u.code = 0;
-        u.ms = Date.now() - t0;
-      });
-    })).then(() => {
-      probeBtn.disabled = false;
-      if (!disposed) paint();
-    });
-  };
-  paint();
-  probe();
-  probeBtn.addEventListener('click', probe);
-  timer = setInterval(() => { if (!disposed) probe(); }, 30000);
-  return () => { disposed = true; if (timer) clearInterval(timer); };
 };
 
 // ============ Blender 场景（blender）：实时画面 / 本地文件 ============
@@ -16473,7 +16369,8 @@ renderers['file'] = (body, meta, head) => {
     return '…\\' + tail.slice(tail.length - (mt - 1));
   };
   var IMG_RE = /\.(png|jpe?g|gif|webp|bmp)$/i;
-  var VID_RE = /\.(mp4|mov|mkv|webm|m4v|avi|flv|wmv|mpe?g|ts)$/i;
+  var VID_RE = /\.(mp4|mov|mkv|webm|m4v|avi|flv|wmv|mpe?g)$/i;
+  var VID_TS_RE = /\.ts$/i;
   // ★ 根目录（面板级配置）：默认<客户> OA 工程目录，场景 json 里 "root" 可换根
   var DISP_ROOT = String((meta && meta.root) || __WB_ROOT || '');
   var LOCAL_ROOT = normWin(DISP_ROOT) || DISP_ROOT;
@@ -16498,7 +16395,13 @@ renderers['file'] = (body, meta, head) => {
     return m ? m[1].toUpperCase() + ':\\' : '';
   };
   var isImg = function (n) { return IMG_RE.test(String(n || '')); };
-  var isVid = function (n) { return VID_RE.test(String(n || '')); };
+  var isVid = function (n, size) {
+    // .ts 有歧义：TypeScript 源码 vs MPEG-TS 视频。源码只有几十 KB，视频几 MB 起 ⇒ 按体积区分
+    // （2026-11-04 修：vite.config.ts 曾被当成视频，在文件列表顶上长出一块视频占位卡）
+    var name = String(n || '');
+    if (VID_RE.test(name)) return true;
+    return VID_TS_RE.test(name) && Number(size || 0) > 8 * 1048576;
+  };
   // ★ 本地媒体直接交给浏览器解码（file:// 子资源实测可用）：不经过 IPC 传 base64，
   //   大图 / 视频也能秒开（原来的 IPC 读图有 12MB 上限，E 盘素材动辄几十 MB）。
   //   路径按段 encodeURIComponent，中文、空格、# 都不会出问题。
@@ -16628,6 +16531,11 @@ renderers['file'] = (body, meta, head) => {
     var closeProjMenu = function () {};
 
     if (isLocal && meta && meta.projectSelect) {
+      // 新面板挂载时清掉旧实例遗留的下拉菜单（⟳ 热更新/场景重建时旧菜单可能还挂在 document.body 上）
+      try {
+        var staleMenus = document.querySelectorAll('.oa-proj-menu');
+        for (var si = 0; si < staleMenus.length; si++) staleMenus[si].remove();
+      } catch (e) { /* ignore */ }
       var projBar = mk('div', 'oa-proj-bar');
       projBar.style.display = 'flex';
       projBar.style.alignItems = 'center';
@@ -16844,11 +16752,21 @@ renderers['file'] = (body, meta, head) => {
         if (!activeMenuEl) pSelect.style.borderColor = 'rgba(143, 180, 255, 0.35)';
       });
 
-      pSelect.addEventListener('click', function (ev) {
-        ev.stopPropagation();
+      // 点击/按下都翻转菜单：pointerdown 先到（更稳），同一手势紧跟的 click 用 300ms 闸挡掉，避免开了又关
+      var lastProjToggle = 0;
+      var toggleProjMenu = function (ev) {
+        if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+        var now = Date.now();
+        if (now - lastProjToggle < 300) return;
+        lastProjToggle = now;
         if (activeMenuEl) closeProjMenu();
         else openProjMenu();
+      };
+      pSelect.addEventListener('pointerdown', function (ev) {
+        if (ev.button != null && ev.button !== 0) return;
+        toggleProjMenu(ev);
       });
+      pSelect.addEventListener('click', function (ev) { toggleProjMenu(ev); });
 
       pSelect.addEventListener('keydown', function (ev) {
         if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'ArrowDown') {
@@ -16902,6 +16820,8 @@ renderers['file'] = (body, meta, head) => {
           if (projName) localStorage.setItem('work-dev:current-project', projName);
           else localStorage.removeItem('work-dev:current-project');
         } catch (e) {}
+        // 「开发服务与网址」面板（renderer/code-urls.js）跟着当前工程变：同页广播一次，不用整页重载
+        try { window.dispatchEvent(new CustomEvent('wb:project-changed', { detail: { name: projName || '', path: projName ? (normWin(LOCAL_ROOT) + '\\' + projName) : normWin(LOCAL_ROOT) } })); } catch (e) {}
         try {
           var F = window.app && window.app.file;
           if (F && F.write) {
@@ -17069,7 +16989,7 @@ renderers['file'] = (body, meta, head) => {
       // ★ 素材预览：图片 + 视频，一排两个（缩略图网格）
       //   本地：直接 file:// 出图 / 出首帧（大素材、几十 MB 的贴图也不卡；失败自动退回 IPC 读图）
       //   云端：图片仍走 IPC 读图（SSH 取回 base64）；视频不能直出，照旧当普通文件列在下边
-      var med = (list2 || []).filter(function (x) { return !x.isDir && (isImg(x.name) || isVid(x.name)); });
+      var med = (list2 || []).filter(function (x) { return !x.isDir && (isImg(x.name) || isVid(x.name, x.size)); });
       var medShow = isLocal ? med : med.filter(function (x) { return isImg(x.name); });
       var medGrid = medShow.slice(0, 60);                       // 预览上限 60 张，多出来的仍按文件列在下面
       var rest = (list2 || []).filter(function (x) { return x.isDir || medShow.indexOf(x) < 0; })
@@ -17079,7 +16999,7 @@ renderers['file'] = (body, meta, head) => {
         medGrid.forEach(function (it) {
           var full = isLocal ? (state.root || '').replace(/[\\/]+$/, '') + '\\' + it.name
                              : (state.root || '').replace(/\/+$/, '') + '/' + it.name;
-          var isVideo = isVid(it.name);
+          var isVideo = isVid(it.name, it.size);
           var card = mk('div', 'oa-thumb');
           var box = mk('div', 'oa-thumb-box');
           var ph = mk('div', 'oa-thumb-ph', isVideo ? '🎬' : '🖼');
@@ -18665,7 +18585,7 @@ renderers.neuron = (body, meta, head) => {
     'wb-ai': 'content', 'oa-ai': 'content', 'vw-ai': 'content', 'bv-ai': 'content', 'bl-ai': 'content',
     'mk-chat': 'content', 'sr-ai': 'content', 'pc-ai': 'ops'
   };
-  const COLOR = { core: '#7fe3ff', engine: '#8fb4ff', ui: '#f0a35e', code: '#b79bff', content: '#3ddc84', ops: '#e5484d', skill: '#6f8fd6', doc: '#c9d4e6', project: '#2dd4bf', memory: '#dfe7ff', source: '#8f9bb3', chain: '#ffcf6b' };
+  const COLOR = isLightTheme() ? { core: '#0e7490', engine: '#2563eb', ui: '#b45309', code: '#6d28d9', content: '#15803d', ops: '#b91c1c', skill: '#5b73c4', doc: '#64748b', project: '#0f766e', memory: '#475569', source: '#64748b', chain: '#b45309' } : { core: '#7fe3ff', engine: '#8fb4ff', ui: '#f0a35e', code: '#b79bff', content: '#3ddc84', ops: '#e5484d', skill: '#6f8fd6', doc: '#c9d4e6', project: '#2dd4bf', memory: '#dfe7ff', source: '#8f9bb3', chain: '#ffcf6b' };
   // 项目层（2026-10-26）：不是从记忆里正则猜，而是直接列真实目录（B 盘/项目工程），归属按 area 正文里出现的名字来挂
   const PROJECT_ROOTS = P.projectRoots || [];
   // dg-dsh 审计（2026-10-26）：这 5 个是一级目录但属于「资料/介质夹」，不是项目
@@ -19202,7 +19122,7 @@ renderers.neuron = (body, meta, head) => {
     ctx.clearRect(0, 0, W, H);
     // 背景：中心微光
     var bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.62);
-    bg.addColorStop(0, 'rgba(30,54,96,.55)');
+    bg.addColorStop(0, isLightTheme() ? 'rgba(37,99,235,.06)' : 'rgba(30,54,96,.55)');
     bg.addColorStop(1, 'rgba(6,9,16,0)');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
@@ -19214,14 +19134,14 @@ renderers.neuron = (body, meta, head) => {
         var tw = fx ? (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(tt * st.sp + st.ph))) : 0.55;
         ctx.beginPath();
         ctx.arc(st.x, st.y, st.r, 0, 6.2832);
-        ctx.fillStyle = 'rgba(190,215,255,' + (0.07 * tw) + ')';
+        ctx.fillStyle = isLightTheme() ? ('rgba(15,23,42,' + (0.16 * tw) + ')') : ('rgba(190,215,255,' + (0.07 * tw) + ')');
         ctx.fill();
       }
     }
     // 暗角：把注意力收到中间
     var vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.78);
-    vg.addColorStop(0, 'rgba(0,0,0,0)');
-    vg.addColorStop(1, 'rgba(2,4,9,.55)');
+    vg.addColorStop(0, 'rgba(15,23,42,0)');
+    vg.addColorStop(1, isLightTheme() ? 'rgba(15,23,42,.055)' : 'rgba(2,4,9,.55)');
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, W, H);
 
@@ -19297,9 +19217,9 @@ renderers.neuron = (body, meta, head) => {
       if (s.e.kind === 'skill') alpha *= 0.55;
       if (dimmed(s.a) && dimmed(s.b)) alpha *= 0.25;
       // 线的颜色按类型分（记忆=近白、项目=青、依赖=青蓝、其余=蓝），一眼能分出关系
-      var lc = (s.e.kind === 'memory') ? '223,231,255'
-        : (s.e.kind === 'project') ? '45,212,191'
-        : (s.e.kind === 'dep') ? '127,227,255' : '143,180,255';
+      var lc = (s.e.kind === 'memory') ? (isLightTheme() ? '71,85,105' : '223,231,255')
+        : (s.e.kind === 'project') ? (isLightTheme() ? '13,148,136' : '45,212,191')
+        : (s.e.kind === 'dep') ? (isLightTheme() ? '14,116,144' : '127,227,255') : (isLightTheme() ? '37,99,235' : '143,180,255');
       var core = hot ? 1.7 : (s.e.kind === 'dep' ? 1.15 : 0.85);
       var ex2 = s.pb.x, ey2 = s.pb.y;
       if (gp < 1) { ex2 = s.pa.x + (s.pb.x - s.pa.x) * gp; ey2 = s.pa.y + (s.pb.y - s.pa.y) * gp; }
@@ -19322,11 +19242,11 @@ renderers.neuron = (body, meta, head) => {
       if (introOn && gp < 1) {                     // 生长头：亮点把线"推"出来
         ctx.beginPath();
         ctx.arc(ex2, ey2, 2.4 + 1.8 * (1 - gp), 0, 6.2832);
-        ctx.fillStyle = 'rgba(214,242,255,' + (0.55 + 0.4 * (1 - gp)) + ')';
+        ctx.fillStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.55 + 0.4 * (1 - gp)) + ')') : ('rgba(214,242,255,' + (0.55 + 0.4 * (1 - gp)) + ')');
         ctx.fill();
         ctx.beginPath();
         ctx.arc(ex2, ey2, 7 + 9 * (1 - gp), 0, 6.2832);
-        ctx.fillStyle = 'rgba(120,200,255,' + (0.22 * (1 - gp)) + ')';
+        ctx.fillStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.18 * (1 - gp)) + ')') : ('rgba(120,200,255,' + (0.22 * (1 - gp)) + ')');
         ctx.fill();
       }
     });
@@ -19346,12 +19266,12 @@ renderers.neuron = (body, meta, head) => {
           var x2 = sg2.pa.x + ddx * q2, y2 = sg2.pa.y + ddy * q2;
           ctx.beginPath();
           ctx.arc(x2, y2, 1.5 - t2 * 0.16, 0, 6.2832);
-          ctx.fillStyle = 'rgba(215,235,255,' + (0.5 * fade * (1 - t2 / 6)) + ')';
+          ctx.fillStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.5 * fade * (1 - t2 / 6)) + ')') : ('rgba(215,235,255,' + (0.5 * fade * (1 - t2 / 6)) + ')');
           ctx.fill();
         }
         ctx.beginPath();
         ctx.arc(hx2, hy2, 2.2, 0, 6.2832);
-        ctx.fillStyle = 'rgba(240,248,255,' + (0.85 * fade) + ')';
+        ctx.fillStyle = isLightTheme() ? ('rgba(30,64,175,' + (0.85 * fade) + ')') : ('rgba(240,248,255,' + (0.85 * fade) + ')');
         ctx.fill();
       }
     }
@@ -19364,9 +19284,9 @@ renderers.neuron = (body, meta, head) => {
       if (ei < 320) {
         var fl = 1 - ei / 320;
         var fg = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, 90 + 130 * fl);
-        fg.addColorStop(0, 'rgba(224,246,255,' + (0.45 * fl) + ')');
-        fg.addColorStop(0.4, 'rgba(110,200,255,' + (0.2 * fl) + ')');
-        fg.addColorStop(1, 'rgba(80,170,255,0)');
+        fg.addColorStop(0, isLightTheme() ? 'rgba(37,99,235,.20)' : 'rgba(224,246,255,' + (0.45 * fl) + ')');
+        fg.addColorStop(0.4, isLightTheme() ? 'rgba(37,99,235,.10)' : 'rgba(110,200,255,' + (0.2 * fl) + ')');
+        fg.addColorStop(1, isLightTheme() ? 'rgba(37,99,235,0)' : 'rgba(80,170,255,0)');
         ctx.fillStyle = fg;
         ctx.fillRect(0, 0, W, H);
       }
@@ -19378,7 +19298,7 @@ renderers.neuron = (body, meta, head) => {
           ctx.beginPath();
           ctx.arc(cx0, cy0, wr, 0, 6.2832);
           ctx.lineWidth = 2.4 - 1.4 * wt;
-          ctx.strokeStyle = 'rgba(130,214,255,' + (0.34 * (1 - wt) * (1 - wt)) + ')';
+          ctx.strokeStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.22 * (1 - wt) * (1 - wt)) + ')') : ('rgba(130,214,255,' + (0.34 * (1 - wt) * (1 - wt)) + ')');
           ctx.stroke();
         }
       }
@@ -19387,15 +19307,15 @@ renderers.neuron = (body, meta, head) => {
       if (sc > 0 && sc < 1) {
         var sy = H * (sc * sc * (3 - 2 * sc));
         var lg = ctx.createLinearGradient(0, sy - 90, 0, sy);
-        lg.addColorStop(0, 'rgba(90,190,255,0)');
-        lg.addColorStop(0.85, 'rgba(90,190,255,.055)');
-        lg.addColorStop(1, 'rgba(180,232,255,.16)');
+        lg.addColorStop(0, 'rgba(37,99,235,0)');
+        lg.addColorStop(0.85, 'rgba(37,99,235,.06)');
+        lg.addColorStop(1, 'rgba(37,99,235,.18)');
         ctx.fillStyle = lg;
         ctx.fillRect(0, sy - 90, W, 90);
         ctx.beginPath();
         ctx.moveTo(0, sy); ctx.lineTo(W, sy);
         ctx.lineWidth = 1;
-        ctx.strokeStyle = 'rgba(190,236,255,' + (0.22 * Math.sin(Math.PI * sc)) + ')';
+        ctx.strokeStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.22 * Math.sin(Math.PI * sc)) + ')') : ('rgba(190,236,255,' + (0.22 * Math.sin(Math.PI * sc)) + ')');
         ctx.stroke();
       }
       // ④ 沿线奔跑的粒子：入场时 5 颗，错开时间，跑完就没了
@@ -19409,7 +19329,7 @@ renderers.neuron = (body, meta, head) => {
           var hy3 = s3.pa.y + (s3.pb.y - s3.pa.y) * pr2;
           ctx.beginPath();
           ctx.arc(hx3, hy3, 1.8, 0, 6.2832);
-          ctx.fillStyle = 'rgba(235,250,255,' + (0.55 * Math.sin(Math.PI * pr2)) + ')';
+          ctx.fillStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.55 * Math.sin(Math.PI * pr2)) + ')') : ('rgba(235,250,255,' + (0.55 * Math.sin(Math.PI * pr2)) + ')');
           ctx.fill();
         }
       }
@@ -19433,7 +19353,7 @@ renderers.neuron = (body, meta, head) => {
       var alpha = dimmed(n) ? 0.18 : Math.max(0.35, 1 - p.z / 1500);
       if (introOn) alpha *= 0.25 + 0.75 * np2;
       var c = col(n.group);
-      if (n.kind === 'project') { if (n.status === 'delivery') c = '#f0a35e'; else if (n.status === 'archived' || n.status === 'parked') c = '#8b93a7'; }
+      if (n.kind === 'project') { if (n.status === 'delivery') c = isLightTheme() ? '#b45309' : '#f0a35e'; else if (n.status === 'archived' || n.status === 'parked') c = isLightTheme() ? '#64748b' : '#8b93a7'; }
       // 光晕
       var g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3.4);
       g.addColorStop(0, hexA(c, 0.55 * alpha));
@@ -19462,7 +19382,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.beginPath();
         ctx.arc(p.x, p.y, r + 4 + 26 * (1 - nring), 0, 6.2832);
         ctx.lineWidth = 1.6;
-        ctx.strokeStyle = hexA('#bfe8ff', 0.55 * nring);
+        ctx.strokeStyle = hexA(isLightTheme() ? '#1d4ed8' : '#bfe8ff', 0.55 * nring);
         ctx.stroke();
       }
       if (n.missing) {                     // 2026-10-27 审计⑤：路径失效的点 → 红虚线圈
@@ -19475,7 +19395,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.setLineDash([]);
       }
       if (n.kind === 'core') {
-        ctx.lineWidth = 2; ctx.strokeStyle = hexA('#7fe3ff', 0.8); ctx.stroke();
+        ctx.lineWidth = 2; ctx.strokeStyle = hexA(isLightTheme() ? '#0e7490' : '#7fe3ff', 0.8); ctx.stroke();
       }
       if (n.kind === 'core' && fx) {       // 核心：缓慢旋转的细光环（全图唯一的常驻动效）
         ctx.save();
@@ -19485,7 +19405,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.setLineDash([3, 8]);
         ctx.arc(0, 0, r + 7, 0, 6.2832);
         ctx.lineWidth = 1.1;
-        ctx.strokeStyle = hexA('#8fd7ff', 0.5);
+        ctx.strokeStyle = hexA(isLightTheme() ? '#0e7490' : '#8fd7ff', 0.5);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.restore();
@@ -19494,7 +19414,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.beginPath();
         ctx.arc(p.x, p.y, r + 5, 0, 6.2832);
         ctx.lineWidth = 1.4;
-        ctx.strokeStyle = hexA('#cfe1ff', 0.75);
+        ctx.strokeStyle = hexA(isLightTheme() ? '#1e3a8a' : '#cfe1ff', 0.75);
         ctx.stroke();
       }
       // 标签：内核 / 悬停 / 选中 / 搜索命中 / 大节点
@@ -19547,10 +19467,10 @@ renderers.neuron = (body, meta, head) => {
           ctx.beginPath();
           if (ctx.roundRect) { ctx.roundRect(bx, by, bw, bh, 4); }
           else { ctx.rect(bx, by, bw, bh); }
-          ctx.fillStyle = 'rgba(6,10,18,' + (force ? 0.62 : 0.34) + ')';
+          ctx.fillStyle = isLightTheme() ? ('rgba(255,255,255,' + (force ? 0.94 : 0.72) + ')') : ('rgba(6,10,18,' + (force ? 0.62 : 0.34) + ')');
           ctx.fill();
-          ctx.fillStyle = dimmed(n) ? 'rgba(200,215,240,.35)' : 'rgba(226,236,255,.92)';
-          ctx.fillStyle = force ? '#eaf2ff' : ctx.fillStyle;
+          ctx.fillStyle = dimmed(n) ? 'rgba(15,23,42,.35)' : (isLightTheme() ? 'rgba(15,23,42,.92)' : 'rgba(226,236,255,.92)');
+          ctx.fillStyle = force ? (isLightTheme() ? '#0f172a' : '#eaf2ff') : ctx.fillStyle;
           ctx.textAlign = alignMode;
           ctx.fillText(lbl, pick.lx, ly);
         }
@@ -19776,4 +19696,17 @@ renderers.neuron = (body, meta, head) => {
     body.innerHTML = '';
   };
 };
+
+// code-urls 实现外置（代码红线：存量大文件只许变短）。
+// 首屏：index.html 已直接加载（同步，先于本文件）。⟳ 重新执行本文件时页面已加载完（readyState=complete）
+// ⇒ 带时间戳再拉一份新实现，并先打 stale 标记：本轮面板走占位 + pending，等新实现到位再画（避免用旧代码）。
+if (!window.__wbCodeUrls || document.readyState === 'complete') {
+  window.__wbCodeUrlsStale = true;
+  var __cuOld = document.getElementById('code-urls-script');
+  if (__cuOld && __cuOld.parentNode) __cuOld.parentNode.removeChild(__cuOld);
+  var __cuS = document.createElement('script');
+  __cuS.id = 'code-urls-script';
+  __cuS.src = './code-urls.js?t=' + Date.now();
+  document.head.appendChild(__cuS);
+}
 

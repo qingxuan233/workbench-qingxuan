@@ -105,6 +105,18 @@ const scenarios = fs.existsSync(scenDir)
   ? fs.readdirSync(scenDir).filter(f => f.endsWith('.json')).map(f => ({ file: f, ...(readJson(path.join(scenDir, f)) || {}) }))
   : [];
 
+// 场景 json 只是模板（sessionId 固定写成 __待填__）；实例真值在 工作台.json（不入库）。
+// --check / 轮换 / 零散清单都要按同一口径解析 —— 只读场景 json 的话看到的永远是占位符：
+// 明明绑好了会报「待建会话」，--stray 还会把 5 条已绑会话全算成"零散"。
+const MANIFEST = path.join(path.dirname(root), '工作台.json');
+const manifest = readJson(MANIFEST) || {};
+function effectiveSessionId(sc, p) {
+  const raw = String((p && p.sessionId) || '').trim();
+  if (raw && raw !== '__待填__') return raw;
+  const m = (manifest.scenes && manifest.scenes[sc && sc.id]) || null;
+  return m && m.sessionId ? String(m.sessionId).trim() : raw;
+}
+
 const checkOnly = process.argv.includes('--check');
 // ★零散会话轮换（`--rotate <会话id|标题> --stray`；只给 `--stray` 就列零散会话清单，2026-09-23 加）：
 //   零散会话没有场景 json 可回写，所以走文件末尾那条路（交接文档 + 真归档 + 可见的衔接会话）。
@@ -139,7 +151,7 @@ if (!checkOnly && !rotating) {
       console.log('  ● 已超压缩线（压缩来不及，/compact 也会 413）：');
       hard.forEach((h) => console.log('      · ' + h.t + ' → 新开会话，或在会话里对较早的消息「分叉会话」'));
     }
-    console.log('  换会话后：把 scenarios\\*.json 里该面板的 sessionId 指到新会话（本脚本 --check 可核对对应关系）。');
+    console.log('  换会话后：把 工作台.json 里该场景的 sessionId 指到新会话（scenarios\\*.json 保持 __待填__ 模板），本脚本 --check 可核对对应关系。');
     console.log('  口径只有一处：node "' + CTX_JS + '"（加 --all 查全机）。⛔ 别在本脚本里另算一套 —— 两处各算一套就是虚警的来源。');
   }
 }
@@ -152,7 +164,7 @@ for (const sc of scenarios) {
   for (const p of panels) {
     checked++;
     const wantTitle = String(p.sessionTitle || '').trim();
-    const wantId = String(p.sessionId || '').trim();
+    const wantId = effectiveSessionId(sc, p);
     const targets = (Array.isArray(p.pinTarget) ? p.pinTarget : (p.pinTarget ? [p.pinTarget] : [])).map(t => String(t).trim()).filter(Boolean);
     const idHit = wantId ? sessions.find(s => s.id === wantId || s.id === wantId.replace(/^session-/, '')) : null;
     const exact = wantTitle ? sessions.find(s => s.title === wantTitle) : null;
@@ -257,11 +269,11 @@ if (rotating && !STRAY) {
         .map((f) => ({ file: f, ...(readJson(path.join(realScenDir, f)) || {}), __path: path.join(realScenDir, f) }));
   let hit = null;
   for (const sc of cands) for (const p of (sc.panels || [])) {
-    if (p.type === 'harness' && (p.id === ROTATE_ID || p.sessionId === ROTATE_ID)) hit = { sc, p };
+    if (p.type === 'harness' && (p.id === ROTATE_ID || effectiveSessionId(sc, p) === ROTATE_ID)) hit = { sc, p };
   }
   if (!hit) die('没找到面板「' + ROTATE_ID + '」（写面板 id，如 dg-dsh，或直接写它的 sessionId）');
   else {
-    const oldId = String(hit.p.sessionId || '').trim();
+    const oldId = effectiveSessionId(hit.sc, hit.p);
     const title = String(hit.p.sessionTitle || '').trim();
     const old = sessions.find((x) => x.id === oldId) || null;
     const cwd = (KEEP_CWD && old && old.cwd) ? old.cwd : DEFAULT_CWD;   // 默认新工作区；--keep-cwd 才沿用旧会话
@@ -547,9 +559,9 @@ if (rotating && STRAY) {
     if (!rows.length) return null;
     return { file: path.join(STRAY_DIR, rows[0].f), more: rows.slice(1).map((x) => x.f) };
   }
-  // 哪些会话是"零散"的：不在任何场景 harness 面板的 sessionId 里
+  // 哪些会话是"零散"的：不在任何场景 harness 面板的 sessionId 里（真值在 工作台.json）
   const boundIds = new Set();
-  for (const sc of scenarios) for (const p of (sc.panels || [])) if (p.type === 'harness' && p.sessionId) boundIds.add(String(p.sessionId));
+  for (const sc of scenarios) for (const p of (sc.panels || [])) if (p.type === 'harness') { const id = effectiveSessionId(sc, p); if (id && id !== '__待填__') boundIds.add(id); }
   const archivedIds = (() => {
     try { return new Set(((readJson(path.join(DSH_HOME, 'storages', 'workspace.json')) || {}).global || {}).archivedSessionIds || []); }
     catch (e) { return new Set(); }

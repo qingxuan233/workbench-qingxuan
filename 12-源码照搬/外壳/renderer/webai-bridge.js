@@ -30,11 +30,8 @@ var __WB_ROOT = (function () {
 //     整个冲掉（桥还会截尾 8000 字）。所以图只进中转文件，回答文本里留一行标记给脚本读。
 //  ⑥ **判定"答完了"必须先确认"它开始答了"**：发问后页面会长一次（出现我的气泡），随后是思考期，
 //     页面一动不动 —— 早期版本就在这儿误判、8 秒就返回了空回答。见 wait 循环里的 started/firstChange。
-//  ⑦ **要图要单独等**：豆包出图时先插一张同尺寸的 `data:image/svg+xml` 占位骨架，真图（blob:/https:）
-//     几百毫秒到几十秒后才换上；只按"文字稳定"收工必然抓到占位图（实测抓到 138 字节的骨架）。
-//     所以：占位图一律排除，要图时最多再等 60 秒等真图出现。
-//  ⑧ 真图优先 `fetch` 拿原图（带登录态，签名 CDN 也行）；被 CORS 挡住时退化成对那块区域
-//     `wv.capturePage()` 截屏（分辨率受窗口大小限制，是保底不是首选）。
+//  ⑦ **要图要单独等**：豆包出图时先插一张同尺寸的 `data:image/svg+xml` 占位骨架，真图（blob:/https:）几百毫秒到几十秒后才换上；只按"文字稳定"收工必然抓到占位图（实测抓到 138 字节的骨架）——所以占位图一律排除，要图时最多再等 60 秒等真图出现。
+//  ⑧ 真图优先 `fetch` 拿原图（带登录态，签名 CDN 也行）；被 CORS 挡住时退化成对那块区域 `wv.capturePage()` 截屏（分辨率受窗口大小限制，是保底不是首选）。
 (function () {
   'use strict';
   var S = window.__kunWebAiBridge;
@@ -50,10 +47,40 @@ var __WB_ROOT = (function () {
   var SPOOL_JSON = __WB_ROOT + '\\外壳\\data\\webai-last-image.json';
   var MAX_B64 = 3600000;                       // 主进程 kun:file:write 上限 4MB，留余量
   var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  // ★2026-11-04★ 页面内的 executeJavaScript **没有超时**：网页版页面一旦卡死（渲染进程忙/崩/OOM），
+  //   这条 Promise 永远不会 settle ⇒ 整条任务队列跟着悬死（S.busy 一直是 true，后面每一个 ask 都排队到超时）。
+  //   用户看到的就是"问一次就再也不回话"。所以每一处取页面数据的调用都必须带超时。
+  var withTimeout = function (p, ms, label) {
+    return Promise.race([
+      p,
+      sleep(ms).then(function () {
+        throw new Error('页面内脚本 ' + Math.round(ms / 1000) + 's 没返回（' + label + '）—— 这个网页版页面卡住了：点它标题栏的 ⟳ 或关掉重开再问');
+      }),
+    ]);
+  };
   var say = function (m) {
     S.log.push(Date.now() + ' ' + m);
     if (S.log.length > 60) S.log.shift();
     console.info('[webai-bridge] ' + m);
+  };
+  // 排障痕迹：渲染层 console.info 不进 server.log（宿主只转发 warning/error），
+  // 所以把关键步骤落一个滚动小文件。默认关，window.__webaiTrace=true 或 localStorage['webai.trace']='1' 才写。
+  var TRACE_FILE = __WB_ROOT + '\\外壳\\data\\webai-bridge-trace.log';
+  var traceLines = [];
+  var traceOn = function () {
+    try {
+      if (window.__webaiTrace) return true;
+      if (localStorage.getItem('webai.trace') === '1') return true;
+      return false;   // 默认关（与上面注释一致）；排查时显式开：window.__webaiTrace=true 或 localStorage['webai.trace']='1'
+    } catch (e) { return true; }
+  };
+  var trace = function (m) {
+    if (!traceOn()) return;
+    try {
+      traceLines.push(new Date().toLocaleTimeString('zh-CN') + ' ' + m);
+      if (traceLines.length > 120) traceLines.shift();
+      K.file.write(TRACE_FILE, traceLines.join('\n') + '\n');
+    } catch (e) { /* 排障失败不影响主流程 */ }
   };
   // executeJavaScript 的返回值不受我们控制（页面在导航/脚本被拦时会返回 null 或别的东西）⇒ 一律过一道
   var asImgs = function (x) { return Array.isArray(x) ? x : []; };
@@ -113,6 +140,13 @@ var __WB_ROOT = (function () {
       //   所以这两个调用一律包 try/catch：抛了就当"还没就绪"，继续等 + 请界面把窗口挂上。
       var url = '';
       try { url = (wv && wv.getURL) ? String(wv.getURL() || '') : ''; } catch (e) { url = ''; }
+      if (Date.now() - (S._traceAt || 0) > 1000) {
+        S._traceAt = Date.now();
+        var _loading = null, _conn = null;
+        try { _loading = !!(wv && wv.isLoading && wv.isLoading()); } catch (e) { _loading = 'err'; }
+        try { _conn = !!(wv && wv.isConnected); } catch (e) { _conn = 'err'; }
+        trace('ensure ' + key + ' wv=' + !!wv + ' url=' + String(url).slice(0, 50) + ' loading=' + _loading + ' connected=' + _conn);
+      }
       if (wv && !url && !askedMount) {
         askedMount = true;
         var okM = false;
@@ -684,6 +718,7 @@ var __WB_ROOT = (function () {
     var note0 = '';
     try {
       curKey = String(key || '');
+      trace('handle start ' + key + ' step=' + step + ' len=' + String(task.text || '').length);
       // ★v3.23★ `[[self-reload]]`＝让**宿主渲染进程**自己重载一次（等同点一次工作台的 ⟳）。
       //   为什么必须自己来：桥活在宿主 renderer 里，而工作台的"自刷新通道"（scripts\刷新面板.mjs → main.js 轮询
       //   `data\reload-panels.cmd`）只重载 `getType()==='webview'` 的 webContents ⇒ **桥本身永远刷不到新版**，
@@ -698,11 +733,11 @@ var __WB_ROOT = (function () {
       // ★v3.19★ `[[peek]]`＝只看不派：**不往页面打字**，把这个页面"到底是什么样"原样报回来（走正常回包，脚本侧能拿到）。
       if (/\[\[peek\]\]/.test(String(task.text || ''))) {
         var pk = null;
-        try { pk = await wv.executeJavaScript(peekSrc, true); } catch (e) { pk = { err: String((e && e.message) || e) }; }
+        try { pk = await withTimeout(wv.executeJavaScript(peekSrc, true), 8000, 'peek'); } catch (e) { pk = { err: String((e && e.message) || e) }; }
         // ★v3.27★ 顺手把**取答脚本** readSrc 也在同一个页面上跑一次：等待循环里它的异常是被吞掉的
         //   （`catch { r = null }`）⇒ 它要是自己坏了，表现就是"发出去了、等满超时、回 0 字"，全程无声无息。
         try {
-          var rs = await wv.executeJavaScript(readSrc, true);
+          var rs = await withTimeout(wv.executeJavaScript(readSrc, true), 8000, 'peek-read');
           pk.readSrc = {
             ok: !!rs,
             len: rs && rs.len,
@@ -1043,10 +1078,13 @@ var __WB_ROOT = (function () {
       var entered = false;                     // ★v3.28★ 有没有试过"点进最新会话"（见循环里那段）
       var everBusy = false, lastChange = Date.now();
       var lastImgs = [];
+      var readFails = 0;                         // 连续"读不出页面"的次数（页面卡死时别再干等满 cap）
       while (Date.now() - t0 < cap) {
         await sleep(1500);
         var r = null;
-        try { r = await wv.executeJavaScript(readSrc, true); } catch (e) { r = null; }
+        try { r = await withTimeout(wv.executeJavaScript(readSrc, true), 8000, 'read'); readFails = 0; } catch (e) { r = null;
+          if (/没返回/.test(String((e && e.message) || e))) { readFails++; if (readFails >= 3) throw new Error('这个网页版页面连续 3 次读不出内容（页面卡死了）—— 点它标题栏的 ⟳ 或关掉重开再问'); }
+        }
         if (!r) continue;                       // 页面正在导航/重载，下一轮再说
         txt = String(r.text || ''); busy = !!r.busy;
         // ★v3.28★ "发出去了、页面就是不涨"的另一种真相：**站点把会话建在了另一个视图里**。
@@ -1473,18 +1511,34 @@ var __WB_ROOT = (function () {
   // 串行队列：一次只伺候一个任务
   var chain = Promise.resolve();
   S.accept = function (task) {
+    trace('accept ' + (task && task.id) + ' key=' + (task && task.key) + ' busy=' + S.busy);
     chain = chain.then(async function () {
       if (!task || !task.id) return;
       var mine = false;
-      try { mine = await K.webai.claim(task.id); } catch (e) { mine = false; }
+      try { mine = await K.webai.claim(task.id); } catch (e) { mine = false; trace('claim 抛错 ' + ((e && e.message) || e)); }
+      trace('claim ' + task.id + ' => ' + mine);
       if (!mine) return;                        // 别的窗口抢到了（多窗口时只有一个干活）
       S.busy = true;
       say('收到任务 ' + task.id + ' → ' + task.key + '（' + String(task.text || '').slice(0, 24) + '…）');
       try { S.lastDiag = ''; } catch (e) { }
       var out;
-      try { out = await handle(task); }
-      catch (e) { out = { ok: false, key: task.key, err: String((e && e.message) || e) }; }
+      // ★2026-11-04★ 看门狗：单子最长 = timeout + 45s 余量；到点必须收尾回包（否则 S.busy/chain 永久占住）。
+      //   ⚠ settled 守卫：正常收尾后 sleep 分支仍会醒，**不能再复活用户刚释放的 guest**。
+      var watchMs = Math.max(30000, Math.min(600000, Number(task.timeoutMs || 180000))) + 45000;
+      var settled = false;
+      try {
+        out = await Promise.race([
+          handle(task).then(function (r) { settled = true; return r; }, function (e) { settled = true; throw e; }),
+          sleep(watchMs).then(function () {
+            if (settled) return { ok: false, key: task.key, err: '看门狗：任务已收尾，忽略' };
+            // 顺手请界面静默重建这个站的 guest（页面卡死时这是唯一不打扰用户的自救）
+            try { if (window.__kunWebAiSilentMount) window.__kunWebAiSilentMount(task.key); } catch (e2) { }
+            return { ok: false, key: task.key, err: '看门狗：' + Math.round(watchMs / 1000) + 's 没有收尾（页面多半卡死了）—— 点那个窗口标题栏的 ⟳ 或关掉重开再问' };
+          }),
+        ]);
+      } catch (e) { out = { ok: false, key: task.key, err: String((e && e.message) || e) }; }
       S.busy = false;
+      trace('done ' + task.id + ' ok=' + (out && out.ok) + ' err=' + String((out && out.err) || '').slice(0, 80));
       try { await K.webai.done(task.id, out); } catch (e) { }
       say('任务 ' + task.id + ' 结束：' + (out.ok ? out.text.length + ' 字' : '失败 ' + out.err));
     }).catch(function (e) { S.busy = false; console.error('[webai-bridge] 队列异常', e); });

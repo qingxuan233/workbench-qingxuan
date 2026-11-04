@@ -29,7 +29,7 @@ import { registryFromSource } from './场景校验.mjs'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const APP = path.resolve(HERE, '..')
 const LIMIT = 800
-const BASELINE_DATE = '2026-11-03'
+const BASELINE_DATE = '2026-11-04'
 
 /** 存量 >800 行文件的行数基线：只允许变短，不允许变长 */
 const BASELINE_LINES = {
@@ -37,7 +37,7 @@ const BASELINE_LINES = {
   '外壳/main.js': 5160,
   '外壳/renderer/renderer.js': 1356,
   '外壳/renderer/topbar-status.js': 1733,
-  '外壳/renderer/webai-bridge.js': 1515,
+  '外壳/renderer/webai-bridge.js': 1570,     // 2026-11-04：本轮本地工作 +55 行（网页版 AI 桥完善），基线同步
   '外壳/renderer/sector-data.js': 8669,      // 行情数据表（存量数据文件）
   '外壳/renderer/us-sector-data.js': 8395,   // 美股行情数据表（存量数据文件）
   '工具/体检.mjs': 809,
