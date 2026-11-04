@@ -11583,6 +11583,10 @@ function decorateBrand() {
 // 站点表字段：key/name/icon/fallback/url 必填；另有两个可选开关 ——
 //   partition：覆盖默认的 `persist:webai-<key>`（**只在"要跟别的面板共用登录态"时才写**）；
 //   noWarm   ：不参加启动预热（点开时才建 webview，省一份常驻 guest 内存）；
+//              ★2026-11-04★ 默认**全部 noWarm**：实测"启动即预热 4 站"会让内存 2 分钟从 1.2GB
+//              涨到 7.2GB（3 个隐藏 guest 主线程锁死），随后 OOM。见 诊断-内存\内存问题诊断报告.md。
+//              想恢复"秒开"：设 window.__DSH_WEB_AI_WARM = true 或 localStorage['webai.warm']='1'
+//              （见 decorateWebAi 里的 warmWanted），且**分离窗口永不预热**。
 //   userAgent：'chrome' = 换成纯 Chrome UA（站点认 Electron 就会盖一层「使用环境异常」弹窗）。
 // ⚠ deepseek 这一项**故意**用 `persist:embed-sr-site-bl`：它和自我复盘场景（scenarios\self-review.json）
 //   左下角那个 DeepSeek 面板（面板 id `sr-site-bl`，同一个 chat.deepseek.com）**是同一个 webview 分区**
@@ -11594,18 +11598,18 @@ var WEB_AI = [
     userAgent: 'chrome', noWarm: true,
     tip: '与自我复盘场景的 DeepSeek 面板共用登录态（同一个 webview 分区）' },
   { key: 'doubao', name: '豆包', icon: 'assets/webai/doubao.png', fallback: '豆',
-    url: 'https://www.doubao.com/chat/' },
+    url: 'https://www.doubao.com/chat/', noWarm: true },
   { key: 'tongyi', name: '千问', icon: 'assets/webai/tongyi.png', fallback: '通',
     // 2026-11-01：tongyi.aliyun.com/qianwen/ 已并入 qianwen.com（品牌改叫「千问」）。
     // 老地址还能跳，但会落到根路径，且可能拿到未渲染的 Velocity 模板源码（页面显示成 #set(...)）。
     // key 仍叫 tongyi：分区 persist:webai-tongyi 里的登录态要能继续用。
     // userAgent:'chrome'：Electron 默认 UA 里带 Electron/xx，阿里侧的 WAF 会回一个空壳页面
     //   （实测 bodyLen=0、只有 3 个元素、标题是域名本身、控制台无报错）。换成真实 Chrome UA 再试。
-    url: 'https://www.qianwen.com/', userAgent: 'chrome' },
+    url: 'https://www.qianwen.com/', userAgent: 'chrome', noWarm: true },
   { key: 'chatglm', name: '智谱清言', icon: 'assets/webai/chatglm.png', fallback: '智',
-    url: 'https://chatglm.cn/main/alltoolsdetail' },
+    url: 'https://chatglm.cn/main/alltoolsdetail', noWarm: true },
   { key: 'kimi', name: 'Kimi', icon: 'assets/webai/kimi.png', fallback: 'K',
-    url: 'https://www.kimi.com/' },
+    url: 'https://www.kimi.com/', noWarm: true, warmOptIn: true },
 ];
 
 // ★状态为什么挂在 window 上★ ⟳ 会**重新求值本文件**却**不重建 DOM**（同一个页面上下文）：
@@ -12041,20 +12045,46 @@ function decorateWebAi() {
         strip.appendChild(btn);
       }
     });
-    // ★预热★ 只排一轮（按站点表下标错峰 700ms 一个，别在启动瞬间五个站点一起抢网络）。
-    // 状态记在 WEB_AI_ST.warmed 上 ⇒ 点「⟳」重跑这个函数也不会再排第二轮、不会再建第二套窗口。
-    // ★但必须先确认壳侧放行了这些站点的"自身跳转"（app.caps.webaiGuestFreeNav）：
-    //   老壳（main.js 未换）会把站点自己的一次跳转/登录 SSO 丢给系统浏览器并取消导航 ⇒
-    //   一开 GUI 就自动弹出豆包/智谱的网页，而且千问/智谱的登录框被掐掉。
-    //   老壳下干脆不预热（点开时才加载），重启一次 GUI 后这个能力位出现，预热自动恢复。
+    // ★2026-11-04 内存修复（实测 7.2GB / OOM，见 诊断-内存\内存问题诊断报告.md）★
+    //   ① 默认**不预热**（站点表已全部 noWarm）：点开时才建 webview，启动只留 1 个 harness guest；
+    //   ② 想恢复"秒开"：显式设 window.__DSH_WEB_AI_WARM = true 或 localStorage['webai.warm']='1'；
+    //   ③ **分离窗口永不预热**（以前每个分离窗口都会再建一整套 4 站，+0.4~0.8GB）；
+    //   ④ 即使开启预热，也只在窗口**可见且用户已交互过**之后再做，且一次只预 1 个 —— 不排队占满。
+    const warmWanted = (function () {
+      try {
+        if (document.body.classList.contains('solo')) return false;      // 分离窗口：不预热
+        if (window.__DSH_WEB_AI_WARM === true) return true;             // 显式开关（调试/回归用）
+        return localStorage.getItem('webai.warm') === '1';              // 用户自选"秒开"
+      } catch (e) { return false; }
+    })();
     const warmOk = !!(window.app && window.app.caps && window.app.caps.webaiGuestFreeNav);
-    if (!WEB_AI_ST.warmed && warmOk) {
-      WEB_AI_ST.warmed = true;
-      WEB_AI.forEach(function (s, k) {   // k 只是站点表下标、用来错峰（跳过 noWarm 的站会留个空档，无害）
-        if (s.noWarm) return;             // 不预热的站：点开时才建 webview（省一份常驻 guest 内存）
-        setTimeout(function () { try { webAiEnsure(s.key, 'warm'); } catch (e) { /* 单个站点失败不影响别的 */ } }, k * 700);
-      });
-    } else if (!WEB_AI_ST.warmed && !WEB_AI_ST.warmOff) {
+    if (!WEB_AI_ST.warmed && warmWanted && warmOk) {
+      // 只取"允许预热"的那 1 个站（warmOptIn）。实测证明：同时预热多个隐藏站点会失控
+      // （豆包/千问/智谱三个都跑飞）⇒ 即使开启秒开，也只预 1 个，且选实测最稳的（kimi）。
+      const warmList = WEB_AI.filter(function (s) { return s.warmOptIn; }).slice(0, 1);
+      const kick = function () {
+        warmList.forEach(function (s, k) {
+          setTimeout(function () { try { webAiEnsure(s.key, 'warm'); } catch (e) { /* 单个站点失败不影响别的 */ } }, 1200 + k * 700);
+        });
+      };
+      // 只有真的有可预热站点才置位（否则以后加正站也不会再触发）
+      if (warmList.length) WEB_AI_ST.warmed = true;
+      // 交互信号：指针 + 键盘都算（纯键盘用户不点鼠标）
+      const arm = function () {
+        if (WEB_AI_ST.interacted) return;
+        WEB_AI_ST.interacted = true;
+        try { document.removeEventListener('pointerdown', arm); } catch (e) { /* ignore */ }
+        try { document.removeEventListener('keydown', arm); } catch (e) { /* ignore */ }
+        kick();
+      };
+      try {
+        if (WEB_AI_ST.interacted) kick();
+        else {
+          document.addEventListener('pointerdown', arm, { once: true, passive: true });
+          document.addEventListener('keydown', arm, { once: true });
+        }
+      } catch (e) { /* ignore */ }
+    } else if (!WEB_AI_ST.warmed && warmWanted && !warmOk && !WEB_AI_ST.warmOff) {
       WEB_AI_ST.warmOff = true;
       if (window.console && console.info) {
         console.info('[webai] 壳还是旧策略（main.js/preload.js 需重启 GUI）→ 暂不预热，避免自动弹出系统浏览器');
@@ -17391,7 +17421,23 @@ renderers['review-doc'] = function (body, meta, head) {
           delete w.__dshParked;
         }
       });
+      // 2026-11-04：离开场景视图（切到 DSH 引擎页）超过 3 秒 ⇒ **真正释放**面板：
+      //   display:none 不会销毁独立 guest，实测连切 5 个场景后常驻 +150~960MB。
+      //   场景标签再点回来时 loadScenario 会整页重建 ⇒ 这里清理不会多丢状态。
+      if (hide) {
+        if (releaseTimer) return;
+        releaseTimer = setTimeout(function () {
+          releaseTimer = null;
+          try {
+            if (host.classList.contains('active')) return;      // 又切回去了
+            if (window.__dshUnloadScenario) window.__dshUnloadScenario();
+            each(function (w) { try { w.remove(); } catch (e) { /* ignore */ } });
+            if (window.console && console.info) console.info('[park] 场景视图已释放（离开 >3s）：webview 与面板定时器已清理');
+          } catch (e) { /* ignore */ }
+        }, 3000);
+      } else if (releaseTimer) { clearTimeout(releaseTimer); releaseTimer = null; }
     }
+    var releaseTimer = null;
     function sync() { park(!host.classList.contains('active')); }
 
     // ① 视图切换：盯 #scenario-view 的 class
@@ -17702,7 +17748,7 @@ renderers.neuron = (body, meta, head) => {
     'wb-ai': 'content', 'oa-ai': 'content', 'vw-ai': 'content', 'bv-ai': 'content', 'bl-ai': 'content',
     'mk-chat': 'content', 'sr-ai': 'content', 'pc-ai': 'ops'
   };
-  const COLOR = { core: '#7fe3ff', engine: '#8fb4ff', ui: '#f0a35e', code: '#b79bff', content: '#3ddc84', ops: '#e5484d', skill: '#6f8fd6', doc: '#c9d4e6', project: '#2dd4bf', memory: '#dfe7ff', source: '#8f9bb3', chain: '#ffcf6b' };
+  const COLOR = isLightTheme() ? { core: '#0e7490', engine: '#2563eb', ui: '#b45309', code: '#6d28d9', content: '#15803d', ops: '#b91c1c', skill: '#5b73c4', doc: '#64748b', project: '#0f766e', memory: '#475569', source: '#64748b', chain: '#b45309' } : { core: '#7fe3ff', engine: '#8fb4ff', ui: '#f0a35e', code: '#b79bff', content: '#3ddc84', ops: '#e5484d', skill: '#6f8fd6', doc: '#c9d4e6', project: '#2dd4bf', memory: '#dfe7ff', source: '#8f9bb3', chain: '#ffcf6b' };
   // 项目层（2026-10-26）：不是从记忆里正则猜，而是直接列真实目录（B 盘/项目工程），归属按 area 正文里出现的名字来挂
   const PROJECT_ROOTS = P.projectRoots || [];
   // dg-dsh 审计（2026-10-26）：这 5 个是一级目录但属于「资料/介质夹」，不是项目
@@ -18239,7 +18285,7 @@ renderers.neuron = (body, meta, head) => {
     ctx.clearRect(0, 0, W, H);
     // 背景：中心微光
     var bg = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.62);
-    bg.addColorStop(0, 'rgba(30,54,96,.55)');
+    bg.addColorStop(0, isLightTheme() ? 'rgba(37,99,235,.06)' : 'rgba(30,54,96,.55)');
     bg.addColorStop(1, 'rgba(6,9,16,0)');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
@@ -18251,14 +18297,14 @@ renderers.neuron = (body, meta, head) => {
         var tw = fx ? (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(tt * st.sp + st.ph))) : 0.55;
         ctx.beginPath();
         ctx.arc(st.x, st.y, st.r, 0, 6.2832);
-        ctx.fillStyle = 'rgba(190,215,255,' + (0.07 * tw) + ')';
+        ctx.fillStyle = isLightTheme() ? ('rgba(15,23,42,' + (0.16 * tw) + ')') : ('rgba(190,215,255,' + (0.07 * tw) + ')');
         ctx.fill();
       }
     }
     // 暗角：把注意力收到中间
     var vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.78);
-    vg.addColorStop(0, 'rgba(0,0,0,0)');
-    vg.addColorStop(1, 'rgba(2,4,9,.55)');
+    vg.addColorStop(0, 'rgba(15,23,42,0)');
+    vg.addColorStop(1, isLightTheme() ? 'rgba(15,23,42,.055)' : 'rgba(2,4,9,.55)');
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, W, H);
 
@@ -18334,9 +18380,9 @@ renderers.neuron = (body, meta, head) => {
       if (s.e.kind === 'skill') alpha *= 0.55;
       if (dimmed(s.a) && dimmed(s.b)) alpha *= 0.25;
       // 线的颜色按类型分（记忆=近白、项目=青、依赖=青蓝、其余=蓝），一眼能分出关系
-      var lc = (s.e.kind === 'memory') ? '223,231,255'
-        : (s.e.kind === 'project') ? '45,212,191'
-        : (s.e.kind === 'dep') ? '127,227,255' : '143,180,255';
+      var lc = (s.e.kind === 'memory') ? (isLightTheme() ? '71,85,105' : '223,231,255')
+        : (s.e.kind === 'project') ? (isLightTheme() ? '13,148,136' : '45,212,191')
+        : (s.e.kind === 'dep') ? (isLightTheme() ? '14,116,144' : '127,227,255') : (isLightTheme() ? '37,99,235' : '143,180,255');
       var core = hot ? 1.7 : (s.e.kind === 'dep' ? 1.15 : 0.85);
       var ex2 = s.pb.x, ey2 = s.pb.y;
       if (gp < 1) { ex2 = s.pa.x + (s.pb.x - s.pa.x) * gp; ey2 = s.pa.y + (s.pb.y - s.pa.y) * gp; }
@@ -18359,11 +18405,11 @@ renderers.neuron = (body, meta, head) => {
       if (introOn && gp < 1) {                     // 生长头：亮点把线"推"出来
         ctx.beginPath();
         ctx.arc(ex2, ey2, 2.4 + 1.8 * (1 - gp), 0, 6.2832);
-        ctx.fillStyle = 'rgba(214,242,255,' + (0.55 + 0.4 * (1 - gp)) + ')';
+        ctx.fillStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.55 + 0.4 * (1 - gp)) + ')') : ('rgba(214,242,255,' + (0.55 + 0.4 * (1 - gp)) + ')');
         ctx.fill();
         ctx.beginPath();
         ctx.arc(ex2, ey2, 7 + 9 * (1 - gp), 0, 6.2832);
-        ctx.fillStyle = 'rgba(120,200,255,' + (0.22 * (1 - gp)) + ')';
+        ctx.fillStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.18 * (1 - gp)) + ')') : ('rgba(120,200,255,' + (0.22 * (1 - gp)) + ')');
         ctx.fill();
       }
     });
@@ -18383,12 +18429,12 @@ renderers.neuron = (body, meta, head) => {
           var x2 = sg2.pa.x + ddx * q2, y2 = sg2.pa.y + ddy * q2;
           ctx.beginPath();
           ctx.arc(x2, y2, 1.5 - t2 * 0.16, 0, 6.2832);
-          ctx.fillStyle = 'rgba(215,235,255,' + (0.5 * fade * (1 - t2 / 6)) + ')';
+          ctx.fillStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.5 * fade * (1 - t2 / 6)) + ')') : ('rgba(215,235,255,' + (0.5 * fade * (1 - t2 / 6)) + ')');
           ctx.fill();
         }
         ctx.beginPath();
         ctx.arc(hx2, hy2, 2.2, 0, 6.2832);
-        ctx.fillStyle = 'rgba(240,248,255,' + (0.85 * fade) + ')';
+        ctx.fillStyle = isLightTheme() ? ('rgba(30,64,175,' + (0.85 * fade) + ')') : ('rgba(240,248,255,' + (0.85 * fade) + ')');
         ctx.fill();
       }
     }
@@ -18401,9 +18447,9 @@ renderers.neuron = (body, meta, head) => {
       if (ei < 320) {
         var fl = 1 - ei / 320;
         var fg = ctx.createRadialGradient(cx0, cy0, 0, cx0, cy0, 90 + 130 * fl);
-        fg.addColorStop(0, 'rgba(224,246,255,' + (0.45 * fl) + ')');
-        fg.addColorStop(0.4, 'rgba(110,200,255,' + (0.2 * fl) + ')');
-        fg.addColorStop(1, 'rgba(80,170,255,0)');
+        fg.addColorStop(0, isLightTheme() ? 'rgba(37,99,235,.20)' : 'rgba(224,246,255,' + (0.45 * fl) + ')');
+        fg.addColorStop(0.4, isLightTheme() ? 'rgba(37,99,235,.10)' : 'rgba(110,200,255,' + (0.2 * fl) + ')');
+        fg.addColorStop(1, isLightTheme() ? 'rgba(37,99,235,0)' : 'rgba(80,170,255,0)');
         ctx.fillStyle = fg;
         ctx.fillRect(0, 0, W, H);
       }
@@ -18415,7 +18461,7 @@ renderers.neuron = (body, meta, head) => {
           ctx.beginPath();
           ctx.arc(cx0, cy0, wr, 0, 6.2832);
           ctx.lineWidth = 2.4 - 1.4 * wt;
-          ctx.strokeStyle = 'rgba(130,214,255,' + (0.34 * (1 - wt) * (1 - wt)) + ')';
+          ctx.strokeStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.22 * (1 - wt) * (1 - wt)) + ')') : ('rgba(130,214,255,' + (0.34 * (1 - wt) * (1 - wt)) + ')');
           ctx.stroke();
         }
       }
@@ -18424,15 +18470,15 @@ renderers.neuron = (body, meta, head) => {
       if (sc > 0 && sc < 1) {
         var sy = H * (sc * sc * (3 - 2 * sc));
         var lg = ctx.createLinearGradient(0, sy - 90, 0, sy);
-        lg.addColorStop(0, 'rgba(90,190,255,0)');
-        lg.addColorStop(0.85, 'rgba(90,190,255,.055)');
-        lg.addColorStop(1, 'rgba(180,232,255,.16)');
+        lg.addColorStop(0, 'rgba(37,99,235,0)');
+        lg.addColorStop(0.85, 'rgba(37,99,235,.06)');
+        lg.addColorStop(1, 'rgba(37,99,235,.18)');
         ctx.fillStyle = lg;
         ctx.fillRect(0, sy - 90, W, 90);
         ctx.beginPath();
         ctx.moveTo(0, sy); ctx.lineTo(W, sy);
         ctx.lineWidth = 1;
-        ctx.strokeStyle = 'rgba(190,236,255,' + (0.22 * Math.sin(Math.PI * sc)) + ')';
+        ctx.strokeStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.22 * Math.sin(Math.PI * sc)) + ')') : ('rgba(190,236,255,' + (0.22 * Math.sin(Math.PI * sc)) + ')');
         ctx.stroke();
       }
       // ④ 沿线奔跑的粒子：入场时 5 颗，错开时间，跑完就没了
@@ -18446,7 +18492,7 @@ renderers.neuron = (body, meta, head) => {
           var hy3 = s3.pa.y + (s3.pb.y - s3.pa.y) * pr2;
           ctx.beginPath();
           ctx.arc(hx3, hy3, 1.8, 0, 6.2832);
-          ctx.fillStyle = 'rgba(235,250,255,' + (0.55 * Math.sin(Math.PI * pr2)) + ')';
+          ctx.fillStyle = isLightTheme() ? ('rgba(37,99,235,' + (0.55 * Math.sin(Math.PI * pr2)) + ')') : ('rgba(235,250,255,' + (0.55 * Math.sin(Math.PI * pr2)) + ')');
           ctx.fill();
         }
       }
@@ -18470,7 +18516,7 @@ renderers.neuron = (body, meta, head) => {
       var alpha = dimmed(n) ? 0.18 : Math.max(0.35, 1 - p.z / 1500);
       if (introOn) alpha *= 0.25 + 0.75 * np2;
       var c = col(n.group);
-      if (n.kind === 'project') { if (n.status === 'delivery') c = '#f0a35e'; else if (n.status === 'archived' || n.status === 'parked') c = '#8b93a7'; }
+      if (n.kind === 'project') { if (n.status === 'delivery') c = isLightTheme() ? '#b45309' : '#f0a35e'; else if (n.status === 'archived' || n.status === 'parked') c = isLightTheme() ? '#64748b' : '#8b93a7'; }
       // 光晕
       var g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 3.4);
       g.addColorStop(0, hexA(c, 0.55 * alpha));
@@ -18499,7 +18545,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.beginPath();
         ctx.arc(p.x, p.y, r + 4 + 26 * (1 - nring), 0, 6.2832);
         ctx.lineWidth = 1.6;
-        ctx.strokeStyle = hexA('#bfe8ff', 0.55 * nring);
+        ctx.strokeStyle = hexA(isLightTheme() ? '#1d4ed8' : '#bfe8ff', 0.55 * nring);
         ctx.stroke();
       }
       if (n.missing) {                     // 2026-10-27 审计⑤：路径失效的点 → 红虚线圈
@@ -18512,7 +18558,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.setLineDash([]);
       }
       if (n.kind === 'core') {
-        ctx.lineWidth = 2; ctx.strokeStyle = hexA('#7fe3ff', 0.8); ctx.stroke();
+        ctx.lineWidth = 2; ctx.strokeStyle = hexA(isLightTheme() ? '#0e7490' : '#7fe3ff', 0.8); ctx.stroke();
       }
       if (n.kind === 'core' && fx) {       // 核心：缓慢旋转的细光环（全图唯一的常驻动效）
         ctx.save();
@@ -18522,7 +18568,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.setLineDash([3, 8]);
         ctx.arc(0, 0, r + 7, 0, 6.2832);
         ctx.lineWidth = 1.1;
-        ctx.strokeStyle = hexA('#8fd7ff', 0.5);
+        ctx.strokeStyle = hexA(isLightTheme() ? '#0e7490' : '#8fd7ff', 0.5);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.restore();
@@ -18531,7 +18577,7 @@ renderers.neuron = (body, meta, head) => {
         ctx.beginPath();
         ctx.arc(p.x, p.y, r + 5, 0, 6.2832);
         ctx.lineWidth = 1.4;
-        ctx.strokeStyle = hexA('#cfe1ff', 0.75);
+        ctx.strokeStyle = hexA(isLightTheme() ? '#1e3a8a' : '#cfe1ff', 0.75);
         ctx.stroke();
       }
       // 标签：内核 / 悬停 / 选中 / 搜索命中 / 大节点
@@ -18584,10 +18630,10 @@ renderers.neuron = (body, meta, head) => {
           ctx.beginPath();
           if (ctx.roundRect) { ctx.roundRect(bx, by, bw, bh, 4); }
           else { ctx.rect(bx, by, bw, bh); }
-          ctx.fillStyle = 'rgba(6,10,18,' + (force ? 0.62 : 0.34) + ')';
+          ctx.fillStyle = isLightTheme() ? ('rgba(255,255,255,' + (force ? 0.94 : 0.72) + ')') : ('rgba(6,10,18,' + (force ? 0.62 : 0.34) + ')');
           ctx.fill();
-          ctx.fillStyle = dimmed(n) ? 'rgba(200,215,240,.35)' : 'rgba(226,236,255,.92)';
-          ctx.fillStyle = force ? '#eaf2ff' : ctx.fillStyle;
+          ctx.fillStyle = dimmed(n) ? 'rgba(15,23,42,.35)' : (isLightTheme() ? 'rgba(15,23,42,.92)' : 'rgba(226,236,255,.92)');
+          ctx.fillStyle = force ? (isLightTheme() ? '#0f172a' : '#eaf2ff') : ctx.fillStyle;
           ctx.textAlign = alignMode;
           ctx.fillText(lbl, pick.lx, ly);
         }

@@ -144,7 +144,7 @@ node 外壳\scripts\sessions.mjs --check
 | `node 外壳\scripts\check-gui.mjs` | `全部通过 ✓（warning N）` | warning 属正常（缺内置引擎） |
 | `node 外壳\scripts\sessions.mjs --check` | `场景↔会话对照检查通过 ✓ 共 4 个 AI 面板` | §3、§5-5 |
 | 界面 | 四个场景的 AI 面板标题行都显示 `✓ 已钉绑定` | §5-5 |
-| 工具面板（顶栏） | `47 个工具` | 清单缺失见 §5-7 |
+| 工具面板（顶栏） | `48 个工具` | 清单缺失见 §5-7 |
 
 ---
 
@@ -182,6 +182,13 @@ node 外壳\scripts\sessions.mjs --check
    判据：`startup.log` 里 `[skip] port 3083 already listening`，或第二个进程秒退。
    修：先关掉旧的；确实要并存，用**环境变量**换端口（见 §8）。
 
+9. **GPU 进程反复崩溃 / 内嵌网页视频发涩**（环境问题，代码只能兜底）
+   判据：`外壳\data\crash-log.jsonl` 里多条 `"type":"GPU","reason":"crashed","exitCode":34`。
+   原因：本机显卡驱动/安全软件与 Chromium GPU 沙箱不兼容（与「沙箱初始化失败 0x80000003、
+   只能走 `--no-sandbox` 兼容模式」同源）。应用侧已自动降级，建议：更新显卡驱动 /
+   把工作台目录加入安全软件白名单 / 关掉第三方硬件加速工具。
+   注：`--disable-gpu` 实测**不能**解决网页版 AI 的内存问题（那是预热策略与 `theme-sync.js` 的事，已修）。
+
 ---
 
 ## §6 脚本做不了、必须人做的三件事
@@ -208,7 +215,7 @@ node 外壳\scripts\sessions.mjs --check
 |---|---|
 | `工作台.example.json` 里有 `dshPort` / `sitePort` | `main.js` **只读环境变量** `DSH_PORT`（默认 3083）；`sitePort` 写死 31238。改 `工作台.json` 的 `dshPort` **目前不生效** |
 | 想同机并存两个工作台 | 引擎端口用 `DSH_PORT=3084` 之类；但 31238 只能被一个壳占住，第二个壳取主界面地址会走别的路子 |
-| 源码直跑（仓库里没有 `引擎\`） | `check-gui` 的 4 条 warning 属正常；`engine-after.mjs` 会自报「不适用」 |
+| 源码直跑（仓库里没有 `引擎\`） | `check-gui` 全部通过（warning 0）：没有内置引擎时按「源码直跑」跳过引擎侧检查；`engine-after.mjs` 自报「不适用」 |
 
 ---
 

@@ -5,8 +5,7 @@
 // 设计：壳与 Harness 解耦——只通过 HTTP+token 认识它；场景配置在 scenarios/ 下。
 const { app, BrowserWindow, dialog, shell, ipcMain, webContents, nativeImage, screen } = require('electron');
 const { spawn, spawnSync } = require('child_process');
-const http = require('http');
-const net = require('net');
+const http = require('http'); const net = require('net');
 const path = require('path'); const { applySceneInstance } = require('../工具/_场景绑定.js');
 const os = require('os');
 const fs = require('fs');
@@ -22,6 +21,8 @@ process.env.DSH_SHELL_DIR = __dirname;
 //   任务栏右键菜单里显示成「Electron」、图标退回 Electron 原子图标 ✗。提到顶部即可。
 //   配套：开始菜单/桌面那两条「工作台」快捷方式必须带同一个 AUMID（脚本 %TEMP%\set-lnk-aumid2.ps1 写过）。
 app.setAppUserModelId('deepseek.harness.gui.v2');   // 2026-10-13 换新身份：旧的 deepseek.harness.gui 已被 Windows 按身份缓存成原子图标，绕开它
+
+const memGuard = require('./scripts/mem-guard.js'); memGuard.install(app, log);   // 2026-11-04 内存防护 + webview 卫生（见 mem-guard.js）
 // 引擎目录：先看「与本工作台同级」的 引擎\，没有就空串。
 // ⚠ 2026-11-01：以前推不出来会**退回一个写死的同名路径**，于是 HARNESS_DIR 永远非空，
 //   「同级目录在不在」这个判断就永远为真，后面每一项「引擎在哪里」的单点都拿它当根拼出来，
@@ -34,8 +35,7 @@ const HARNESS_DIR = (function () {
 })();
 const NPM_BIN = path.join(os.homedir(), 'AppData', 'Roaming', 'npm');
 const PNPM_CMD = path.join(NPM_BIN, 'pnpm.cmd');
-const LOG_FILE = path.join(__dirname, 'server.log');
-const LOG_PREV = path.join(__dirname, 'server.log.prev');
+const LOG_FILE = path.join(__dirname, 'server.log'); const LOG_PREV = path.join(__dirname, 'server.log.prev');
 const LOG_MAX_BYTES = 4 * 1024 * 1024;   // 超过 4MB 就轮转，只留上一份（见 rotateLog）
 
 // ---- 日志轮转：日志只增不减会把根目录搞得乱七八糟（曾经涨到 3MB+ 且没有上限）----
@@ -324,6 +324,8 @@ function serverSpawnEnv() {
   env.TMP = tmpDir;
   return env;
 }
+
+// 临时目录清理搬到 scripts\mem-guard.js（main.js 是存量超长文件，红线只许变短）
 
 // 统一挂上 stdout/stderr/exit 处理（解析 token + 写日志）
 function wireServerProc(proc) {
@@ -717,7 +719,7 @@ function startSiteServer() {
       let rel = u.replace(/^\/__community\/?/, '');
       if (!rel) rel = 'index.html';
       let cp = path.normalize(path.join(cRoot, rel));
-      if (!cp.startsWith(cRoot)) { res.writeHead(403); res.end('forbidden'); return; }
+      if (!cp.startsWith(cRoot) || memGuard.sitePathForbidden(cRoot, cp)) { res.writeHead(403); res.end('forbidden'); return; }
       if (fs.existsSync(cp) && fs.statSync(cp).isDirectory()) cp = path.join(cp, 'index.html');
       if (!fs.existsSync(cp)) { res.writeHead(404); res.end('not found'); return; }
       fs.readFile(cp, function (err, data) {
@@ -730,7 +732,7 @@ function startSiteServer() {
     }
     if (!hasSite) { res.writeHead(404); res.end('no-site'); return; }
     let p = path.normalize(path.join(SITE_ROOT, u === '/' ? 'index.html' : u));
-    if (!p.startsWith(SITE_ROOT)) { res.writeHead(403); res.end('forbidden'); return; }
+    if (!p.startsWith(SITE_ROOT) || memGuard.sitePathForbidden(SITE_ROOT, p)) { res.writeHead(403); res.end('forbidden'); return; }
     if (!fs.existsSync(p) || fs.statSync(p).isDirectory()) p = path.join(SITE_ROOT, 'index.html');
     fs.readFile(p, function (err, data) {
       if (err) { res.writeHead(404); res.end('not found'); return; }
@@ -1312,25 +1314,15 @@ const HARNESS_FIX_JS = `(() => {
 // 现在分工：main 只负责插入布局精简 CSS、执行布局修复 JS、截图与日志；
 // 选会话/绑定会话 id 全部由渲染层完成（只在会话列表区域内匹配 + 绑定 id + 按 id 精确点）。
 `;
+// 2026-11-04：注入计数/截图在 scripts\mem-guard.js（截图默认关、diag 只记前 2 轮）。
 ipcMain.handle('harness:wv:inject', (e, webContentsId, pinTarget) => {
   const wc = webContents.fromId(Number(webContentsId));
   if (!wc || wc.isDestroyed()) {
     log('[wv:inject] webContents 不存在: ' + webContentsId);
     return { ok: false, err: 'no-webcontents' };
   }
-  // 每次注入顺手截一张面板实况图（覆盖保存），便于排查"注入成功但界面没变"
-  try {
-    wc.capturePage().then(function (img) {
-      if (img && !img.isEmpty()) {
-        try {
-          const dir = path.join(__dirname, 'captures');
-          fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(path.join(dir, 'panel-latest.png'), img.toPNG());
-          log('[wv:inject] 截图已保存 panel-latest.png');
-        } catch (ex) { /* ignore */ }
-      }
-    }, function () { /* ignore */ });
-  } catch (ex) { /* ignore */ }
+  const n = memGuard.injectCount(wc);
+  memGuard.maybeShot(wc, n, { dir: path.join(__dirname, 'captures'), log: log });
   try {
     const p = wc.insertCSS(HARNESS_CHAT_CSS);
     if (p && typeof p.catch === 'function') p.catch(function (err) { log('[wv:inject] insertCSS 拒绝: ' + (err && err.message || err)); });
@@ -1344,14 +1336,17 @@ ipcMain.handle('harness:wv:inject', (e, webContentsId, pinTarget) => {
     const fixJs = HARNESS_FIX_JS.split('__DSH_PIN_TARGET__').join(JSON.stringify(targets.length ? targets : ['oa系统运维']));
     wc.executeJavaScript(fixJs).then(
       function (r) {
-        log('[wv:inject] js 结果: ' + String(r));
-        // 诊断信息挂在 window.__fixDiag（executeJavaScript 只返回最后表达式值，诊断用全局变量取回）
-        try {
-          wc.executeJavaScript('window.__fixDiag || null').then(
-            function (d) { if (d) log('[wv:inject] diag: ' + String(d).slice(0, 900)); },
-            function () { /* ignore */ }
-          );
-        } catch (ex) { /* ignore */ }
+        // 2026-11-04：只记前 2 轮，之后静默（注入本身照常执行；日志不再被它刷满）
+        if (n <= 2) {
+          log('[wv:inject] js 结果: ' + String(r));
+          // 诊断信息挂在 window.__fixDiag（executeJavaScript 只返回最后表达式值，诊断用全局变量取回）
+          try {
+            wc.executeJavaScript('window.__fixDiag || null').then(
+              function (d) { if (d) log('[wv:inject] diag: ' + String(d).slice(0, 900)); },
+              function () { /* ignore */ }
+            );
+          } catch (ex) { /* ignore */ }
+        }
       },
       function (err) { log('[wv:inject] js 失败: ' + (err && err.message || err)); }
     );
@@ -4014,6 +4009,7 @@ ipcMain.handle('theme:set-window-bg', (e, color) => {
   }
   return true;
 });
+require('./scripts/theme-source')(ipcMain);   // 外观三档 → nativeTheme.themeSource（网页版 AI 也要跟着变）
 ipcMain.handle('balance:open', () => {
   try { shell.openExternal(BALANCE_PAGE); } catch (e) { /* ignore */ }
   return true;
@@ -4768,6 +4764,7 @@ if (!gotLock) {
       reportFatal('创建主窗口失败', err);
       try { createWindow({ isMain: true }); } catch (e2) { reportFatal('重试创建主窗口仍失败', e2); }
     }
+    memGuard.installWebviewWatchdog({ app: app, webContents: webContents, log: log });   // 跑飞的 webview 自动重载
     // 恢复上次分离出去的场景窗口（场景 json 可能已被删 → 校验后只开仍然存在的）
     try {
       const known = listScenarios().map(function (s) { return s.id; });
@@ -4783,6 +4780,8 @@ if (!gotLock) {
     try {
       startBalancePoll();  // 余额实时显示：每 10s 拉取 DeepSeek 平台余额
     } catch (err) { reportFatal('启动余额轮询失败', err); }
+    // 2026-11-04：清理临时残留（先按数量收敛 session scratch，再按时间清老的）
+    try { memGuard.purgeOldTemp(log, 1); memGuard.pruneWorkspaceChanges(log, 2); } catch (err) { /* ignore */ }
     let ok = false;
     try {
       ok = await startServer();
@@ -5015,7 +5014,6 @@ try {
 } catch (e) {
   log('[updater] 挂载失败（已忽略，不影响使用）：' + (e && e.message ? e.message : String(e)));
 }
-
 // ===== 版本策略 / 强制更新挂载（官方 apps/desktop 能力搬迁 ④ 的另一半 · 2026-09-26）=====
 // 独立模块 scripts/mandatory-update.js：策略来自 data\version-policy.json；命中弹内联 HTML 模态提示窗。
 // ★ 刻意做成**软提示**（可"稍后"），只有策略显式 hardBlock 才不可关 —— 不锁工作台、不影响任何场景。

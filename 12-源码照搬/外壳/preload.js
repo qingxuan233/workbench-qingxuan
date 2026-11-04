@@ -78,9 +78,13 @@ contextBridge.exposeInMainWorld('app', {
     guideImage: () => ipcRenderer.invoke('remoteAccess:guideImage'),
     action: (a) => ipcRenderer.invoke('remoteAccess:action', a)
   },
-  // ---- 外观：同步窗口底色（浅色主题避免闪黑）----
+  // ---- 外观：同步窗口底色（浅色主题避免闪黑）+ 把三档主题落到 nativeTheme ----
+  //   setSource(mode)：'dark' | 'light' | 'system'。
+  //   为什么要进主进程：内嵌网页（网页版 AI / 站点面板）的 prefers-color-scheme 是
+  //   Chromium 的全局参数，只有 nativeTheme.themeSource 能改；渲染层改不了别人家的页面。
   theme: {
-    setWindowBg: (color) => ipcRenderer.invoke('theme:set-window-bg', color)
+    setWindowBg: (color) => ipcRenderer.invoke('theme:set-window-bg', color),
+    setSource: (mode) => ipcRenderer.invoke('theme:set-source', mode)
   },
   // ---- 宿主通用能力（不属于任何场景，任何场景都可调用）----
   app: {

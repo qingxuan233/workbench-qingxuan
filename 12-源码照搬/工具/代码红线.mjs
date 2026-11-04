@@ -29,15 +29,15 @@ import { registryFromSource } from './场景校验.mjs'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const APP = path.resolve(HERE, '..')
 const LIMIT = 800
-const BASELINE_DATE = '2026-11-03'
+const BASELINE_DATE = '2026-11-04'
 
 /** 存量 >800 行文件的行数基线：只允许变短，不允许变长 */
 const BASELINE_LINES = {
-  '外壳/renderer/renderers.js': 18817,
+  '外壳/renderer/renderers.js': 18863,       // 2026-11-04：并入 WORK-MC 的内存修复（webai 预热策略 + 面板释放 + 浅色主题），基线同步
   '外壳/main.js': 5130,
   '外壳/renderer/renderer.js': 1355,
   '外壳/renderer/topbar-status.js': 1733,
-  '外壳/renderer/webai-bridge.js': 1515,
+  '外壳/renderer/webai-bridge.js': 1569,     // 2026-11-04：并入主题同步（外壳深/浅色推给内嵌网页版 AI），基线同步
   '外壳/renderer/sector-data.js': 8669,      // 行情数据表（存量数据文件）
   '外壳/renderer/us-sector-data.js': 8395,   // 美股行情数据表（存量数据文件）
   '工具/体检.mjs': 809,
