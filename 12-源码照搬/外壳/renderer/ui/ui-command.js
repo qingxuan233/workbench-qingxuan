@@ -45,8 +45,14 @@
   }
 
   function iconOf(tab) {
+    var scId = tab && tab.dataset && tab.dataset.scId;
     var ico = tab && tab.querySelector('.tab-ico');
-    if (!ico) return null;
+    if (!ico) {
+      if (scId && window.SCENARIO_ICONS && window.SCENARIO_ICONS[scId]) {
+        return WB.dom.h('span', { class: 'wb-cmd-ico-svg', html: window.SCENARIO_ICONS[scId] });
+      }
+      return null;
+    }
     var img = ico.querySelector('img');
     if (img) {
       var im = document.createElement('img');
@@ -54,6 +60,16 @@
       im.src = img.src;
       im.alt = '';
       return im;
+    }
+    var svg = ico.querySelector('svg');
+    if (svg) {
+      var box = document.createElement('span');
+      box.className = 'wb-cmd-ico-svg';
+      box.appendChild(svg.cloneNode(true));
+      return box;
+    }
+    if (scId && window.SCENARIO_ICONS && window.SCENARIO_ICONS[scId]) {
+      return WB.dom.h('span', { class: 'wb-cmd-ico-svg', html: window.SCENARIO_ICONS[scId] });
     }
     return WB.dom.h('span', { class: 'wb-cmd-ico-t', text: (ico.textContent || '·').trim() || '·' });
   }
@@ -134,12 +150,6 @@
         icon: WB.dom.h('span', { class: 'wb-cmd-ico-t', text: '◈' }),
         keywords: 'model 模型 提供方 key api settings',
         run: function () { click('btn-models'); }
-      },
-      {
-        group: '操作', title: 'DSH 集市', desc: '在默认浏览器打开',
-        icon: WB.dom.h('span', { class: 'wb-cmd-ico-t', text: '🛍' }),
-        keywords: 'market 集市 dsh',
-        run: function () { click('btn-market'); }
       },
       {
         group: '操作', title: '键盘快捷键', desc: '查看全部快捷键',

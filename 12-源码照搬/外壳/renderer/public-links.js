@@ -2,10 +2,7 @@
  * 点击用系统浏览器打开；不改余额/连接逻辑；无新依赖。
  */
 (function () {
-  var LINKS = [
-    ['btn-market', 'https://www.mydsh.xyz/'],
-    ['btn-donate', 'https://linyujia.me/#donate'],
-  ];
+  var LINKS = [];
   function openExternal(url) {
     try {
       if (window.app && window.app.app && window.app.app.openPath) {

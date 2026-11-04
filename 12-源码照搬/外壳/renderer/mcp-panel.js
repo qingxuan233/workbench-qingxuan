@@ -31,14 +31,14 @@
     { id: 'mcp-jianying',                label: '剪映',     tools: 8,  est: 1271,  desc: '剪映草稿：识别视频 / 自动剪辑 / 字幕排版 / 批量出片' },
     { id: 'mcp-comfy',                   label: 'ComfyUI',  tools: 39, est: 14746, desc: '文生视频 / 图生视频（MiniMax H3 海螺）' },
     // 网页版 AI（v3.17，2026-09-23）：5 个站各一个独立 MCP，内核共用一份。
-    // 每个只注册 1 个工具 ask（question / save_image / timeout_s），实测每站 ≈130 token/轮。
-    // 数字虽小，但**每个会话每轮都注入**：不常用的站关掉就是白省（5 个全开 ≈660/轮）。
+    // 每个只注册 1 个工具 ask（question / save_image / image_path / timeout_s），实测每站 ≈161 token/轮。
+    // 数字虽小，但**每个会话每轮都注入**：不常用的站关掉就是白省（5 个全开 ≈806/轮）。
     // 它们**收进一张折叠卡片**（同一 grp 值 = 同一张卡；默认收起，点标题展开）——5 行平铺太占地方。
-    { id: 'mcp-webai-deepseek', label: '网页版·DeepSeek', tools: 1, est: 136, grp: WEB, desc: '免费问 DeepSeek 网页版：长文本 / 写代码（最难的那种先问它）' },
-    { id: 'mcp-webai-doubao',   label: '网页版·豆包',     tools: 1, est: 132, grp: WEB, desc: '免费问豆包：生图 / 生视频 / 日常问答' },
-    { id: 'mcp-webai-tongyi',   label: '网页版·千问', tools: 1, est: 130, grp: WEB, desc: '免费问通义：生图（备用）/ 中文长文（正文有时夹侧栏文字）' },
-    { id: 'mcp-webai-chatglm',  label: '网页版·智谱清言', tools: 1, est: 128, grp: WEB, desc: '免费问智谱：写代码（主力）/ 结构化输出' },
-    { id: 'mcp-webai-kimi',     label: '网页版·Kimi',     tools: 1, est: 132, grp: WEB, desc: '⚠ 当前打不进输入框（2026-09-23 实测），先别开' }
+    { id: 'mcp-webai-deepseek', label: '网页版·DeepSeek', tools: 1, est: 162, grp: WEB, desc: '免费问 DeepSeek 网页版：复杂推理 / 算法代码 / 深度思考（最难的问题优先问它）' },
+    { id: 'mcp-webai-doubao',   label: '网页版·豆包',     tools: 1, est: 162, grp: WEB, desc: '免费问豆包：多模态理解 / AI生图与视频 / 联网日常问答（抖音系链接支持好）' },
+    { id: 'mcp-webai-tongyi',   label: '网页版·千问',     tools: 1, est: 160, grp: WEB, desc: '免费问千问：中文长文本阅读 / 综合问答 / 创意写作 / 多模态辅助' },
+    { id: 'mcp-webai-chatglm',  label: '网页版·智谱清言', tools: 1, est: 161, grp: WEB, desc: '免费问智谱清言：代码编写 / 结构化输出 / 逻辑分析（适合作为第二意见）' },
+    { id: 'mcp-webai-kimi',     label: '网页版·Kimi',     tools: 1, est: 161, grp: WEB, desc: '免费问 Kimi：长文档研读 / 深度联网搜索 / 学术资料整理 / 智能体任务' }
   ];
   var ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
     '<rect x="6.1" y="6.1" width="3.8" height="3.8" rx="1.1" stroke="currentColor" stroke-width="1.3"/>' +

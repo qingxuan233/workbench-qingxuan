@@ -44,18 +44,36 @@
   }
 
   function iconOf(tab, cls) {
+    var scId = tab && tab.dataset && tab.dataset.scId;
     var ico = tab && tab.querySelector('.tab-ico');
     var box = document.createElement('span');
     box.className = cls || 'wb-scene-ico';
-    if (!ico) { box.textContent = '·'; return box; }
+    if (!ico) {
+      if (scId && window.SCENARIO_ICONS && window.SCENARIO_ICONS[scId]) {
+        box.innerHTML = window.SCENARIO_ICONS[scId];
+        return box;
+      }
+      box.textContent = '·';
+      return box;
+    }
     var img = ico.querySelector('img');
     if (img) {
       var im = document.createElement('img');
       im.src = img.src; im.alt = '';
       box.appendChild(im);
-    } else {
-      box.textContent = (ico.textContent || '·').trim() || '·';
+      return box;
     }
+    var svg = ico.querySelector('svg');
+    if (svg) {
+      box.appendChild(svg.cloneNode(true));
+      return box;
+    }
+    if (scId && window.SCENARIO_ICONS && window.SCENARIO_ICONS[scId]) {
+      box.innerHTML = window.SCENARIO_ICONS[scId];
+      return box;
+    }
+    var txt = (ico.textContent || '').trim();
+    box.textContent = txt || '·';
     return box;
   }
 
@@ -106,92 +124,78 @@
     document.getElementById('wb-rail-collapse').addEventListener('click', toggleRail);
     document.getElementById('wb-open-root').addEventListener('click', function () { openPath(rootDir()); });
 
-    // 工具箱：把顶栏里的低频按钮搬进来（节点移动，事件监听原样保留）
-    var tools = [
-      ['btn-models', '模型与提供方', '◈'],
-      ['btn-market', 'DSH 集市', '🛍'],
-      ['btn-donate', '赞助小鱼干', '🐟']
-    ];
-    var toolBox = document.getElementById('wb-tool-list');
-    tools.forEach(function (t) {
-      var btn = document.getElementById(t[0]);
-      if (!btn) return;
-      var row = document.createElement('div');
-      row.className = 'wb-tool-row';
-      row.title = btn.title || t[1];
-      var label = document.createElement('span');
-      label.className = 'wb-tool-label';
-      label.textContent = t[1];
-      var slot = document.createElement('span');
-      slot.className = 'wb-tool-slot';
-      slot.appendChild(btn);
-      row.appendChild(slot);
-      row.appendChild(label);
-      row.addEventListener('click', function (ev) {
-        if (ev.target.closest && ev.target.closest('button')) return;
-        btn.click();
-      });
-      toolBox.appendChild(row);
-    });
-
-    // 「扩展」组（插件 / 技能 / MCP / 工具）由 renderers.js 反复重排回顶栏 —— 不跟它抢 DOM，
-    // 把整组收进隐藏容器，再在左栏摆一排带文字的“代理行”，点击转给原按钮。
-    buildExtTools();
+    buildToolbox();
     moveWebai();
   }
 
-  function buildExtTools() {
-    var group = document.getElementById('tb-group-ext');
+  var TOOL_ICONS = {
+    'btn-plugins': '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 2.6v2.2M10 2.6v2.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M3.9 4.8h8.2v2.6a4.1 4.1 0 0 1-8.2 0V4.8Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M8 11.5v1.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+    'btn-skills': '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3" y="2.5" width="10" height="11" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+    'btn-mcp': '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="6.1" y="6.1" width="3.8" height="3.8" rx="1.1" stroke="currentColor" stroke-width="1.3"/><path d="M8 2.2v3.2M8 10.6v3.2M2.2 8h3.2M10.6 8h3.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="2.1" r="1.15" fill="currentColor"/><circle cx="8" cy="13.9" r="1.15" fill="currentColor"/><circle cx="2.1" cy="8" r="1.15" fill="currentColor"/><circle cx="13.9" cy="8" r="1.15" fill="currentColor"/></svg>',
+    'btn-tools': '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M14.7 3.3a3.5 3.5 0 0 0-4.6-.4L7.8 5.2 10.8 8.2l2.3-2.3a3.5 3.5 0 0 0 .4-4.6l-1.8 1.8-1.4-1.4 1.8-1.8z" fill="currentColor"/><path d="M6.8 6.2 1.5 11.5a1.4 1.4 0 0 0 0 2l1 1a1.4 1.4 0 0 0 2 0l5.3-5.3-3-3z" fill="currentColor"/></svg>',
+    'btn-models': '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4.6" y="4.6" width="6.8" height="6.8" rx="1.4" stroke="currentColor" stroke-width="1.3"/><rect x="6.9" y="6.9" width="2.2" height="2.2" rx="0.6" stroke="currentColor" stroke-width="1.2"/><path d="M6.6 2.6v2M9.4 2.6v2M6.6 11.4v2M9.4 11.4v2M2.6 6.6h2M2.6 9.4h2M11.4 6.6h2M11.4 9.4h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>'
+  };
+
+  function buildToolbox() {
     var host = document.getElementById('wb-tool-list');
     if (!host) return;
-    if (!group) return;
 
-    var holder = document.getElementById('wb-ext-holder');
-    if (!holder) {
-      holder = document.createElement('div');
-      holder.id = 'wb-ext-holder';
-      holder.className = 'wb-ext-holder';
-      rail.appendChild(holder);
+    var group = document.getElementById('tb-group-ext');
+    if (group) {
+      var holder = document.getElementById('wb-ext-holder');
+      if (!holder) {
+        holder = document.createElement('div');
+        holder.id = 'wb-ext-holder';
+        holder.className = 'wb-ext-holder';
+        rail.appendChild(holder);
+      }
+      if (group.parentNode !== holder) holder.appendChild(group);
+      if (!holder.__extObs && window.MutationObserver) {
+        holder.__extObs = new MutationObserver(function () { setTimeout(buildToolbox, 0); });
+        holder.__extObs.observe(group, { childList: true, subtree: true });
+      }
     }
-    if (group.parentNode !== holder) holder.appendChild(group);
 
     var wanted = [
       ['btn-plugins', '插件'],
       ['btn-skills', '技能'],
       ['btn-mcp', 'MCP'],
-      ['btn-tools', '工具']
+      ['btn-tools', '工具'],
+      ['btn-models', '模型与提供方']
     ];
-    var sig = wanted.map(function (w) { return document.getElementById(w[0]) ? '1' : '0'; }).join('');
-    if (host.dataset.extSig === sig) return;
-    host.dataset.extSig = sig;
 
-    WB.dom.qsa('.wb-ext-row', host).forEach(function (n) { n.remove(); });
-    var firstRow = host.firstChild;
+    var sig = wanted.map(function (w) { return document.getElementById(w[0]) ? '1' : '0'; }).join('');
+    if (host.dataset.toolSig === sig) return;
+    host.dataset.toolSig = sig;
+
+    WB.dom.clear(host);
     wanted.forEach(function (w) {
       var btn = document.getElementById(w[0]);
       if (!btn) return;
       var row = document.createElement('div');
-      row.className = 'wb-tool-row wb-ext-row';
+      row.className = 'wb-tool-row';
       row.title = btn.title || w[1];
       var slot = document.createElement('span');
       slot.className = 'wb-tool-slot';
-      var svg = btn.querySelector('svg');
-      if (svg) slot.appendChild(svg.cloneNode(true));
-      else slot.textContent = w[1].slice(0, 1);
+      var svg = btn.querySelector && btn.querySelector('svg');
+      if (svg) {
+        slot.appendChild(svg.cloneNode(true));
+      } else if (TOOL_ICONS[w[0]]) {
+        slot.innerHTML = TOOL_ICONS[w[0]];
+      } else {
+        slot.textContent = (btn.textContent || '').trim() || '•';
+      }
       var label = document.createElement('span');
       label.className = 'wb-tool-label';
       label.textContent = w[1];
       row.appendChild(slot);
       row.appendChild(label);
-      row.addEventListener('click', function () { try { btn.click(); } catch (e) { /* ignore */ } });
-      host.insertBefore(row, firstRow);
+      row.addEventListener('click', function (ev) {
+        if (ev.target.closest && ev.target.closest('button') && ev.target.closest('button') === btn) return;
+        try { btn.click(); } catch (e) { /* ignore */ }
+      });
+      host.appendChild(row);
     });
-
-    // MCP 按钮是 mcp-panel.js 后插的：组内一变就重建代理行
-    if (!holder.__extObs && window.MutationObserver) {
-      holder.__extObs = new MutationObserver(function () { setTimeout(buildExtTools, 0); });
-      holder.__extObs.observe(group, { childList: true, subtree: true });
-    }
   }
 
   function moveWebai() {

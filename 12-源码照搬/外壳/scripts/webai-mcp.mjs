@@ -31,11 +31,11 @@ const SITE_NAMES = {
   deepseek: 'DeepSeek', doubao: '豆包', tongyi: '千问', chatglm: '智谱清言', kimi: 'Kimi',
 };
 const SITE_USES = {
-  deepseek: '长文本 / 写代码 / 最难的那种先问它',
-  doubao: '生图 / 生视频 / 多模态理解 / 日常问答',
-  tongyi: '生图（备用）/ 中文长文',
-  chatglm: '写代码（第二意见）/ 结构化输出',
-  kimi: '长文 / 联网资料（当前打不进输入框时请改用别的站）',
+  deepseek: '复杂推理 / 算法代码 / 深度思考（最难的问题优先问它）',
+  doubao: '多模态理解 / AI生图与视频 / 联网日常问答（抖音系链接支持好）',
+  tongyi: '中文长文本阅读 / 综合问答 / 创意写作 / 多模态辅助',
+  chatglm: '代码编写 / 结构化输出 / 逻辑分析（适合作为第二意见）',
+  kimi: '长文档研读 / 深度联网搜索 / 学术资料整理 / 智能体任务',
 };
 const SITE_NAME = SITE_NAMES[KEY] || KEY || '网页版 AI';
 
@@ -141,6 +141,7 @@ const TOOL = {
     properties: {
       question: { type: 'string', description: '要问的问题（纯文本）。可以带上下文，但别太长（站点输入框有上限）。' },
       save_image: { type: 'boolean', description: '要它生成的图片时传 true：回答里若有图，会存到本地并回图片路径。' },
+      image_path: { type: 'string', description: '图片保存路径（可选，仅 save_image 为 true 时生效）。未指定时默认存到 外壳\\data\\webai-mcp\\ 目录下。' },
       timeout_s: { type: 'integer', description: '最多等多少秒（默认 180，范围 15~580）。长文/代码建议 240~300。' },
     },
     required: ['question'],
@@ -241,7 +242,8 @@ function handle(msg) {
   if (method === 'tools/call') {
     const p = msg.params || {};
     const name = String(p.name || '');
-    if (name !== TOOL.name) { replyErr(id, -32602, '没有这个工具：' + name + '（只有 ' + TOOL.name + '）'); return; }
+    const isAsk = name === TOOL.name || name === 'ask_' + KEY || name === 'mcp__webai-' + KEY + '__ask' || name.endsWith('__ask');
+    if (!isAsk) { replyErr(id, -32602, '没有这个工具：' + name + '（只有 ' + TOOL.name + '）'); return; }
     toolCall(p.arguments || {}).then(function (r) {
       reply(id, { content: [{ type: 'text', text: r.text }], isError: !!r.isError });
     }).catch(function (e) {
