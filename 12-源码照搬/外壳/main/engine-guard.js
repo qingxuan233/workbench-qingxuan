@@ -86,6 +86,19 @@ function findDshCmd(manifest, logger) {
     if (fs.existsSync(pfCmd)) return pfCmd;
   }
 
+  const sysDrive = (process.env.SystemDrive || 'C:').charAt(0).toUpperCase();
+  const candidateDrives = [sysDrive];
+  for (const d of ['D', 'E', 'F']) {
+    if (!candidateDrives.includes(d)) candidateDrives.push(d);
+  }
+  for (const drive of candidateDrives) {
+    const root = drive + path.sep;
+    const p1 = path.join(root, 'Programs', 'DeepSeek Harness', 'resources', 'runtime', 'cli', 'bin', 'dsh.cmd');
+    if (fs.existsSync(p1)) return p1;
+    const p2 = path.join(root, 'DeepSeek Harness', 'resources', 'runtime', 'cli', 'bin', 'dsh.cmd');
+    if (fs.existsSync(p2)) return p2;
+  }
+
   return '';
 }
 

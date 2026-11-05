@@ -11,7 +11,7 @@
 //   node 外壳\scripts\webai.mjs who                        # 多窗口时"到底会派给哪个窗口"（桥版本）
 //   node 外壳\scripts\webai.mjs ask doubao "帮我写一句 slogan"
 //   node 外壳\scripts\webai.mjs ask kimi "解释一下这段代码" --timeout 300
-//   node 外壳\scripts\webai.mjs ask doubao "画一只鲸鱼" --save-image "E:\图\鲸鱼.png"
+//   node 外壳\scripts\webai.mjs ask doubao "画一只鲸鱼" --save-image "./鲸鱼.png"
 //
 // 说明：
 //   · 网页版是**可见的窗口**：问的时候那个窗口会自己打字，遇到验证码你可以直接接手；

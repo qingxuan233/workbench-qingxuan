@@ -56,7 +56,14 @@ function nvidiaSmiOnce() {
   });
 }
 
-function setupSystemIO(ipcMain, { windowOfEvent, getMainWindow, logger }) {
+function setupSystemIO(ipcMain, { workbenchRoot, windowOfEvent, getMainWindow, logger }) {
+  function toSafePath(p) {
+    const s = String(p || '').trim();
+    if (!s) return '';
+    if (path.isAbsolute(s)) return s;
+    return path.resolve(workbenchRoot || process.cwd(), s);
+  }
+
   ipcMain.handle('kun:sys:disks', () => {
     const letters = ['C', 'D', 'E', 'F'];
     const drives = letters.map((letter) => {
@@ -85,7 +92,7 @@ function setupSystemIO(ipcMain, { windowOfEvent, getMainWindow, logger }) {
   });
 
   ipcMain.handle('kun:file:stat', async (e, p) => {
-    const t = String(p || '');
+    const t = toSafePath(p);
     if (!t) return { ok: false, err: 'empty' };
     try {
       const st = await fs.promises.stat(t);
@@ -96,7 +103,7 @@ function setupSystemIO(ipcMain, { windowOfEvent, getMainWindow, logger }) {
   });
 
   ipcMain.handle('kun:file:read', async (e, p) => {
-    const t = String(p || '');
+    const t = toSafePath(p);
     if (!t) return { ok: false, err: 'empty' };
     try {
       const st = await fs.promises.stat(t);
@@ -110,7 +117,7 @@ function setupSystemIO(ipcMain, { windowOfEvent, getMainWindow, logger }) {
   });
 
   ipcMain.handle('kun:file:write', async (e, p, text) => {
-    const t = String(p || '');
+    const t = toSafePath(p);
     if (!t) return { ok: false, err: 'empty' };
     try {
       await fs.promises.mkdir(path.dirname(t), { recursive: true });

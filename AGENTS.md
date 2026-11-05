@@ -52,7 +52,7 @@ git --version               # 期望有输出
 2. 环境变量 `DSH_CMD`
 3. `where dsh`
 4. `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd`
-5. `C:\Program Files\DeepSeek Harness\…`、`D:\Programs\DeepSeek Harness\…`、`D:\DeepSeek Harness\…`
+5. 系统常见安装目录（`%ProgramFiles%\DeepSeek Harness\…` 及各盘 Programs / DeepSeek Harness 目录）
 
 > 找不到引擎**不阻塞启动**：界面能开，AI 面板不可用。修法见 §5-3。
 

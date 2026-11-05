@@ -43,13 +43,13 @@ const BASELINE_LINES = {
   '工具/体检.mjs': 809,
 }
 
-/** 存量硬编码盘符豁免（按文件精确计数；新增一处就失败） */
+/** 存量硬编码盘符豁免（已全部清零：源码中禁止任何盘符硬编码） */
 const DRIVE_ALLOW = {
-  '工具/初始化.mjs': 3,          // 引擎搜索的固定候选目录（Program Files / D 盘）
-  '外壳/main.js': 4,             // SystemRoot / nodejs 兜底 + 注释里的路径样例
-  '外壳/renderer/renderers.js': 0, // 本机模板基线：新增盘符一律红
-  '外壳/scripts/pc-scan.mjs': 2, // 用法注释里的示例路径
-  '外壳/scripts/webai.mjs': 1,   // 用法注释里的示例路径
+  '工具/初始化.mjs': 0,
+  '外壳/main.js': 0,
+  '外壳/renderer/renderers.js': 0,
+  '外壳/scripts/pc-scan.mjs': 0,
+  '外壳/scripts/webai.mjs': 0,
 }
 
 const SESSION_RE = /session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi

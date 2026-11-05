@@ -4,7 +4,7 @@
   "dependencies": {
     "@deepseek-ai/dsh-subagent-claude-code": "0.2.1-rc.5",
     "@deepseek-ai/dsh-subagent-codex": "0.2.1-rc.5",
-    "dsh-atn": "file:E:/git_code/DeepSeek Harness/dsh-ATN/.artifacts/dsh-atn-0.6.3.tgz"
+    "dsh-atn": "0.6.3"
   },
   "dsh": {
     "profile": {

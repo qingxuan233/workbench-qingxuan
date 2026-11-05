@@ -11,9 +11,9 @@
 // 用法（在 12-源码照搬 目录下跑）：
 //   node 外壳\scripts\pc-scan.mjs                      # 全盘扫，默认 150 秒预算、≥0.5 GB 才上榜
 //   node 外壳\scripts\pc-scan.mjs --budget 300         # 给更多时间（更全，扫描更久）
-//   node 外壳\scripts\pc-scan.mjs --roots "E:\git_code" --min 0.05   # 只扫某个目录（自测/局部扫）
+//   node 外壳\scripts\pc-scan.mjs --roots "<目标目录>" --min 0.05   # 只扫某个目录（自测/局部扫）
 //   node 外壳\scripts\pc-scan.mjs --json               # 只打印结果 JSON，不写摘要
-//   node 外壳\scripts\pc-scan.mjs --log 3.2 "清 C:\Windows\Temp 与用户 Temp"
+//   node 外壳\scripts\pc-scan.mjs --log 3.2 "清理系统临时文件与用户 Temp"
 //
 // 设计取舍：
 //   · 只读、不删任何东西 —— 删除由 AI 按「先列清单等点头」的纪律另做，本脚本连 --clean 都不提供；
@@ -160,7 +160,8 @@ function listDrives() {
 function junkTargets(drives) {
   const local = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
   const roaming = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-  const win = process.env.SystemRoot || 'C:\\Windows';
+  const sysDrive = process.env.SystemDrive || 'C:';
+  const win = process.env.SystemRoot || path.join(sysDrive, 'Windows');
   const t = [
     { k: '用户临时目录 Temp', path: os.tmpdir(), note: '装东西/解压的残留，可整目录删（占用的删不掉就跳过）' },
     { k: 'Windows Temp', path: path.join(win, 'Temp'), note: '系统级临时文件，可删' },

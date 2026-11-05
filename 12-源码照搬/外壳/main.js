@@ -369,7 +369,7 @@ function resolveNodeExe() {
   for (const d of [
     process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'nodejs'),
     process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'nodejs'),
-    'C:\\Program Files\\nodejs'
+    path.join(process.env.SystemDrive || 'C:', 'Program Files', 'nodejs')
   ]) {
     if (d) dirs.push(d);
   }
@@ -382,15 +382,10 @@ function resolveNodeExe() {
 }
 
 // 方式〇（推荐）：本机安装的 DSH 官方 CLI（dsh.cmd）
-// ⚠ 2026-11-01：不再把本机绝对路径写进代码（模板要能公开）。
-//   来源优先级：工作台.json 的 engine.cliPath → 环境变量 DSH_CMD → 无。
-//   都没有时这一档直接跳过，回落「内置入口 / pnpm」。
+// ⚠ 不再把本机绝对路径写进代码（模板要能公开）。
+//   来源优先级：工作台.json 的 engine.cliPath → 环境变量 DSH_CMD → where dsh → LOCALAPPDATA / ProgramFiles 等常见目录。
 function findDshCmd() {
-  const manifest = readManifest();
-  const fromManifest = manifest.engine && manifest.engine.cliPath;
-  if (fromManifest && fs.existsSync(fromManifest)) return fromManifest;
-  if (process.env.DSH_CMD && fs.existsSync(process.env.DSH_CMD)) return process.env.DSH_CMD;
-  return null;
+  return engineGuard.findDshCmd(readManifest(), log);
 }
 
 function spawnServerDshCmd() {
@@ -401,7 +396,7 @@ function spawnServerDshCmd() {
   //   spawn 会异步抛 ENOENT；wireServerProc 没挂 error 监听 ⇒ 走 uncaughtException 弹致命框。
   //   工作台根一定存在，且 dsh CLI 不依赖 cwd，故用它。
   // ⚠ 不要在参数里手写引号：Node 在 Windows 上会把带空格的参数再转义一层，
-  //   cmd 收到的是 \"D:\...dsh.cmd\" 这种带反斜杠的串 ⇒ 报「不是内部或外部命令」。
+  //   cmd 收到的是带反斜杠转义的双引号 ⇒ 报「不是内部或外部命令」。
   //   交给 Node 自动加引号即可（真实事故，2026-11-01）。
   const proc = spawn('cmd.exe', ['/c', dshCmd, 'web', '--no-open', '--port', EFFECTIVE_DSH_PORT], {
     cwd: WORKBENCH_ROOT,
@@ -1326,7 +1321,7 @@ ipcMain.handle('app:reveal-path', (e, target) => {
 });
 
 // ---- 宿主通用能力与系统 I/O 已抽离至 main/system-io.js ----
-systemIo.setupSystemIO(ipcMain, { windowOfEvent, getMainWindow: () => mainWindow, logger: log });
+systemIo.setupSystemIO(ipcMain, { workbenchRoot: WORKBENCH_ROOT, windowOfEvent, getMainWindow: () => mainWindow, logger: log });
 
 // ---- 个人站场景 IPC：官网预览地址 / 官网结构化信息 ----
 ipcMain.handle('site:preview', () => ({
@@ -2633,151 +2628,7 @@ function topbarRunAsync(script, args, timeout) {
   });
 }
 
-// ⑦ 最近打开的文件夹（Windows 自己的"最近使用"记录，只读）
-//   主数据源：%APPDATA%\Microsoft\Windows\Recent\*.lnk —— Explorer 每打开一个文件/文件夹就写一条，按 .lnk 的 mtime 倒序。
-//   .lnk 的目标**直接从二进制里抠**（不依赖 COM/PowerShell，快且不弹窗）：
-//     先按 UTF-16LE 找 `X 00 : 00 \ 00`，再按 ANSI/GBK 找 `<盘根>:\`；抠出来用 fs 验证「存在且是目录」⇒ 自动滤掉最近打开的**文件**。
-//   结果缓存 60 秒，且只在用户点开 📁 胶囊时才跑（不常驻扫盘）。
-let topbarRecentCache = { at: 0, rows: [] };
-function topbarLnkTarget(p) {
-  let buf = null;
-  try { buf = fs.readFileSync(p); } catch (e) { return null; }
-  if (buf.length < 80) return null;
-  const cands = [];
-  try {
-    for (let i = 0; i + 6 < buf.length; i++) {                       // ① UTF-16LE：X 00 : 00 \ 00
-      if (buf[i + 1] === 0 && buf[i + 2] === 0x3A && buf[i + 3] === 0 && buf[i + 4] === 0x5C && buf[i + 5] === 0) {
-        let end = i;
-        while (end + 1 < buf.length && !(buf[end] === 0 && buf[end + 1] === 0)) end += 2;
-        const s = buf.slice(i, end).toString('utf16le');
-        if (s.length > 3) cands.push(s);
-        i = end;
-      }
-    }
-    for (let i = 0; i + 3 < buf.length; i++) {                       // ② ANSI / GBK：<盘根>:\
-      const c = buf[i];
-      if (buf[i + 1] === 0x3A && buf[i + 2] === 0x5C && ((c >= 65 && c <= 90) || (c >= 97 && c <= 122))) {
-        let end = i;
-        while (end < buf.length && buf[end] !== 0 && buf[end] >= 0x20) end++;
-        const seg = buf.slice(i, end);
-        let s = '';
-        try { s = new TextDecoder('gbk').decode(seg); } catch (e) { s = seg.toString('latin1'); }
-        if (s.length > 3) cands.push(s);
-        i = end;
-      }
-    }
-  } catch (e) { /* ignore */ }
-  for (const c of cands) {
-    const t = String(c).replace(/\0+$/, '').trim();
-    if (!/^[A-Za-z]:\\/.test(t)) continue;
-    try { if (fs.existsSync(t) && fs.statSync(t).isDirectory()) return t; } catch (e) { /* ignore */ }
-  }
-  return null;
-}
-function topbarRecentFolders(limit) {
-  const want = limit || 6;
-  const now = Date.now();
-  if (now - topbarRecentCache.at < 60000 && topbarRecentCache.rows.length) return topbarRecentCache.rows.slice(0, want);
-  const cands = new Map();                       // 路径(小写) → { path, src, at }
-  const add = (p, src) => {
-    if (!p) return;
-    const t = String(p).trim().replace(/[\u0000\s]+$/, '').replace(/\\+$/, '');
-    if (!/^[A-Za-z]:\\/.test(t) || t.length > 240) return;
-    let st = null;
-    try { st = fs.statSync(t); } catch (e) { return; }     // 只留**真的还在**的目录（旧根路径会被自动滤掉）
-    if (!st.isDirectory()) return;
-    const k = t.toLowerCase();
-    if (!cands.has(k)) cands.set(k, { path: t, src: src, at: st.mtimeMs });
-  };
-  // ① 主力：资源管理器跳转列表 —— 真正"最近打开过"的地方（Recent 里的 .lnk 常被清理工具删掉，所以不能只靠它）
-  try {
-    const ad = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Recent', 'AutomaticDestinations');
-    for (const n of fs.readdirSync(ad)) {
-      if (!/\.automaticDestinations-ms$/i.test(n)) continue;
-      let buf = null;
-      try { buf = fs.readFileSync(path.join(ad, n)); } catch (e) { continue; }
-      const m = buf.toString('utf16le').match(/[A-Za-z]:\\[^\u0000-\u001f]{2,180}/g) || [];
-      for (const s of m) add(s, '资源管理器最近');
-    }
-  } catch (e) { /* ignore */ }
-  // ② 补充：%APPDATA%\…\Recent\*.lnk（系统开着"显示最近使用的文件"时才有）
-  try {
-    const rd = path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Recent');
-    for (const n of fs.readdirSync(rd)) {
-      if (!/\.lnk$/i.test(n)) continue;
-      add(topbarLnkTarget(path.join(rd, n)), '最近使用');
-    }
-  } catch (e) { /* ignore */ }
-  // ③ 补充：地址栏里敲过的路径（注册表 TypedPaths，reg.exe 查一次，几十毫秒）
-  try {
-    const r = spawnSync('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths'],
-      { encoding: 'utf8', windowsHide: true, timeout: 8000 });
-    for (const line of String((r && r.stdout) || '').split(/\r?\n/)) {
-      const m = line.match(/REG_SZ\s+(.+)$/);
-      if (m) add(m[1], '地址栏敲过');
-    }
-  } catch (e) { /* ignore */ }
-  // 排序：按**文件夹自己的最后修改时间**从新到旧（跳转列表里没有时间戳，这是最接近"最近用过"的可靠口径）
-  const rows = Array.from(cands.values()).sort((a, b) => b.at - a.at).slice(0, want);
-  topbarRecentCache = { at: now, rows };
-  return rows;
-}
-ipcMain.handle('topbar:recent-folders', () => {
-  try { return { ok: true, at: Date.now(), rows: topbarRecentFolders(6) }; }
-  catch (e) { return { ok: false, rows: [], error: String((e && e.message) || e) }; }
-});
-
-// ① 上下文压力：跑 ctx.mjs --panels --json（名册里的 10 面板 + 5 帮手；只回传渲染层要的字段）
-//   ⛔ 必须走异步版：spawnSync 会把主进程连整个窗口一起卡住（实测 0.3s/次 × 每 90s 一次）
-// 2026-10-19（宿主）：「负载胶囊」取数 —— CPU% 用 os.cpus() 差值（零子进程），GPU 用 nvidia-smi 一次读数（约 40ms）。
-//   ★ 资源纪律：渲染层只在**窗口有焦点**时每 5 秒调一次 ⇒ 不在前台时这个 IPC 一次都不跑（不额外养进程/定时器）。
-let __loadCpuPrev = null;
-function loadCpuPercent() {
-  const cpus = os.cpus() || [];
-  let idle = 0, total = 0;
-  for (const c of cpus) {
-    const t = c.times || {};
-    idle += t.idle || 0;
-    total += (t.user || 0) + (t.nice || 0) + (t.sys || 0) + (t.idle || 0) + (t.irq || 0);
-  }
-  const prev = __loadCpuPrev;
-  __loadCpuPrev = { idle, total };
-  if (!prev) return null;                       // 第一次没有差值可算 ⇒ 返回 null，下次就有了
-  const di = idle - prev.idle, dt = total - prev.total;
-  return dt > 0 ? Math.max(0, Math.min(100, Math.round((1 - di / dt) * 100))) : null;
-}
-function nvidiaSmiOnce() {
-  return new Promise((resolve) => {
-    const exe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'nvidia-smi.exe');
-    let out = '', done = false, cp = null;
-    try { cp = spawn(exe, ['--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'], { windowsHide: true }); }
-    catch (e) { return resolve(null); }
-    const t = setTimeout(() => { try { cp.kill(); } catch (e) { /* ignore */ } if (!done) { done = true; resolve(null); } }, 3000);
-    cp.stdout.on('data', (d) => { out += d; });
-    cp.stderr.on('data', () => { /* 没 N 卡会往 stderr 写，忽略 */ });
-    cp.on('error', () => { if (!done) { done = true; clearTimeout(t); resolve(null); } });
-    cp.on('close', () => { if (done) return; done = true; clearTimeout(t); resolve(out); });
-  });
-}
-ipcMain.handle('kun:sys:load', async () => {
-  const out = { ok: true, at: Date.now(), cpu: null, gpu: null };
-  try { out.cpu = loadCpuPercent(); } catch (e) { /* ignore */ }
-  // 2026-10-20（宿主：顶栏加内存）—— os.totalmem/freemem ⇒ 已用百分比 + GB（零子进程）
-  try {
-    const tot = os.totalmem(), free = os.freemem();
-    out.mem = { usedPct: Math.round((1 - free / tot) * 100), usedGB: Math.round((tot - free) / 1073741824 * 10) / 10, totalGB: Math.round(tot / 1073741824 * 10) / 10 };
-  } catch (e) { /* ignore */ }
-  try {
-    const raw = await nvidiaSmiOnce();
-    if (raw) {
-      const p = String(raw).trim().split(/\r?\n/)[0].split(',').map((s) => s.trim());
-      if (p.length >= 5 && p[1] !== '' && !isNaN(Number(p[1]))) {
-        out.gpu = { name: p[0], util: Number(p[1]), temp: Number(p[2]), memUsed: Number(p[3]), memTotal: Number(p[4]) };
-      }
-    }
-  } catch (e) { /* 没 N 卡就只显示 CPU */ }
-  return out;
-});
+// ⑦ 最近打开的文件夹与系统负载已由 main/system-io.js 统一实现并注入 ipcMain
 // ==========================================================================================
 // 2026-10-20（宿主：把常用网站的"智能抠图"做成**本地**工具）—— 本地 rembg，图片不出本机。
 //   引擎在 <工作台>\工具\抠图\venv（Python + rembg + onnxruntime CPU），模型放同目录 models（U2NET_HOME）。

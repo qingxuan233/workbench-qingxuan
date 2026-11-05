@@ -67,15 +67,20 @@
     container.innerHTML = '<div class="stat-sub">正在读取磁盘盘符状态…</div>';
     body.appendChild(container);
 
+    function getScanPath() {
+      var dataDir = (window.app && window.app.paths && window.app.paths.dataDir) || '外壳/data';
+      return dataDir + '/pc-cleanup-scan.json';
+    }
+
     function refreshDrives() {
       if (ctx.isPaused()) return;
       if (window.app && window.app.file && window.app.file.read) {
-        window.app.file.read('外壳/data/pc-scan-latest.json').then(function (res) {
+        window.app.file.read(getScanPath()).then(function (res) {
           if (res && res.ok && res.text) {
             try {
               var data = JSON.parse(res.text);
-              if (data && data.drives) {
-                renderDrives(container, data.drives);
+              if (data && (data.drives || data.byDrive)) {
+                renderDrives(container, data.drives || data.byDrive);
                 return;
               }
             } catch (e) {}
@@ -94,15 +99,17 @@
       (drives || []).forEach(function (d) {
         var card = document.createElement('div');
         card.className = 'pc-drive-card';
-        var pct = Math.min(100, Math.max(0, d.usedPercent || 0));
-        card.innerHTML = '<div class="drive-head"><span class="drive-name">' + (d.mount || d.drive) + '</span><span class="drive-val">' + (d.freeGB || 0) + ' GB 可用 / ' + (d.totalGB || 0) + ' GB</span></div>'
+        var pct = Math.min(100, Math.max(0, d.usedPercent || d.percent || 0));
+        var free = d.freeGB != null ? d.freeGB : (d.free ? (d.free / 1073741824).toFixed(1) : 0);
+        var total = d.totalGB != null ? d.totalGB : (d.total ? (d.total / 1073741824).toFixed(1) : 0);
+        card.innerHTML = '<div class="drive-head"><span class="drive-name">' + (d.mount || d.drive) + '</span><span class="drive-val">' + free + ' GB 可用 / ' + total + ' GB</span></div>'
           + '<div class="drive-bar"><div class="drive-fill" style="width:' + pct + '%;background:' + (pct > 90 ? '#ff5f56' : pct > 75 ? '#f5a524' : '#3ddc84') + '"></div></div>';
         el.appendChild(card);
       });
     }
 
     function renderFallbackDrives(el) {
-      el.innerHTML = '<div class="stat-card"><div class="stat-title">盘符健康</div><div class="stat-val">C: / D: / E:</div><div class="stat-sub">运行 node 外壳\\scripts\\pc-scan.mjs 获取最新精确指标</div></div>';
+      el.innerHTML = '<div class="stat-card"><div class="stat-title">盘符健康</div><div class="stat-val">全盘监测</div><div class="stat-sub">运行 node 外壳\\scripts\\pc-scan.mjs 获取最新精确指标</div></div>';
     }
 
     refreshDrives();
@@ -117,7 +124,7 @@
     function loadList() {
       if (ctx.isPaused()) return;
       if (window.app && window.app.file && window.app.file.read) {
-        window.app.file.read('外壳/data/pc-toplarge.json').then(function (res) {
+        window.app.file.read(getScanPath()).then(function (res) {
           if (res && res.ok && res.text) {
             try {
               var data = JSON.parse(res.text);

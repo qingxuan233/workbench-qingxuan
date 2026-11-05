@@ -8250,7 +8250,8 @@ renderers.neuron = (body, meta, head) => {
       var nameCount = {};
       nodes.filter(function (n) { return n.kind === 'project'; }).forEach(function (n) { nameCount[n.label] = (nameCount[n.label] || 0) + 1; });
       nodes.filter(function (n) { return n.kind === 'project' && nameCount[n.label] > 1; }).forEach(function (n) {
-        n.label = n.label + '（' + (String(n.root).indexOf('E:') === 0 ? 'E 盘' : 'D 盘') + '）';
+        var m = String(n.root || '').match(/^([A-Za-z]):/);
+        n.label = n.label + (m ? '（' + m[1].toUpperCase() + ' 盘）' : '');
       });
 
       // 项目归属：登记表给了 owner ⇒ 直接连到 owner 的 area；没有才退回"正文里提到名字"的启发式

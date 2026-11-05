@@ -100,12 +100,19 @@ function findDshCmd() {
     for (const line of out.split(/\r?\n/)) if (line.trim()) cands.push(line.trim());
   } catch { /* PATH 里没有 */ }
   const rel = path.join('resources', 'runtime', 'cli', 'bin', 'dsh.cmd');
+  const sysDrive = (process.env.SystemDrive || 'C:').charAt(0).toUpperCase();
   const bases = [
     process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'DeepSeek Harness'),
-    'C:\\Program Files\\DeepSeek Harness',
-    'D:\\Programs\\DeepSeek Harness',
-    'D:\\DeepSeek Harness'
+    process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'DeepSeek Harness'),
   ].filter(Boolean);
+  const candidateDrives = [sysDrive];
+  for (const d of ['D', 'E', 'F']) {
+    if (!candidateDrives.includes(d)) candidateDrives.push(d);
+  }
+  for (const drive of candidateDrives) {
+    const root = drive + path.sep;
+    bases.push(path.join(root, 'Programs', 'DeepSeek Harness'), path.join(root, 'DeepSeek Harness'));
+  }
   for (const b of bases) cands.push(path.join(b, rel));
   for (const c of cands) if (exists(c)) return c;
   return null;
