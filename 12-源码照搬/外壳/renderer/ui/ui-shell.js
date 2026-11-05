@@ -378,15 +378,47 @@
     });
     controls.insertBefore(cluster, controls.firstChild);
 
+    // 刷新按钮升级为统一 15x15 矢量 SVG 旋转箭头
+    var refBtn = document.getElementById('btn-refresh');
+    if (refBtn && !refBtn.dataset.svgBound) {
+      refBtn.dataset.svgBound = '1';
+      refBtn.innerHTML = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8A5.5 5.5 0 1 1 11.89 4.11L13.5 2.5v4h-4l1.64-1.64A4.1 4.1 0 1 0 12.1 8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    }
+
     // 低频动作已经搬去左栏；顶栏只留「更多」
     var more = document.createElement('button');
     more.type = 'button';
     more.className = 'tb-btn';
     more.id = 'wb-more-btn';
-    more.title = '更多（界面 / 目录 / 快捷键）';
+    more.title = '更多（界面 / 目录 / 诊断 / 快捷键）';
     more.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="3.2" cy="8" r="1.15" fill="currentColor"/><circle cx="8" cy="8" r="1.15" fill="currentColor"/><circle cx="12.8" cy="8" r="1.15" fill="currentColor"/></svg>';
     more.addEventListener('click', function (ev) { ev.stopPropagation(); toggleMore(); });
     controls.insertBefore(more, document.getElementById('btn-min'));
+
+    // 待办红点角标监听：如果 topbar-status 的待办角标有数字，同步到统一的 wb-more-btn 上
+    function syncBadge() {
+      var badge = document.querySelector('#tbs-wrap .tbs-badge');
+      var moreBtn = document.getElementById('wb-more-btn');
+      if (!badge || !moreBtn) return;
+      var mb = moreBtn.querySelector('.tbs-badge');
+      var num = parseInt(badge.textContent, 10) || 0;
+      if (badge.style.display !== 'none' && num > 0) {
+        if (!mb) {
+          mb = badge.cloneNode(true);
+          moreBtn.appendChild(mb);
+        } else {
+          mb.textContent = badge.textContent;
+          mb.style.display = '';
+        }
+      } else if (mb) {
+        mb.style.display = 'none';
+      }
+    }
+    syncBadge();
+    var wrapEl = document.getElementById('tbs-wrap');
+    if (wrapEl && window.MutationObserver) {
+      new MutationObserver(syncBadge).observe(wrapEl, { childList: true, subtree: true, attributes: true });
+    }
   }
 
   function buildContextBar() {
@@ -456,7 +488,11 @@
         var p = WB.dom.qs('#grid > .panel');
         if (p) WB.panels.focus(p);
       }],
-      ['☰', '显示 / 隐藏面板序号徽标', function () { var b = document.getElementById('sf-badges'); if (b) b.click(); }]
+      ['☰', '显示 / 隐藏面板序号徽标', function () { var b = document.getElementById('sf-badges'); if (b) b.click(); }],
+      ['系统与诊断', null],
+      ['↩', '界面与引擎回退', function () { var m = document.getElementById('tbs-more'); if (m) m.click(); }],
+      ['🩺', '工作台系统体检', function () { var m = document.getElementById('tbs-more'); if (m) m.click(); }],
+      ['🔔', '待办事项（谁在等我）', function () { var m = document.getElementById('tbs-more'); if (m) m.click(); }]
     ];
     items.forEach(function (it) {
       if (it[1] === null) {

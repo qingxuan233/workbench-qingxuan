@@ -161,18 +161,85 @@ body.wb-v2 .wb-status-cluster #balance-chip {
   border-radius: 6px;
 }
 
-body.wb-v2 .titlebar-controls .tb-btn {
-  width: 34px;
-  height: 34px;
+body.wb-v2 .titlebar-controls .tb-btn,
+body.wb-v2 .titlebar-controls .tbs-pill {
+  width: 32px;
+  height: 32px;
   margin: 0 1px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  box-shadow: none;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background .14s ease, color .14s ease, border-color .14s ease, transform .08s ease;
 }
-body.wb-v2 .titlebar-controls .tb-sep { height: 16px; margin: 0 3px; }
-body.wb-v2 .titlebar-controls .tb-btn svg { width: 15px; height: 15px; }
-body.wb-v2 .titlebar-controls .tbs-wrap { height: 100%; display: flex; align-items: center; gap: 2px; }
-body.wb-v2 .titlebar-controls .tbs-pill { width: 32px; height: 32px; padding: 0; justify-content: center; border-radius: 8px; }
+body.wb-v2 .titlebar-controls .tb-btn:hover,
+body.wb-v2 .titlebar-controls .tbs-pill:hover {
+  background: rgba(255, 255, 255, .08);
+  color: var(--text);
+  border-color: transparent;
+}
+body.wb-v2 .titlebar-controls .tb-btn:active,
+body.wb-v2 .titlebar-controls .tbs-pill:active {
+  background: rgba(255, 255, 255, .14);
+  transform: scale(.95);
+}
+html[data-theme="light"] body.wb-v2 .titlebar-controls .tb-btn:hover,
+html[data-theme="light"] body.wb-v2 .titlebar-controls .tbs-pill:hover {
+  background: rgba(15, 23, 42, .06);
+  color: var(--text);
+  border-color: transparent;
+}
+body.wb-v2 .titlebar-controls .tb-sep { height: 14px; margin: 0 5px; opacity: .25; }
+body.wb-v2 .titlebar-controls .tb-btn svg,
+body.wb-v2 .titlebar-controls .tbs-pill svg { width: 15px; height: 15px; display: block; flex-shrink: 0; }
+body.wb-v2 .titlebar-controls .tbs-wrap { height: 100%; display: flex; align-items: center; gap: 2px; padding: 0; margin: 0; }
 body.wb-v2 .titlebar-controls .tbs-pill .tbs-txt { display: none; }
-body.wb-v2 .titlebar-controls .tbs-pill svg { width: 15px; height: 15px; }
+
+/* 顶栏图标精细化：消除重复的更多胶囊，保留全局统一步调 */
+body.wb-v2 .titlebar-controls #tbs-more { display: none !important; }
+
+/* 系统负载指示器：芯片图标与告警状态 */
+body.wb-v2 .titlebar-controls #tbs-load { position: relative; }
+body.wb-v2 .titlebar-controls #tbs-load.warn svg { color: #f5a524; filter: drop-shadow(0 0 4px rgba(245, 165, 36, .45)); }
+body.wb-v2 .titlebar-controls #tbs-load.bad svg { color: #e5484d; filter: drop-shadow(0 0 6px rgba(229, 72, 77, .65)); animation: tbsPulse 1.6s ease-in-out infinite; }
+
+/* 更多按钮：待办小红点精致挂载 */
+body.wb-v2 .titlebar-controls #wb-more-btn { position: relative; }
+body.wb-v2 .titlebar-controls #wb-more-btn .tbs-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  font-size: 9px;
+  line-height: 13px;
+  border-radius: 7px;
+  background: #e5484d;
+  color: #fff;
+  font-weight: 700;
+  pointer-events: none;
+  box-shadow: 0 0 5px rgba(229, 72, 77, .75);
+}
+
+/* 刷新按钮：顺滑旋转回馈 */
+body.wb-v2 .titlebar-controls #btn-refresh svg {
+  transition: transform .4s cubic-bezier(.34, 1.56, .64, 1);
+}
+body.wb-v2 .titlebar-controls #btn-refresh:active svg {
+  transform: rotate(180deg);
+}
+
+/* 窗口控制关闭按钮统一微调 */
+body.wb-v2 .titlebar-controls #btn-close:hover { background: rgba(255, 69, 58, .2); color: #ff6b61; }
+html[data-theme="light"] body.wb-v2 .titlebar-controls #btn-close:hover { background: rgba(255, 59, 48, .14); color: #d70015; }
 
 /* ============================================================ 2. 左栏 */
 body.wb-v2 #wb-rail * { box-sizing: border-box; }
