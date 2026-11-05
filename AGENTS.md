@@ -31,7 +31,7 @@
 |---|---|
 | 场景数 | 5 |
 | 场景（id → 标题） | `bilibili` → B站；`command` → 命令；`pc-cleanup` → 本地电脑；`self-review` → 自我复盘；`webai` → 网页AI |
-| 面板总数 | 17 |
+| 面板总数 | 15 |
 | AI 面板（harness） | 5 |
 | 首屏场景 | `command` |
 | 端口 | 引擎 `3083`（`DSH_PORT`）；站点 `31238`（写死）；网页版 AI 桥 `31239`（`WEB_AI_PORT`） |

@@ -1,47 +1,17 @@
 {
   "id": "webai",
   "name": "网页AI",
-  "description": "网页AI：免费网页 AI 综合调度工作台。左侧内嵌 DeepSeek 与 豆包 网页版（可随时展开全屏或取消内置省内存），中间产物与文档实时预览（联动 _webai产物\\ 目录，随时查看顾问团汇总、各站点回复及生成的图片），右侧 AI·网页AI 会话调度中心（通过桥服务与顾问团机制零 Token 消耗外包重型问答、长文分析、交叉审查与 AI 生图）。",
+  "description": "网页AI：免费网页 AI 综合调度工作台。左侧联动产物与文档实时预览（联动 _webai产物\\ 目录，随时查看顾问团汇总、各站点回复及生成的图片），右侧 AI·网页AI 会话调度中心（通过桥服务与顾问团机制零 Token 消耗外包重型问答、长文分析、交叉审查与 AI 生图）。",
   "layout": "grid",
   "theme": "dark",
-  "cols": 4,
+  "cols": 2,
   "panels": [
-    {
-      "id": "webai-deepseek",
-      "title": "AI·DeepSeek 网页版",
-      "sub": "chat.deepseek.com · 深度思考 / 代码 / 复杂推理",
-      "type": "embed",
-      "url": "https://chat.deepseek.com/",
-      "userAgent": "chrome",
-      "expand": true,
-      "failHint": "先确认这台机器能上网（面板里就是普通网页）。打不开可点右上角系统浏览器查看。",
-      "offHint": "已把这个网页摘掉（省一份进程）。点「内置」切回来。",
-      "col": 1,
-      "row": 1,
-      "w": 2,
-      "h": 3
-    },
-    {
-      "id": "webai-doubao",
-      "title": "AI·豆包 网页版",
-      "sub": "www.doubao.com · 多模态 / 生图 / 联网搜索",
-      "type": "embed",
-      "url": "https://www.doubao.com/chat/",
-      "userAgent": "chrome",
-      "expand": true,
-      "failHint": "先确认这台机器能上网。打不开可点右上角系统浏览器查看。",
-      "offHint": "已把这个网页摘掉（省一份进程）。点「内置」切回来。",
-      "col": 1,
-      "row": 4,
-      "w": 2,
-      "h": 3
-    },
     {
       "id": "webai-preview",
       "title": "产物与文档预览",
       "sub": "联动 _webai产物\\ 与任务文档 · 支持 Markdown / 图片 / 代码 / PDF",
       "type": "view",
-      "col": 3,
+      "col": 1,
       "row": 1,
       "w": 1,
       "h": 6
@@ -56,7 +26,7 @@
       "pinTarget": [
         "网页AI"
       ],
-      "col": 4,
+      "col": 2,
       "row": 1,
       "w": 1,
       "h": 6

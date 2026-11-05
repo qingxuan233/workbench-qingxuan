@@ -428,8 +428,7 @@
 
   // ============================================================ ④ ⋯ 更多
   var MORE = { open: '' };
-  var mPill = el('button', 'tbs-pill');
-  mPill.type = 'button';
+  var mPill = el('button', 'tbs-pill'); mPill.id = 'tbs-more'; mPill.type = 'button';
   mPill.innerHTML = '<span class="tbs-more">⋯</span>';
   mPill.title = '更多：磁盘余量 / 今天体检 / 搜文件脚本 / 打开常用文件夹';
   mPill.addEventListener('click', function () { MORE.open = ''; openPop(mPill, 'more', buildMore); });
@@ -864,9 +863,8 @@
     var gpu = LOAD.gpu ? (LOAD.gpu.util + '%') : '—';
     var mem = (LOAD.mem && typeof LOAD.mem.usedPct === 'number') ? (LOAD.mem.usedPct + '%') : '—';   // 2026-10-20 内存   // 2026-10-19 宿主：胶囊里不显示温度（温度放点开的明细里）
     var lvl = (typeof LOAD.cpu === 'number' && LOAD.cpu >= 90) ? 'bad' : (typeof LOAD.cpu === 'number' && LOAD.cpu >= 70 ? 'warn' : '');
-    lPill.innerHTML = '<span class="tbs-txt"><span class="tbs-k">CPU</span><b>' + cpu + '</b></span>'
-      + '<span class="tbs-txt"><span class="tbs-k">GPU</span><b>' + gpu + '</b></span>'
-      + '<span class="tbs-txt"><span class="tbs-k">MEM</span><b>' + mem + '</b></span>';
+    var cpuSvg = '<svg class="tbs-ico" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.8" stroke="currentColor" stroke-width="1.3"/><path d="M6 1.6v1.9M10 1.6v1.9M6 12.5v1.9M10 12.5v1.9M1.6 6h1.9M1.6 10h1.9M12.5 6h1.9M12.5 10h1.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/></svg>';
+    lPill.innerHTML = cpuSvg + '<span class="tbs-txt"><span class="tbs-k">CPU</span><b>' + cpu + '</b></span>' + '<span class="tbs-txt"><span class="tbs-k">GPU</span><b>' + gpu + '</b></span>' + '<span class="tbs-txt"><span class="tbs-k">MEM</span><b>' + mem + '</b></span>';
     lPill.className = 'tbs-pill tbs-load' + (lvl ? ' ' + lvl : '');
     lPill.title = '本机负载：CPU ' + cpu + ' · GPU ' + gpu + (LOAD.gpu ? ('（' + LOAD.gpu.memUsed + '/' + LOAD.gpu.memTotal + ' MB 显存）') : '') + '　·　点开看明细';
   }
@@ -1113,8 +1111,7 @@
 
   // ============================================================ ④ ⋯ 更多
   var MORE = { open: '' };
-  var mPill = el('button', 'tbs-pill');
-  mPill.type = 'button';
+  var mPill = el('button', 'tbs-pill'); mPill.id = 'tbs-more'; mPill.type = 'button';
   mPill.innerHTML = '<span class="tbs-more">⋯</span>';
   mPill.title = '更多：磁盘余量 / 今天体检 / 搜文件脚本 / 打开常用文件夹';
   mPill.addEventListener('click', function () { MORE.open = ''; openPop(mPill, 'more', buildMore); });
@@ -1546,9 +1543,8 @@
     var gpu = LOAD.gpu ? (LOAD.gpu.util + '%') : '—';
     var mem = (LOAD.mem && typeof LOAD.mem.usedPct === 'number') ? (LOAD.mem.usedPct + '%') : '—';   // 2026-10-20 内存   // 2026-10-19 宿主：胶囊里不显示温度（温度放点开的明细里）
     var lvl = (typeof LOAD.cpu === 'number' && LOAD.cpu >= 90) ? 'bad' : (typeof LOAD.cpu === 'number' && LOAD.cpu >= 70 ? 'warn' : '');
-    lPill.innerHTML = '<span class="tbs-txt"><span class="tbs-k">CPU</span><b>' + cpu + '</b></span>'
-      + '<span class="tbs-txt"><span class="tbs-k">GPU</span><b>' + gpu + '</b></span>'
-      + '<span class="tbs-txt"><span class="tbs-k">MEM</span><b>' + mem + '</b></span>';
+    var cpuSvg = '<svg class="tbs-ico" width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.8" stroke="currentColor" stroke-width="1.3"/><path d="M6 1.6v1.9M10 1.6v1.9M6 12.5v1.9M10 12.5v1.9M1.6 6h1.9M1.6 10h1.9M12.5 6h1.9M12.5 10h1.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/></svg>';
+    lPill.innerHTML = cpuSvg + '<span class="tbs-txt"><span class="tbs-k">CPU</span><b>' + cpu + '</b></span>' + '<span class="tbs-txt"><span class="tbs-k">GPU</span><b>' + gpu + '</b></span>' + '<span class="tbs-txt"><span class="tbs-k">MEM</span><b>' + mem + '</b></span>';
     lPill.className = 'tbs-pill tbs-load' + (lvl ? ' ' + lvl : '');
     lPill.title = '本机负载：CPU ' + cpu + ' · GPU ' + gpu + (LOAD.gpu ? ('（' + LOAD.gpu.memUsed + '/' + LOAD.gpu.memTotal + ' MB 显存）') : '') + '　·　点开看明细';
   }
@@ -1616,10 +1612,11 @@
   // buildFolders 用函数声明（会提升）⇒ 在这里定义、上面 mount 之后就能用。
   var fPill = el('button', 'tbs-pill');
   fPill.type = 'button';
-  fPill.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">'
-    + '<path d="M1.9 4.3c0-.8.6-1.4 1.4-1.4h2.6l1.3 1.5h5.5c.8 0 1.4.6 1.4 1.4v6.2c0 .8-.6 1.4-1.4 1.4H3.3c-.8 0-1.4-.6-1.4-1.4V4.3Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>'
+  fPill.id = 'tbs-folders';
+  fPill.innerHTML = '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">'
+    + '<path d="M2 4.2C2 3.54 2.54 3 3.2 3H6.1c.42 0 .81.22 1.03.58l.64 1.04c.22.36.61.58 1.03.58H12.8c.66 0 1.2.54 1.2 1.2V12c0 .66-.54 1.2-1.2 1.2H3.2C2.54 13.2 2 12.66 2 12V4.2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>'
     + '<span class="tbs-txt">文件夹</span>';
-  fPill.title = '打开常用文件夹（工程文件 / 视频工作流 / 视频编辑素材 / 收录素材 / 成品 / 项目工程 / DSH 根）';
+  fPill.title = '常用与最近文件夹（工作台 / 场景记忆 / 外壳脚本 及最近使用）';
   fPill.addEventListener('click', function () { openPop(fPill, 'folders', buildFolders); loadRecent(); });
 
   // ⛔ 2026-10-21：这里原来 push 了「场景记忆 / 工具」两个，凑成 8 个。
