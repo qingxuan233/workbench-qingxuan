@@ -50,7 +50,7 @@
 ## 四、公开的参考链接
 
 - 概念讨论（公开）：搜索「DeepSeek Super-agent Router Worker」可找到公开报道与社区解读
-- 我们的机制总纲：本仓库 [`总纲.md`](../总纲.md) 与 [`00-核心机制/`](../00-核心机制/)
+- 我们的机制总纲：本仓库 [`总纲.md`](../文档/总纲.md) 与 [`00-核心机制/`](../00-核心机制/)
 - **MIT 原型仓库（官方公开）**：[`deepseek-ai/dsh-superagent-prototype`](https://github.com/deepseek-ai/dsh-superagent-prototype) —— 已核：MIT · commit `6337fc8`（"feat: add the dsh-superagent research prototype"）· 2026-10-31 仍在更新
 
 ## 五、明确不公开

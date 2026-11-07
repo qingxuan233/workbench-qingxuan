@@ -98,5 +98,73 @@ const realCat = inventory.readToolCatalog();
 assert.ok(realCat && Array.isArray(realCat.groups) && realCat.groups.length > 0, '外壳真实工具清单可读取');
 ok('真实工具清单：读取成功，包含 ' + realCat.groups.length + ' 个分组');
 
+// 7. 外部 CLI 内核版本探测（2026-11-07：源码直跑形态下 engine 不再恒为 null）
+//    本机真实布局（官方桌面版）：<安装>\resources\runtime\cli\bin\dsh.cmd + primary-runtime\runtime.json
+const fakeInstall = path.join(tmp, 'fake-install');
+fs.mkdirSync(path.join(fakeInstall, 'runtime', 'cli', 'bin'), { recursive: true });
+fs.mkdirSync(path.join(fakeInstall, 'runtime', 'primary-runtime'), { recursive: true });
+const fakeCli = path.join(fakeInstall, 'runtime', 'cli', 'bin', 'dsh.cmd');
+fs.writeFileSync(fakeCli, '@echo off\r\n', 'utf8');
+fs.writeFileSync(path.join(fakeInstall, 'runtime', 'primary-runtime', 'runtime.json'),
+  JSON.stringify({ desktopVersion: '9.9.9-test' }), 'utf8');
+inventory.init({
+  harnessDir: '',
+  engineCliPath: fakeCli,
+  pluginsDir: '',
+  dshDataDir: tmp,
+  toolsCatalogFile: testCatalog,
+  settingsPath: '',
+  credentialsPath: '',
+  skillsDir: '',
+  projectDir: ROOT,
+});
+const vExt = inventory.versionInfo('0.2.1-test');
+assert.equal(vExt.engine, '9.9.9-test', '官方桌面版布局应探测到内核版本');
+assert.equal(vExt.engineSource, 'runtime.json');
+assert.equal(vExt.engineProbe, true, '新主进程标志必须为 true（渲染层据此显示两行版本）');
+assert.equal(vExt.gui, v.gui, 'GUI 版本仍来自外壳 package.json，不能被内核版本顶替');
+ok('versionInfo：外部 CLI 形态探测到内核版本 ' + vExt.engine + '（来源 ' + vExt.engineSource + '）');
+
+// 7b. npm 全局安装布局：<root>\node_modules\@deepseek-ai\dsh\package.json
+const fakeNpm = path.join(tmp, 'fake-npm');
+fs.mkdirSync(path.join(fakeNpm, 'bin'), { recursive: true });
+fs.mkdirSync(path.join(fakeNpm, 'node_modules', '@deepseek-ai', 'dsh'), { recursive: true });
+const npmCli = path.join(fakeNpm, 'bin', 'dsh.cmd');
+fs.writeFileSync(npmCli, '@echo off\r\n', 'utf8');
+fs.writeFileSync(path.join(fakeNpm, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'),
+  JSON.stringify({ name: '@deepseek-ai/dsh', version: '8.8.8-test' }), 'utf8');
+inventory.init({
+  harnessDir: '',
+  engineCliPath: npmCli,
+  pluginsDir: '',
+  dshDataDir: tmp,
+  toolsCatalogFile: testCatalog,
+  settingsPath: '',
+  credentialsPath: '',
+  skillsDir: '',
+  projectDir: ROOT,
+});
+const vNpm = inventory.versionInfo('0.2.1-test');
+assert.equal(vNpm.engine, '8.8.8-test');
+assert.equal(vNpm.engineSource, 'npm');
+ok('versionInfo：npm 全局布局探测到内核版本 ' + vNpm.engine);
+
+// 7c. 探测不到 = 未知（null），不瞎猜
+inventory.init({
+  harnessDir: '',
+  engineCliPath: path.join(tmp, 'no-such-dir', 'dsh.cmd'),
+  pluginsDir: '',
+  dshDataDir: tmp,
+  toolsCatalogFile: testCatalog,
+  settingsPath: '',
+  credentialsPath: '',
+  skillsDir: '',
+  projectDir: ROOT,
+});
+const vNone = inventory.versionInfo('0.2.1-test');
+assert.equal(vNone.engine, null);
+assert.equal(vNone.engineSource, '');
+ok('versionInfo：探测不到内核版本时如实为 null（不猜）');
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('\n✓ 清点模块 smoke test 全部通过：' + pass + ' 组');

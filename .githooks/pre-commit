@@ -1,11 +1,15 @@
 #!/bin/sh
-# 提交前红线闸：调用 12-源码照搬/工具/验收.mjs
+# 提交前红线闸：先跑「结构校验」（《文件归档制度》），再跑「验收」（六步）
 #
-# 启用（只影响本机这份克隆，不改全局配置）：
-#   git config core.hooksPath .githooks
-# Linux/macOS 若提示无执行权限，再补：chmod +x .githooks/pre-commit
-# 关闭：
-#   git config --unset core.hooksPath
+# 启用（只影响本机这份克隆）——⛔ 不要用 `git config core.hooksPath .githooks`：
+#   那样 Git 只读 .githooks/，.git/hooks/reference-transaction 里的**上游闸立即失效**，
+#   任何把上游提交引入 main 的引用更新（ff 合并 / 合并提交 / reset 到上游 / cherry-pick）
+#   都不再被拦下。而 .githooks/ 里只有本文件，没有上游闸。
+#   正确做法是「复制过去」，两个钩子并存：
+#     PowerShell:  Copy-Item .githooks\pre-commit .git\hooks\pre-commit
+#     sh:          cp .githooks/pre-commit .git/hooks/pre-commit
+# Linux/macOS 若提示无执行权限，再补：chmod +x .git/hooks/pre-commit
+# 关闭：删掉复制过去的那份即可（rm .git/hooks/pre-commit）；上游闸本来就与它无关。
 #
 # 说明：验收.mjs 自身会基于 git ls-files 的已跟踪清单做模板态扫描，
 #       所以本机实例文件（工作台.json、真实会话 id、本机路径）不会因为
@@ -16,6 +20,9 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   exit 1
 }
 cd "$REPO_ROOT" || exit 1
+
+# 结构闸（《文件归档制度》）：根目录白名单 / 文档索引 / 归档横幅 / 全仓文档链接可解析
+node "12-源码照搬/工具/结构校验.mjs" --check || exit $?
 
 node "12-源码照搬/工具/验收.mjs"
 exit $?

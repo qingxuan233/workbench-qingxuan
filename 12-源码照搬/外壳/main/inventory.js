@@ -15,6 +15,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const engineGuard = require('./engine-guard');
 
 let CFG = null;
 
@@ -22,6 +23,8 @@ function init(cfg) {
   cfg = cfg || {};
   CFG = {
     harnessDir: cfg.harnessDir || '',
+    // 外部 CLI 路径（字符串或返回字符串的函数）。没有内置 引擎\ 时靠它只读探测内核版本。
+    engineCliPath: cfg.engineCliPath || '',
     pluginsDir: cfg.pluginsDir || '',
     dshDataDir: cfg.dshDataDir || cfg.dataDir || '',
     toolsCatalogFile: cfg.toolsCatalogFile || (cfg.shellDataDir ? path.join(cfg.shellDataDir, '工具清单.json') : (cfg.dataDir ? path.join(cfg.dataDir, '工具清单.json') : '')),
@@ -44,10 +47,26 @@ function readVer(p) {
 
 function versionInfo(appVersion) {
   const cfg = ready();
+  // 内核版本：有内置 引擎\ 就读它自己的 package.json；
+  // 没有（公开副本是源码直跑 + 外部 CLI）就只读探测 CLI 安装目录里的内核包。
+  // 2026-11-07：以前这一支恒为 null，左栏只剩外壳版本号，容易被读成"DSH 内核版本"。
+  let engine = cfg.harnessDir ? readVer(path.join(cfg.harnessDir, 'package.json')) : null;
+  let engineSource = engine ? 'harness' : '';
+  let engineCli = '';
+  if (!engine && cfg.engineCliPath) {
+    try {
+      engineCli = typeof cfg.engineCliPath === 'function' ? String(cfg.engineCliPath() || '') : String(cfg.engineCliPath);
+      const hit = engineGuard.detectEngineVersion(engineCli);
+      if (hit && hit.version) { engine = hit.version; engineSource = hit.source; }
+    } catch (e) { /* 探测失败 = 未知，不抛 */ }
+  }
   return {
     gui: readVer(path.join(cfg.projectDir, 'package.json')),
     // HARNESS_DIR 为空时，path.join('', 'package.json') 会读到外壳自己的版本 ⇒ 空串一律 null
-    engine: cfg.harnessDir ? readVer(path.join(cfg.harnessDir, 'package.json')) : null,
+    engine,
+    engineSource,
+    // 新主进程的标志：渲染层据此区分「探测过但未知」与「老主进程根本没有这个字段」
+    engineProbe: true,
     cli: cfg.harnessDir ? readVer(path.join(cfg.harnessDir, 'apps', 'cli', 'package.json')) : null,
     engineDir: cfg.harnessDir,
     electron: process.versions.electron || '',

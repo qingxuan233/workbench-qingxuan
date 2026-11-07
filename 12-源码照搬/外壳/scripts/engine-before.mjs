@@ -63,15 +63,18 @@ if (ENG) {
   if (cliPath) rec.engine.externalCliExists = fs.existsSync(cliPath);
 }
 const skills = path.join(ROOT, '引擎数据', '.dsh', 'skills');
-rec.skills = { dir: '引擎数据\\.dsh\\skills', exists: fs.existsSync(skills), items: (() => { try { return fs.readdirSync(skills).filter((x) => !x.startsWith('.')).length; } catch (e) { return 0; } })() };
+rec.skills = { dir: '引擎数据\\.dsh\\skills', exists: fs.existsSync(skills), items: (() => { try { return fs.readdirSync(skills).filter((x) => !x.startsWith('.') && !x.startsWith('_')).length; } catch (e) { return 0; } })() };
 rec.sessions = (() => {
   const p = path.join(ROOT, '引擎数据', '.dsh', 'session_projcache.json');
   try { const j = JSON.parse(fs.readFileSync(p, 'utf8')); return Array.isArray(j) ? j.length : (Object.keys(j).length || 0); } catch (e) { return 0; }
 })();
 
+// 存档落盘必须"失败也说得清"：以前这里裸 writeFileSync，目录不可写时直接抛 EPERM 栈，
+// 前面算好的版本/技能/会话信息一行都没打出来（2026-11-07 实测踩到）。现在：先打报告，再试落盘，
+// 落不下就把整份记录打在 stdout 里并给非 0 退出码（--no-save 时明确说"只报告"）。
+const NO_SAVE = process.argv.includes('--no-save');
 fs.mkdirSync(DATA, { recursive: true });
 const out = path.join(DATA, 'engine-before-' + stamp() + '.json');
-fs.writeFileSync(out, JSON.stringify(rec, null, 1), 'utf8');
 
 console.log('引擎升级前存档');
 console.log('  引擎形态：' + rec.engine.mode + (rec.engine.dir ? '（' + rec.engine.dir + '）' : ''));
@@ -79,14 +82,29 @@ if (rec.engine.version) console.log('  引擎版本：' + rec.engine.version);
 if (rec.engine.head) console.log('  HEAD    ：' + rec.engine.head + '（' + rec.engine.branch + '）' + (rec.engine.dirty ? ' · 本地改动 ' + rec.engine.dirty + ' 个文件' : ''));
 if (rec.engine.adapted) console.log('  壳适配  ：' + rec.engine.adapted);
 console.log('  技能/会话：' + rec.skills.items + ' 个技能 · ' + rec.sessions + ' 条会话');
-console.log('  ✔ 已写 ' + path.relative(ROOT, out));
+
+let saved = false;
+if (!NO_SAVE) {
+  try { fs.writeFileSync(out, JSON.stringify(rec, null, 1), 'utf8'); saved = true; }
+  catch (e) {
+    console.log('  ✗ 存档没写下去：' + path.relative(ROOT, out) + '（' + (e && e.code ? e.code : e.message) + '）');
+    console.log('    ⇒ data\\ 目录不可写（沙箱/权限），这是环境问题不是脚本问题。两种处理：');
+    console.log('      ① 换到可写目录跑：node 外壳\\scripts\\engine-before.mjs --no-save 并把下面这段 JSON 自己存起来；');
+    console.log('      ② 给 data\\ 写权限（或在能写的终端里跑）。');
+    console.log('    ---- engine-before JSON（可直接另存为 ' + path.basename(out) + '）----');
+    console.log(JSON.stringify(rec, null, 1));
+    console.log('    ---- end ----');
+  }
+}
+if (saved) console.log('  ✔ 已写 ' + path.relative(ROOT, out));
+else if (NO_SAVE) console.log('  · --no-save：只报告，不落盘');
 
 console.log('\n升级前请自己确认（脚本不替你做）：');
-console.log('  1) 备份外壳：node 工具\\备份外壳.mjs    （或 scripts\\backup-gui.mjs）');
+console.log('  1) 备份外壳：node 外壳\\scripts\\backup-gui.mjs');
 console.log('  2) 引擎有本地补丁就先 git stash');
 if (rec.engine.dirty) console.log('     ⚠ 引擎目录现在就有 ' + rec.engine.dirty + ' 个未提交改动 —— 先 stash 再 pull');
 console.log('  3) 升级：git pull → pnpm install → pnpm run build');
-console.log('  4) 升完跑：node 外壳\\scripts\\engine-after.mjs');
+console.log('  4) 升完跑：node 外壳\\scripts\\engine-after.mjs（它会明确区分 通过 / 跳过 / 失败）');
 
 // 顺手存一代启动配置（有工具就存，没有就只提醒）
 const snapTool = path.join(ROOT, '工具', '引擎快照.mjs');
@@ -96,4 +114,5 @@ if (fs.existsSync(ENG) && fs.existsSync(snapTool)) {
 } else if (fs.existsSync(snapTool)) {
   console.log('\n提示：启动配置快照（工具\\引擎快照.mjs --save）只在有内置引擎时有意义，这次跳过。');
 }
-process.exit(0);
+// 退出码：0 = 报告完整 + 存档已落；1 = 存档没落下去（环境问题，上面已给出补救办法）
+process.exit(saved || NO_SAVE ? 0 : 1);

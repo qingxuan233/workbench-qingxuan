@@ -88,13 +88,23 @@ else skip('依赖保留（node_modules 是运行时，不是缓存）')
 
 // ── 2. 引擎 CLI 探测 ───────────────────────────────────────
 head('探测本机 DSH 引擎 CLI');
+// ⚠ 2026-11-07：探测顺序必须与运行时（外壳\main\engine-guard.js 的 findDshCmd）**完全一致**，
+//   否则会出现"初始化写进 工作台.json 的引擎"和"GUI 实际启动的引擎"不是同一个的坑。
+//   运行时顺序：工作台.json engine.cliPath → DSH_CMD → where dsh → LOCALAPPDATA/ProgramFiles → 各盘常见目录。
+//   （初始化有"立即命中 = 优先"，所以这里把工作台.json 的旧值排在第一，语义上等价于运行时"优先用它"。）
+// ★ 第二个坑：只用存在性探测，**经常探测到的是旧版本而不报错**（本机就实际踩到过 0.2.1-rc.3 → 0.2.2-rc.1）。
+//   这里额外做一件运行时没做的事：记住工作台.json 里上一台机器探测到的 CLI，若这次探测结果**变了**就明确打出来，
+//   而不是静默覆盖。版本号本身不在这里猜（不同调用姿势拿到的输出不一样），交给 engine-after.mjs 去读。
 function findDshCmd() {
   const cands = [];
+  const prev = (() => {
+    try {
+      const mf = JSON.parse(fs.readFileSync(path.join(APP, '工作台.json'), 'utf8').replace(/^\uFEFF/, ''));
+      return (mf && mf.engine && mf.engine.cliPath) || '';
+    } catch { return ''; /* 没有旧清单 */ }
+  })();
+  if (prev) cands.push(prev);
   if (process.env.DSH_CMD) cands.push(process.env.DSH_CMD);
-  try {
-    const mf = JSON.parse(fs.readFileSync(path.join(APP, '工作台.json'), 'utf8').replace(/^\uFEFF/, ''));
-    if (mf && mf.engine && mf.engine.cliPath) cands.push(mf.engine.cliPath);
-  } catch { /* 没有旧清单 */ }
   try {
     const out = execFileSync('where.exe', ['dsh'], { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
     for (const line of out.split(/\r?\n/)) if (line.trim()) cands.push(line.trim());
@@ -118,10 +128,19 @@ function findDshCmd() {
   return null;
 }
 const CLI = findDshCmd();
+// 探测结果变了就说出来（旧值不是本机 / 装了第二份引擎 / 有人改了 DSH_CMD）
+const PREV_CLI = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(APP, '工作台.json'), 'utf8').replace(/^\uFEFF/, '')).engine.cliPath || ''; } catch { return ''; }
+})();
 if (CLI) act(`引擎 CLI：${CLI}`);
 else {
   say('  ⚠ 没找到 DSH 引擎 CLI。工作台仍能启动，但 AI 面板不可用。');
   say('    修法：设环境变量 DSH_CMD=<dsh.cmd 的路径>，或在 工作台.json 里填 engine.cliPath');
+}
+if (PREV_CLI && CLI && path.resolve(PREV_CLI).toLowerCase() !== path.resolve(CLI).toLowerCase()) {
+  say('  ↻ 引擎 CLI 换了：' + PREV_CLI + ' → ' + CLI);
+  say('    ⇒ 换引擎等于换了上游实现：升完请跑 node 外壳\\scripts\\engine-after.mjs 看 8 个锚点还在不在；');
+  say('      没有内置 引擎\\ 时会报 SKIPPED（未验证）；本仓库不随附 DOM 探针，运行时替代验证见 ..\\_本机产物\\优化报告\\DSH内核兼容.md §三。');
 }
 
 // ── 2.5 运行时依赖（Electron）─────────────────────────────

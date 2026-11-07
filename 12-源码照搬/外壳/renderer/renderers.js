@@ -3251,7 +3251,13 @@ window.APP_RENDERERS = renderers;
 // 上游一改这些，壳不会崩但会**静默降级**（面板藏不住侧栏、钉会话失效、状态小字乱报）。
 // 所以这里记一份"已验证过的引擎版本"：引擎版号与它不一致 → 品牌区小点变琥珀色 + 悬停卡里明确写出，
 // 并在 console 留一行提示。**只提示、不阻塞启动**（升级后功能多数仍然可用，不该把人挡在门外）。
-var ADAPTED_ENGINE = '0.2.1-rc.3';   // 2026-10-26 升到 0.2.1-rc.3（HEAD 22ddee3792；engine-after 8 锚点全在 + 面板/钉会话/藏列实测通过）
+// ★2026-11-07 如实修订★：上一版注释写「8 核心锚点契约验证全绿通过」——**这句没有证据**。
+//   本仓库是「源码直跑 + 外部引擎」，没有内置 引擎\ 目录 ⇒ engine-after.mjs 的 8 锚点**源码扫描根本跑不了**，
+//   它只会在无内置引擎时跳过（现在显式报 SKIPPED / exit 3，不再自报"不适用(0 失败)"）。
+//   8 个锚点对着 0.2.2-rc.1 真实产物的逐条核查见 _本机产物/优化报告/DSH内核兼容.md（只读 asar，附命中次数）。
+//   所以下面这个版本号的含义严格限定为：**壳"声称"适配 0.2.2-rc.1**（本机 dsh --version 实测值）。
+//   ⚠ 锚点契约仍待在有内置 引擎\ 的克隆里跑一次 engine-after.mjs（exit 0 = 真的逐条核对过）。
+var ADAPTED_ENGINE = '0.2.2-rc.1';   // 2026-11-05 升到 0.2.2-rc.1（本机 dsh --version 实测）；锚点契约未在本仓库复核
 var engineMismatch = '';
 // 为什么放在这个文件（而不是 renderer.js）：renderers.js 是**可热更新**的（标题栏 ⟳ 会重新执行它），
 // 把"品牌区装饰 + 版本卡"放这里，改完点 ⟳ 就生效，不用重启 GUI。
@@ -5810,13 +5816,21 @@ renderers.harness = (body, meta, head) => {
     else load();
   });
   const diag = el('span', 'harness-diag', '精简模式：注入中…');
-  // 状态小字可点击 = 人工兜底：清掉本面板记住的会话 id，重新按会话名匹配一次。
-  // 用途：万一绑错了会话（例如会话改名后被别处占用），用户点一下即可解绑重找，
-  // 不用改代码、不用重启 GUI。（鼠标悬停有完整说明，见 injectFix 里的 diag.title）
+  // 状态小字可点击 = 人工兜底（2026-11-07 分成两档）：
+  //   ① 普通点击 = **重新加载**，并按场景里的绑定再钉一次 —— 用于「存储已指向 / 画面没跟上（欢迎页）」这种
+  //      最常见的情形（以前这里只会清绑定，等于把本来对的绑定也扔了）。
+  //   ② Shift + 点击 = 忘掉本面板记住的会话标题，重新按会话名匹配 —— 用于"绑错了会话 / 会话改名"。
+  // 不用改代码、不用重启 GUI。（悬停有完整说明，见 injectFix 里的 diag.title）
   diag.style.cursor = 'pointer';
-  diag.addEventListener('click', () => {
+  diag.addEventListener('click', (ev) => {
     try {
       if (!wv || !wv.executeJavaScript) return;
+      if (!(ev && ev.shiftKey)) {
+        // 清掉软刷新/直达通道的计数，让重载后还能再试几次（否则额度用光就永远不重载了）
+        const soft = "try{sessionStorage.removeItem('app_pin_soft_reloads');sessionStorage.removeItem('app_pin_reloads');}catch(e){}; 'ok'";
+        wv.executeJavaScript(soft).then(() => { try { wv.reload(); } catch (e) { /* ignore */ } }).catch(() => { try { wv.reload(); } catch (e) { /* ignore */ } });
+        return;
+      }
       // 只清本面板的绑定（键名带面板 id），别把其它 AI 面板的记忆一起清掉
       const js = "try{localStorage.removeItem('app_pin_bind_v2:" + PANEL_KEY + "')}catch(e){}; 'ok'";
       wv.executeJavaScript(js)
@@ -5843,7 +5857,10 @@ renderers.harness = (body, meta, head) => {
   // 兜底 = JS 常驻（MutationObserver + 定时器）纠正 React 重渲染。
   const HARNESS_CHAT_CSS = [
     '[style*="grid-template-columns"][style*="minmax(0"] { grid-template-columns: minmax(0, 1fr) !important; }',
-    '[style*="grid-template-columns"][style*="minmax(0"] [data-side="sidebar"], [style*="grid-template-columns"][style*="minmax(0"] [data-side="details"] { display: none !important; }',
+    // 2026-11-07 修：原来这条写的是 [data-side="sidebar"] / [data-side="details"]，**恒选不中任何元素**
+    //   （本机引擎 0.2.2-rc.1：data-side 只在宽度拖拽手柄上，取值只有 left/right；sidebar/details 各 0 命中）。
+    //   侧栏/详情列的真实隐藏由下方 HARNESS_FIX_JS 的结构法承担（定位含 [data-chat-flow] 的中心列，
+    //   隐藏框架其余非 absolute 子元素）。这里不再留一条恒空的 CSS 兜底 —— 假保险比没有更糟。
     '[style*="grid-template-columns"][style*="minmax(0"] [data-phase] > header { display: none !important; }',
     '[style*="grid-template-columns"][style*="minmax(0"] [data-width-handle] { display: none !important; }',
     // 文字铺满：老写法 `[data-phase] { --dsh-chat-content-width: 100% !important }` 在引擎 0.1.6 上
@@ -6000,6 +6017,12 @@ renderers.harness = (body, meta, head) => {
     // 用完就只走 ① 点侧栏会话行，不会再无休止重载。
     const RELOAD_MAX = 5;
     const reloadGap = () => (readReloads() >= 3 ? 25000 : 8000);
+    // 软刷新计数（2026-11-07）：存储已指向目标、画面却没落在目标会话时，允许再重载**最多 2 次**（间隔 ≥8 秒）。
+    //   与 reloads 分开计数：reloads 管"写键通道"，这里管"键对了但画面没跟上"（欢迎页 / 应用慢加载）。
+    const SOFT_KEY = 'app_pin_soft_reloads';
+    const readSoft = () => { try { return Number(sessionStorage.getItem(SOFT_KEY) || 0) || 0; } catch (e) { return 0; } };
+    const bumpSoft = () => { try { sessionStorage.setItem(SOFT_KEY, String(readSoft() + 1)); } catch (e) { } };
+    const clearSoft = () => { try { sessionStorage.removeItem(SOFT_KEY); } catch (e) { } };
     // ⚠ 归一化**必须保留空格**（只把连续空白压成一个空格）：2026-09-19 实测本机存在"长得一样"的孪生会话
     //   （「DSH 改造」与「DSH改造」、「GUI 页面改造」与「GUI页面改造」），早先这里把空白**全部删掉**（只留字母），
     //   全删了 ⇒ 孪生会话的标题**完全相等** ⇒ 面板把"另一个几乎空白的同名会话"当成目标、还报"✓ 已钉绑定"
@@ -6008,6 +6031,9 @@ renderers.harness = (body, meta, head) => {
     // ⚠ 教训（2026-09-14 当天踩过一次，别再犯）：**不要把搜索范围限制在某个"看起来像侧栏"的容器里**。
     //   实测 [data-side="sidebar"] 挂在拖拽手柄上、不是会话列表容器 → 限定范围后候选恒为空 →
     //   一个会话都点不到，面板就停在"新会话/欢迎页"（表现为"每个场景都切不进去"）。
+    //   ★2026-11-07 补正★：对本机引擎 0.2.2-rc.1 的 app.asar 再核一次——[data-side] 只出现在
+    //   宽度拖拽手柄上（"data-side": props.side），取值只有 left / right；sidebar / details **各 0 命中**。
+    //   所以那条选择器不是"能选中但选错"，而是**压根选不中**。本文件里所有同类选择器已一并清掉。
     //   正确做法：全文档找，但 ① 排除聊天内容区（避免点到聊天记录里的同名字样）
     //            ② 绝不点分组头（[aria-expanded]，点了只展开分组）③ 会话行优先。
     const inChat = (e) => {
@@ -6044,6 +6070,19 @@ renderers.harness = (body, meta, head) => {
     };
     // 页面标题 =「<会话名> — DSH 本地构建」：去掉后缀就是会话名（应用自己写的，最权威）
     const stripSuffix = (s) => String(s == null ? '' : s).replace(/\s*[—–\-]\s*DSH.*$/, '').trim();
+    // ⚠ 2026-11-07 修：欢迎页/起始页的 document.title 就是笼统的「DeepSeek Harness」，
+    //   以前被当成"当前会话名"⇒ 状态小字写「未切到 · DeepSeek Harness」，同时让 storeOk 分支误判成已切到。
+    //   这些通用标题一律当"读不到会话名"处理。
+    const GENERIC_TITLES = ['DSH 本地构建', 'DeepSeek Harness', 'DSH', '探索未至之境', '新会话', '欢迎'];
+    const isGenericTitle = (s) => GENERIC_TITLES.indexOf(String(s || '').trim()) >= 0;
+    // 欢迎页/选择工作区页：没有对话流，且有引导语。用它把"引擎压根没打开会话"与"开着会话但标题没读到"分开。
+    const isWelcome = () => {
+      try {
+        if (document.querySelector('[data-chat-flow]')) return false;
+        const t = String(document.body.innerText || '');
+        return /探索未至之境|选择工作区|描述你想要构建的内容|选择一个工作区开始/.test(t);
+      } catch (e) { return false; }
+    };
     // 纯页签名（聊天区顶栏里第一个文本常常只是页签名"对话"），不能当成会话名
     const isTabLabel = (s) => /^(对话|chat|新视图|new view)$/i.test(String(s || '').trim());
     // 当前**已打开**的会话名。⚠ 顺序很重要（2026-09-14 修）：
@@ -6054,7 +6093,7 @@ renderers.harness = (body, meta, head) => {
     // 都读不到时返回 ''（例如停在"新会话/欢迎页"）。
     const titleOf = () => {
       const dt = stripSuffix(document.title);
-      if (dt && dt !== 'DSH 本地构建') return dt;
+      if (dt && !isGenericTitle(dt)) return dt;
       try {
         const sel = document.querySelector('[aria-selected="true"]');
         const st = rowTitle(sel);
@@ -6070,7 +6109,7 @@ renderers.harness = (body, meta, head) => {
     // 这个会话名是从哪儿读来的（只用于诊断显示，便于判断状态小字是否可信）
     const titleSrc = () => {
       const dt = stripSuffix(document.title);
-      if (dt && dt !== 'DSH 本地构建') return '页面标题';
+      if (dt && !isGenericTitle(dt)) return '页面标题';
       try {
         const st = rowTitle(document.querySelector('[aria-selected="true"]'));
         if (st && st.length <= 60 && !isTabLabel(st)) return '侧栏高亮行';
@@ -6155,6 +6194,10 @@ renderers.harness = (body, meta, head) => {
         stored: (() => { const s = readSel(); return (s && s.sessionId) ? String(s.sessionId) : ''; })(),
         reloads: readReloads(),
         reloadMax: RELOAD_MAX,
+        softReloads: readSoft(),
+        // 欢迎页 / 选择工作区页：画面压根没打开任何会话（不是"标题没读到"）
+        welcome: isWelcome(),
+        hasFlow: (() => { try { return document.querySelectorAll('[data-chat-flow]').length; } catch (e) { return 0; } })(),
         claim: (() => {
           const c = readClaim();
           return c ? (String(c.panel) + ' · ' + Math.round((Date.now() - Number(c.at || 0)) / 1000) + ' 秒前') : '';
@@ -6209,16 +6252,51 @@ renderers.harness = (body, meta, head) => {
     // 处理：临时注入样式强制显示侧栏 → 等 React 渲染 → 点击 → 立刻恢复隐藏（用户看不到闪动）。
     // ⚠ 这条规则是实测有效的版本（display:flex + min-width:0）。上一版改成 position:fixed/visibility:hidden
     //   后虚拟列表不再渲染列表项 → 反而"一个会话都切不进去"，已回退，别再改。
-    let forceTimes = 0, forceStyle = null;
-    const forceShow = () => {
-      if (forceStyle) return;
+    // ★2026-11-07★：原规则写的是 [data-side="sidebar"]，而本机引擎 0.2.2-rc.1 里**没有这个值**
+    //   （[data-side] 只有 left/right，且只挂在宽度拖拽手柄上）⇒ 这条注入**从来没命中过任何元素**，
+    //   等于这段"兜底"一直是死代码。而且真隐藏是 main.js 结构法写的**内联** display:none，
+    //   内联样式优先级高于任何选择器，必须用 !important 才顶得回来。
+    //   改为运行时按结构定位：框架是 grid，含 [data-chat-flow] 的那一列是中心列，其余列就是侧栏/详情列。
+    let forceTimes = 0, forceTargets = [], forceSaved = null;
+    const sideColsOf = () => {
+      const out = [];
       try {
-        forceStyle = document.createElement('style');
-        forceStyle.textContent = '[data-side="sidebar"]{display:flex!important;min-width:0!important}';
-        document.head.appendChild(forceStyle);
-      } catch (e) { forceStyle = null; }
+        const all = document.querySelectorAll('[style*="grid-template-columns"]');
+        let f = null;
+        for (let i = 0; i < all.length; i++) {
+          const v = all[i].style.gridTemplateColumns || '';
+          if (v.indexOf('minmax(') >= 0) { f = all[i]; break; }
+        }
+        if (!f) return out;
+        const kids = f.children;
+        for (let i = 0; i < kids.length; i++) {
+          const c = kids[i];
+          if (c.querySelector && c.querySelector('[data-chat-flow]')) continue;   // 中心列跳过
+          out.push(c);
+        }
+      } catch (e) { /* ignore */ }
+      return out;
     };
-    const forceHide = () => { try { if (forceStyle) { forceStyle.remove(); } } catch (e) { /* ignore */ } forceStyle = null; };
+    const forceShow = () => {
+      if (forceSaved) return;
+      forceTargets = sideColsOf();
+      if (!forceTargets.length) return;
+      forceSaved = forceTargets.map(function (el) { return el.style.display; });
+      forceTargets.forEach(function (el) {
+        try { el.style.setProperty('display', 'flex', 'important'); el.style.setProperty('min-width', '0', 'important'); } catch (e) { /* ignore */ }
+      });
+    };
+    const forceHide = () => {
+      try {
+        if (forceSaved) {
+          forceTargets.forEach(function (el, i) {
+            if (forceSaved[i]) el.style.display = forceSaved[i]; else el.style.removeProperty('display');
+            el.style.removeProperty('min-width');
+          });
+        }
+      } catch (e) { /* ignore */ }
+      forceTargets = []; forceSaved = null;
+    };
     // 是否已经钉住：按"侧栏高亮行标题"判断（权威），命中绑定标题/指定标题/候选名都算到位
     // 画面证据：标题对 ≠ 画面已打开。2026-09-19 探针实测（全新分区 + 只写当前会话键）：
     //   document.title 已经是目标会话名、存储里也指向目标，但**画面仍是「探索未至之境 / 选择一个工作区开始」**
@@ -6285,6 +6363,7 @@ renderers.harness = (body, meta, head) => {
           if (remember && (!b0 || b0.title !== remember)) saveBind(remember);
         } catch (e) { }
         clearReloads();               // 到位即清零本面板的重载预算（本分区只有本面板，清零不会让对侧无限刷）
+        clearSoft();                  // 软刷新额度也一并清零（下次再出现"画面没跟上"还有 2 次可用）
         dropClaim();                  // ★ 到位即让位：让另一个 AI 面板去改当前会话键（两边各一次就都到位）
         last = Date.now();
         refreshDiag(null);
@@ -6301,24 +6380,11 @@ renderers.harness = (body, meta, head) => {
       //   而且只在**本分区本面板**里，不会再被对侧清零）。用完就退回 ① 点侧栏会话行，不会无休止重载。
       //   ⚠ 判"到没到位"仍然只看本面板画面（titlePinned）—— 那是唯一可信的本面板状态；
       //     这里读键只用于判断"要不要写"，不用于判断"成没成"。
-      // 2026-11-01 宿主反馈「每 3 秒自动刷新」⇒ 这里不再自动整页 reload：
-      //   只给「未钉上」提示条，用户点它才刷新（手动 ⟳），避免面板自己不停重刷。
-      const showPinNeedRefresh = () => {
-        try {
-          let tip = body.querySelector('.pin-need-refresh');
-          if (!tip) {
-            tip = document.createElement('div');
-            tip.className = 'pin-need-refresh';
-            tip.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:9999;max-width:420px;padding:10px 14px;' +
-              'border:1px solid rgba(251,191,36,.65);background:rgba(32,24,8,.96);color:#fde68a;border-radius:10px;' +
-              'font:13px/1.55 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.45);cursor:pointer';
-            tip.textContent = '⚠ 会话还没钉上（目标已写入，需刷新一次生效）· 点这里手动刷新';
-            tip.title = '不会再自动刷新；点一下才刷新';
-            tip.addEventListener('click', () => { try { location.reload(); } catch (e) { } });
-            body.appendChild(tip);
-          }
-        } catch (e) { /* ignore */ }
-      };
+      // 2026-11-07 回补（宿主反馈「面板一直停在欢迎页」）：写键之后**必须**重载一次页面 ——
+      //   dsh.sessions.current 只影响"下一次加载"选谁；旧版为了不再"每 3 秒自动刷"，写完只弹了个提示条
+      //   等用户点，结果面板永远停在欢迎页（状态小字却写着已切到）。现在合并成一条统一的 reloadPage()：
+      //   次数由 readReloads()+RELOAD_MAX 与 reloadGap() 管住（最多 5 次、≥8 秒），不会退回秒级对刷。
+      const reloadPage = () => { try { location.reload(); } catch (e) { } };
       if (SESSION_ID) {
         const curSel = (() => { try { const s = readSel(); return (s && s.sessionId) ? String(s.sessionId) : ''; } catch (e) { return ''; } })();
         if (curSel !== String(SESSION_ID) && readReloads() < RELOAD_MAX && (Date.now() - readReloadAt()) > reloadGap()) {
@@ -6326,9 +6392,22 @@ renderers.harness = (body, meta, head) => {
           markReloadAt();
           if (writeSel(SESSION_ID)) {
             refreshDiag(null);
-            showPinNeedRefresh();
-            return;                                  // reload 后脚本会重跑：那时键已是目标，应用直接进会话
+            // ★2026-11-07★ 写完键必须让页面**重载一次**：dsh.sessions.current 只影响"下一次加载"选哪条会话，
+            //   不重载画面就永远停在欢迎页/上一条会话（这就是"存储已指向、状态显示已切到、画面却是 welcome"的真相）。
+            //   次数与间隔由上面的预算管住（最多 5 次、每次 ≥8 秒），不会退化成 2026-11-01 那种"每 3 秒自己刷"。
+            reloadPage();
+            return;
           }
+        }
+        // 软刷新：存储已经等于目标 id，但画面仍不是目标会话（典型＝停在欢迎页；也可能是应用慢加载）。
+        //   只允许 2 次、间隔 ≥8 秒；到位后 clearSoft 清零。无效 id 那种情况由上面的预算兜底，不会无限刷。
+        const curSel2 = (() => { try { const s = readSel(); return (s && s.sessionId) ? String(s.sessionId) : ''; } catch (e) { return ''; } })();
+        if (String(curSel2) === String(SESSION_ID) && readSoft() < 2 && (Date.now() - readReloadAt()) > 8000) {
+          bumpSoft();
+          markReloadAt();
+          refreshDiag(null);
+          reloadPage();
+          return;
         }
       }
       // 说明：走到这里只有一种情形 —— 标题还不像目标：可能应用还在加载（下一轮就好）、
@@ -6441,7 +6520,9 @@ renderers.harness = (body, meta, head) => {
           c.style.setProperty('display', 'none', 'important');
         }
       }
-      f.querySelectorAll('[data-side="sidebar"], [data-side="details"], [data-width-handle]').forEach(function (h) {
+      // 2026-11-07 修：去掉不存在的 [data-side="sidebar"] / [data-side="details"]（引擎里 0 命中）；
+      //   真正存在的只有 [data-width-handle]。侧栏/详情列由上面的结构法（按 grid 列位置）负责。
+      f.querySelectorAll('[data-width-handle]').forEach(function (h) {
         h.style.setProperty('display', 'none', 'important');
       });
       f.querySelectorAll('[data-phase]').forEach(function (r) {
@@ -6538,26 +6619,34 @@ renderers.harness = (body, meta, head) => {
         // 钉会话的动作照旧（下面 clickItem 仍然每轮尝试），不动"画面才是唯一判据"那条铁律。
         const storeOk = !!(d.sessionId && d.stored && String(d.stored) === String(d.sessionId));
         const unbound = !d.sessionId && !d.sessionTitle && !(d.targets || []).length && !(d.bound && d.bound.title);
+        // ★2026-11-07★ 状态小字必须如实：存储一致 ≠ 画面已切过去。
+        //   旧文案在 storeOk 时直接报「✓ 已切到（存储核对）」，而画面可能还停在欢迎页/上一条会话
+        //   （用户实见：状态 ✓、面板是「探索未至之境」）⇒ 现在把三种情形分开写。
         pinTxt = unbound ? '○ 未绑定 · 面板自由选会话'
           : (boundOk ? '✓ 已钉绑定'
             : (ok ? '✓ 已钉'
-              : (storeOk ? '✓ 已切到（存储核对）' : ('未切到 · ' + (live || '读不到当前会话')))));
+              : (storeOk
+                ? (d.welcome ? '⚠ 存储已指向 · 画面还是欢迎页（点此刷新）' : '⚠ 存储已指向 · 画面未切（点此刷新）')
+                : ('未切到 · ' + (live || (d.welcome ? '欢迎页' : '读不到当前会话'))))));
         if (unbound) diag.title = '该面板未绑定任何会话（场景 json 里没写 sessionTitle / sessionId / pinTarget）\n' +
           '面板停在它当前显示的会话上，不会被自动切换，也不再去找侧栏。\n' +
           '要重新绑定：给该面板补 sessionTitle + sessionId，再切一次场景即可（改了就会立刻生效）。';
         else diag.title = '该面板应对应的会话：' + want +
           '\n指定会话 id：' + (d.sessionId || '（未指定 · 靠标题匹配）') +
           '\n应用存储里的当前会话：' + (d.stored || '（空）') + (String(d.stored) === String(d.sessionId) && d.sessionId ? ' ✓ 一致' : '') +
-          (d.reloads ? ('\n直达通道残留计数 ' + d.reloads + ' 次（该通道已停用）') : '') +
+          (d.reloads ? ('\n直达通道重载计数 ' + d.reloads + ' 次（上限 ' + (d.reloadMax || 5) + '）') : '') +
+          (d.softReloads ? ('\n"键对了画面没跟上"的软刷新计数 ' + d.softReloads + ' 次（上限 2）') : '') +
+          (d.welcome ? '\n画面状态：**欢迎页 / 选择工作区页**（引擎还没打开任何会话）' : '') +
           '\n面板当前显示的会话：' + (live || '（读不到）') + (d.titleSrc ? ('（来源：' + d.titleSrc + '）') : '') +
           (d.bound && d.bound.title ? ('\n已记住的会话标题：' + d.bound.title) : '\n已记住的会话标题：（无 · 首次按名字找）') +
           '\n界面可识别会话行/选中行数：' + (d.rows == null ? '未知' : d.rows) +
           (d.matched ? ('\n已定位到会话行：' + d.matched + '（' + d.by + '）') : '\n未定位到目标会话行（分组折叠或列表未渲染）') +
           (d.cands && d.cands.length ? ('\n界面里能看到的会话/行：' + d.cands.join(' ｜ ')) : '\n界面里能看到的会话/行：（读不到）') +
-          (storeOk && !ok ? ('\n↑ 侧栏会话行这次没渲染出来（面板窄 / 分组折叠 / 列表还没出），但「应用存储」里的当前会话'
-            + '已经等于指定的 id ⇒ 引擎确实切到了这条会话，只是标题行没拿到证据（本行状态按存储核对）。') : '') +
+          (storeOk && !ok ? ('\n↑ 「应用存储」里的当前会话已经等于指定 id，但画面没落在该会话上（' +
+            (d.welcome ? '停在欢迎页' : '标题还没变成目标会话') + '）。\n'
+            + '  面板会在写入后自动重载一次；仍不行就点这里刷新（点击 = 重新加载并按当前绑定再钉一次）。') : '') +
           (wideTxt ? ('\n会话列铺满：' + wideTxt + '（列宽 / 可用宽；只差十几像素＝已铺满，差几百＝没铺上，多半引擎换版了）') : '') +
-          '\n\n点击此处 = 忘掉记住的标题，重新按会话名匹配';
+          '\n\n点击此处 = 重新加载并按当前绑定再钉一次；Shift + 点击 = 忘掉记住的标题、重新按会话名匹配';
       }
     } catch (e) { /* ignore */ }
     diag.textContent = (simplify ? simplify + ' · ' : '') + pinTxt;
@@ -7699,7 +7788,10 @@ renderers['review-doc'] = function (body, meta, head) {
 
   var BLANK_PROBE = '(() => { try {'
     + ' var r = document.getElementById("root"); if (!r || r.children.length === 0) return false;'
-    + ' if (document.querySelector(\'[data-side="sidebar"]\') || document.querySelector("[data-chat-flow]") || document.querySelector("[data-phase]")) return true;'
+    // 2026-11-07：原来这里还有 ultimate 兜底 'document.querySelector(\'[data-side="sidebar"]\')'，但引擎里没有 sidebar
+    // 这个 data-side 值（只有 left/right，且只挂宽度手柄）⇒ 那一项**永假**。同一 || 链上的 [data-chat-flow] /
+    // [data-phase] 都是真实存在的锚点，删掉死条件不改变判定结果。
+    + ' if (document.querySelector("[data-chat-flow]") || document.querySelector("[data-phase]")) return true;'
     + ' return (r.innerText || "").trim().length > 20;'
     + ' } catch (e) { return false; } })()';
 
@@ -7899,12 +7991,11 @@ renderers.neuron = (body, meta, head) => {
   const MEM_ROOT = P.memRoot || '';
   const ROOT = MEM_ROOT + '\\_共享记忆';
   const SKILL_DIR = P.skillDir || (__WB_ROOT + '\\引擎数据\\.dsh\\skills');
-  // 技能清单**不硬编码**（2026-10-27 审计①：硬编码 23 漏了 command / douyin）——运行时列技能目录，这份只当兜底
-  const SKILL_FALLBACK = ['gui-workbench', 'harness-dev', 'context-overflow', 'workbuddy', 'webai-offload',
-    'new-tools', 'code-dev', 'design-misc', 'pc-cleanup', 'bilibili', 'blender', 'comfyui',
-    'code-video', 'jianying-ai-editor', 'oa-ops', 'your-site', 'self-profile',
-    'video-workflow-canvas', 'transparent-flow-video', 'provider-direct', 'host-scan', 'app-packaging',
-    'local-pc-control', 'command', 'douyin'];
+  // 技能清单**不硬编码**（2026-10-27 审计①：硬编码 23 漏了 command / douyin）——运行时列技能目录；
+  //   2026-11-07 修「⛔ 路径失效 22」：列目录失败时改为解析 skills\_索引.md（真清单），
+  //   这份兜底表只给**极老宿主**（既没有列目录、也没有索引文件）用，且只允许写本模板真实存在的技能。
+  //   旧表是某个工作区实例的 25 个技能名，本机只有 3 个存在 ⇒ 其余 22 个路径全红（用户截图那 22）。
+  const SKILL_FALLBACK = ['bilibili', 'command', 'pc-cleanup', 'self-review', 'webai'];
   // 边的语义标签（2026-10-27 审计⑤：原来只有颜色，看不出这条线是什么关系）
   const EDGE_LABEL = {
     area: '内核 → 区域', skill: '技能归属（→ owner 场景）', memory: '私有记忆归属',
@@ -7985,7 +8076,10 @@ renderers.neuron = (body, meta, head) => {
   // ---------- 状态 ----------
   let nodes = [];        // {id,label,kind,group,path,size,x,y,z,r,deg,hover}
   let edges = [];        // {a,b,kind}
-  let ry = -0.35, rx = 0.18, zoom = 1.42;
+  // 2026-11-07：默认俯角 0.18 → 0.42（约 24°）。原来是近乎平视：整张图是又宽又扁的一条，面板下半屏全空，
+  //   只能靠"拉近"填满，结果上下裁切。抬高俯角后同样的宽度能换到 2 倍纵向高度，圆环读成"盘"而不是"线"。
+  var RY0 = -0.35, RX0 = 0.42;                 // 默认机位（↺ 复位 / 视口适配都以它为准）
+  let ry = RY0, rx = RX0, zoom = 1.42;
   let hover = null, sel = null, auto = true, disposed = false, raf = 0, last = 0;
   var ownerSkill = {};   // skill 节点 id → 面板 id（layout 贴 owner 用）
   let labelMode = 1;   // 1=全部（默认，宿主 2026-10-26：所有点都要有文字标签） 0=自动 2=关
@@ -8025,6 +8119,29 @@ renderers.neuron = (body, meta, head) => {
     }).catch(function () { return false; });
   }
 
+  // 2026-11-07（宿主：「记忆神经元里节点路径失效」）：宿主通用「列目录」能力的统一入口。
+  //   新壳用 app.file.list（kun:file:list），老壳退回 app.oa.filesLocal（oa:files:local，同一个实现，
+  //   见 main/system-io.js）。两件事都要防：
+  //     · 通道不存在 / 主进程还是旧的 ⇒ invoke reject；
+  //     · **preload 新、主进程旧**（换 preload 只消重载页面，换主进程要重启 GUI）⇒ 前一个通道有函数但没 handler。
+  //   所以按顺序逐个试，第一个失败就试下一个，全都失败才 resolve(null)（调用方走文本索引兜底），绝不 throw。
+  function listDir(p) {
+    var A = window.app || {};
+    var fns = [];
+    if (A.file && A.file.list) fns.push(A.file.list);
+    if (A.oa && A.oa.filesLocal) fns.push(A.oa.filesLocal);
+    if (!fns.length) return Promise.resolve(null);
+    function tryAt(i) {
+      if (i >= fns.length) return Promise.resolve(null);
+      var pr;
+      try { pr = Promise.resolve(fns[i](p)); } catch (e) { return tryAt(i + 1); }
+      return pr.then(function (r) {
+        return (r && r.ok !== false && r.rows) ? r : tryAt(i + 1);
+      }).catch(function () { return tryAt(i + 1); });
+    }
+    return tryAt(0);
+  }
+
   // ---------- 载入数据 ----------
   function load() {
     stat.textContent = '正在读共享记忆…';
@@ -8051,6 +8168,7 @@ renderers.neuron = (body, meta, head) => {
         return MEM_ROOT + '\\' + String(mp).replace(/^引擎[\\/]场景记忆[\\/]/, '');
       }
       var areas = (idx && idx.areas) || [];
+      ownerSkill = {};                 // 2026-11-07：重读时清空，别让上一轮的归属残留
       nodes = []; edges = [];
       var core = { id: 'core', label: 'DSH 记忆', kind: 'core', group: 'core', r: 15, path: ROOT, size: 0 };
       nodes.push(core);
@@ -8109,10 +8227,9 @@ renderers.neuron = (body, meta, head) => {
         });
         console.log('[neuron] 项目登记表：' + reg.projects.length + ' 个项目');
       }
-      var oaApi = (window.app && window.app.oa) || null;   // 列目录能力：项目兜底 + 提交链 都要用
-      if (!fromReg && oaApi && oaApi.filesLocal) {
+      if (!fromReg && PROJECT_ROOTS.length) {
         PROJECT_ROOTS.forEach(function (root) {
-          jobs.push(Promise.resolve(oaApi.filesLocal(root)).then(function (r) {
+          jobs.push(listDir(root).then(function (r) {
             if (!r || r.ok === false) return;
             (r.rows || []).filter(function (it) {
               return it && it.isDir && NON_PROJECTS.indexOf(String(it.name)) < 0;
@@ -8161,68 +8278,70 @@ renderers.neuron = (body, meta, head) => {
       }
 
       // 提交链（2026-10-26 A 档）：每个面板一条追加式锚点链，只读
-      if (oaApi && oaApi.filesLocal) {
-        jobs.push(Promise.resolve(oaApi.filesLocal(CHAIN_DIR)).then(function (r) {
-          if (!r || r.ok === false) return [];
-          var rows = (r.rows || []).filter(function (it) { return it && /\.jsonl$/i.test(it.name); });
-          return Promise.all(rows.map(function (it) {
-            var panel = String(it.name).replace(/\.jsonl$/i, '');
-            return readText(CHAIN_DIR + '\\' + it.name).then(function (txt) {
-              var list = String(txt || '').split(/\r?\n/).filter(Boolean).map(function (line) {
-                try { return JSON.parse(line); } catch (e) { return null; }
-              }).filter(Boolean);
-              if (!list.length) return;
-              var last = list[list.length - 1];
-              nodes.push({
-                id: 'chain-' + panel, label: '链 ' + list.length, kind: 'chain', group: 'chain',
-                path: CHAIN_DIR + '\\' + panel + '.jsonl', size: 0, panel: panel,
-                total: list.length, recent: list.slice(-3).reverse()
-              });
-              edges.push({ a: 'area-' + panel, b: 'chain-' + panel, kind: 'chain' });
+      jobs.push(listDir(CHAIN_DIR).then(function (r) {
+        if (!r || r.ok === false) return [];
+        var rows = (r.rows || []).filter(function (it) { return it && /\.jsonl$/i.test(it.name); });
+        return Promise.all(rows.map(function (it) {
+          var panel = String(it.name).replace(/\.jsonl$/i, '');
+          return readText(CHAIN_DIR + '\\' + it.name).then(function (txt) {
+            var list = String(txt || '').split(/\r?\n/).filter(Boolean).map(function (line) {
+              try { return JSON.parse(line); } catch (e) { return null; }
+            }).filter(Boolean);
+            if (!list.length) return;
+            var last = list[list.length - 1];
+            nodes.push({
+              id: 'chain-' + panel, label: '链 ' + list.length, kind: 'chain', group: 'chain',
+              path: CHAIN_DIR + '\\' + panel + '.jsonl', size: 0, panel: panel,
+              total: list.length, recent: list.slice(-3).reverse()
             });
-          }));
-        }).catch(function () { /* 没有链目录就算了 */ }));
-      }
+            edges.push({ a: 'area-' + panel, b: 'chain-' + panel, kind: 'chain' });
+          });
+        }));
+      }).catch(function () { /* 没有链目录就算了 */ }));
 
       // 技能归属（2026-10-26）：读 skills\_索引.md 的「属于哪个场景」列，把技能挂到它 owner 的 area 上
       // 2026-10-27 修：那一格写的是「场景名（`场景id` · 面板 `面板id`）」，旧正则取第一个形如 xx-xx 的反引号词
       //   ⇒ pc-cleanup / self-profile / code-dev / oa-ops 被解析成「场景 id」（area-pc-cleanup 之类根本不存在）
       //   ⇒ 边悬空、画不出来 ⇒ 这几个技能点看着"没连线"。现在只认**真实存在的 area owner（面板 id）**。
+      // 2026-11-07：同一份索引还兼作**技能清单的二级兜底**（列目录失败时用它，别再退回硬编码旧表）；
+      //   索引里没写归属时再按「技能名 == 场景 id」同名兜底一次（模板里 5 个技能与场景 id 同名，
+      //   新克隆还没有 _索引.md 时也能把技能挂对场景，而不是全挂 core）。
       var AREA_IDS = {};
       areas.forEach(function (a) { if (a && a.owner) AREA_IDS[a.owner] = 1; });
-      var SKILL_OWNER = {};
-      jobs.push(readText(__WB_ROOT + '\\引擎数据\\.dsh\\skills\\_索引.md').then(function (txt) {
+      var SCENE_OWNER = {};
+      areas.forEach(function (a) { if (a && a.id && a.owner) SCENE_OWNER[String(a.id)] = a.owner; });
+      var skillIndexP = readText(SKILL_DIR + '\\_索引.md').then(function (txt) {
+        var ownerMap = {}, names = [];
         String(txt || '').split(/\r?\n/).forEach(function (line) {
-          if (!line.startsWith('| `')) return;
+          if (line.charAt(0) !== '|') return;
           var cells = line.split('|').map(function (c) { return c.trim(); });
           var name = String(cells[1] || '').replace(/`/g, '');
+          if (!name || name === '技能' || /^[-:\s]+$/.test(name)) return;   // 表头 / 分隔行
+          names.push(name);
           var own = String(cells[2] || '');
           var toks = own.match(/`[a-z0-9][a-z0-9-]{1,20}`/g) || [];
           var picked = '';
           for (var ti = 0; ti < toks.length; ti++) {
             var tk = toks[ti].replace(/`/g, '');
-            if (AREA_IDS[tk]) { picked = tk; break; }     // 只认真实 area owner
+            if (AREA_IDS[tk]) { picked = tk; break; }       // 只认真实 area owner
           }
-          if (name) SKILL_OWNER[name] = picked;            // 空串 = 没有归属 ⇒ 挂 core
+          ownerMap[name] = picked;                            // 空串 = 没有归属 ⇒ 挂 core
         });
-      }).catch(function () { /* 索引读不到就当没归属 */ }));
+        return { owner: ownerMap, names: names };
+      }).catch(function () { return { owner: {}, names: [] }; });
 
-      // 技能节点（球壳 2）：清单 = 真实目录（2026-10-27 审计①），读不到才用兜底表
-      var skillListP = (oaApi && oaApi.filesLocal)
-        ? Promise.resolve(oaApi.filesLocal(SKILL_DIR)).then(function (r) {
-            if (!r || r.ok === false) return [];
-            return (r.rows || []).filter(function (it) {
-              return it && it.name && String(it.name).charAt(0) !== '_' && it.isDir !== false;
-            }).map(function (it) { return String(it.name); });
-          }).catch(function () { return []; })
-        : Promise.resolve([]);
-      jobs.push(skillListP.then(function (dirs) {
-        var list = (dirs && dirs.length) ? dirs.slice().sort() : SKILL_FALLBACK;
+      // 技能节点（球壳 2）：清单优先级 = 真实目录（2026-10-27 审计①）→ _索引.md 表格 → 兜底表
+      jobs.push(Promise.all([listDir(SKILL_DIR), skillIndexP]).then(function (arr) {
+        var r = arr[0], sidx = arr[1] || { owner: {}, names: [] };
+        var dirs = (r && r.ok !== false) ? (r.rows || []).filter(function (it) {
+          return it && it.name && String(it.name).charAt(0) !== '_' && it.isDir !== false;
+        }).map(function (it) { return String(it.name); }) : [];
+        var list = dirs.length ? dirs.slice().sort() : (sidx.names.length ? sidx.names : SKILL_FALLBACK);
         list.forEach(function (n) {
           var id = 'skill-' + n;
           jobs.push(statSize(SKILL_DIR + '\\' + n + '\\SKILL.md').then(function (sz) {
             nodes.push({ id: id, label: n, kind: 'skill', group: 'skill', path: SKILL_DIR + '\\' + n + '\\SKILL.md', size: sz });
-            var ownerPanel = SKILL_OWNER[n];
+            var ownerPanel = sidx.owner[n] || SCENE_OWNER[n] || '';
             edges.push({ a: ownerPanel ? ('area-' + ownerPanel) : 'core', b: id, kind: 'skill' });
             if (ownerPanel) ownerSkill[id] = ownerPanel;
           }));
@@ -8323,89 +8442,176 @@ renderers.neuron = (body, meta, head) => {
       });
       stat.title = '数据源：引擎\\场景记忆\\_共享记忆（索引/项目/记忆地图/提交链）+ .dsh\\skills 目录'
         + ' · 核对时间 ' + new Date().toLocaleString('zh-CN', { hour12: false });
+      // 2026-11-07：统计段建好后 HUD 的真实高度才定下来（窄面板会折成多行）⇒ 再排一次，
+      //   fitToViewport 才能按 HUD 实际高度留出顶部空间，节点不会钻到统计字底下。
+      layout();
     }).catch(function (e) {
       stat.textContent = '读不到共享记忆：' + ((e && e.message) || e);
     });
   }
 
   // ---------- 3D 布置 ----------
+  // 2026-11-07 重做（宿主：「优化各节点的位置关系」）。旧版是"每个种类各按数组下标绕一圈"，三个硬伤：
+  //   ① 技能环的角度跟归属场景无关 ⇒ 「技能→owner 场景」的线横穿整张图，点一多就成一团麻；
+  //   ② 半径写死 430 / 700，与面板尺寸无关 ⇒ 面板一窄，外圈节点直接被裁到画布外（880×626 实测裁掉 5 个点）；
+  //   ③ 记忆/链/项目的半径 = 各自 owner 半径 × 系数，而 owner 半径又按奇偶错开 0.86
+  //      ⇒ 同一个场景的卫星忽近忽远，看不出归属。
+  // 新口径：主环 = 场景（顺序与左侧场景列表一致）；每个场景的卫星（记忆 → 技能 → 项目/链）放在
+  //   **它自己的扇区**里由内到外逐层外扩；共享文档/数据源贴内核；最后按当前画布做一次投影包围盒适配
+  //   （fitToViewport）⇒ 任何面板尺寸下开局都不裁切、不糊在中心。场景顺序保持 index.json 顺序，不重排。
   function layout() {
     var areas = nodes.filter(function (n) { return n.kind === 'area'; });
-    var areaByLabel = {};
-    areas.forEach(function (a) { areaByLabel[a.label] = a; });
     var skills = nodes.filter(function (n) { return n.kind === 'skill'; });
     var docs = nodes.filter(function (n) { return n.kind === 'doc'; });
     var projects = nodes.filter(function (n) { return n.kind === 'project'; });
     var mems = nodes.filter(function (n) { return n.kind === 'memory'; });
     var srcs = nodes.filter(function (n) { return n.kind === 'source'; });
     var chains = nodes.filter(function (n) { return n.kind === 'chain'; });
-    var R1 = 430, R2 = 700, R0 = 150;
+    var R1 = 430;                                  // 主环世界半径（最终会被 fitToViewport 整体缩放）
+    // ① 场景主环：均匀铺开 + 轻微上下起伏（看得出是 3D，但不破坏"环"的读法）
+    var areaBy = {};
     areas.forEach(function (n, i) {
-      var t = (i / Math.max(1, areas.length)) * Math.PI * 2;
-      var ring = (i % 2 === 0) ? 1 : 0.86;                 // 错开两层，看起来像神经元簇
-      n.x = Math.cos(t) * R1 * ring;
-      n.y = Math.sin(t * 2) * 52 * ring;                    // 上下起伏，避免一张平面
-      n.z = Math.sin(t) * R1 * ring;
+      var t = -Math.PI / 2 + (i / Math.max(1, areas.length)) * Math.PI * 2;
+      n.ax = Math.cos(t); n.az = Math.sin(t); n.at = t;
+      n.x = n.ax * R1;
+      n.z = n.az * R1;
+      n.y = Math.sin(t * 2) * 30;
       n.r = 9 + Math.min(9, Math.sqrt(n.size / 700));
+      areaBy[n.label] = n;
     });
-    // 技能：仍在外圈（两条壳）——标签要铺开才读得清；归属靠连线（→ owner 场景）
-    skills.forEach(function (n, i) {
-      n.r = 5 + Math.min(4, Math.sqrt(n.size / 2200));
-      var t = (i / Math.max(1, skills.length)) * Math.PI * 2 + 0.5;
-      var ring = (i % 2 === 0) ? 1 : 0.8;
-      n.x = Math.cos(t) * R2 * ring;
-      n.y = Math.cos(t * 1.7) * 210 + (i % 2 ? 46 : -46);
-      n.z = Math.sin(t) * R2 * ring;
+    // ② 卫星贴 owner 的通用摆法：同扇区（owner 角度 + 偏角）、指定半径系数、指定高度偏移
+    function placeNear(n, own, radK, angOff, yOff, r0) {
+      var t = own.at + angOff;
+      var rr = R1 * radK;
+      n.x = Math.cos(t) * rr;
+      n.z = Math.sin(t) * rr;
+      n.y = own.y + yOff;
+      if (r0) n.r = r0;
+    }
+    var lone = { memory: [], skill: [], project: [], chain: [] };
+    // ③ 私有记忆：owner 扇区里紧贴场景外侧（"随身笔记"）
+    mems.forEach(function (n) {
+      var own = areaBy[n.ownerPanel];
+      if (own) placeNear(n, own, 1.26, 0.10, 26, 4.6);
+      else lone.memory.push(n);
     });
-    // 数据源：内核外面一小圈（靠里，表示"我的家底"）
+    // ④ 技能：**按 owner 分组放进各自扇区** —— "位置关系"最要紧的一条：归属线短、归属一眼看得出来。
+    //   同一场景的多个技能沿扇区小角度散开；技能多时角间距自动收窄，不会散到别人的扇区去。
+    var bySkillOwner = {};
+    skills.forEach(function (n) {
+      var op = ownerSkill[n.id];
+      if (op && areaBy[op]) (bySkillOwner[op] = bySkillOwner[op] || []).push(n);
+      else lone.skill.push(n);
+    });
+    Object.keys(bySkillOwner).forEach(function (op) {
+      var own = areaBy[op], list = bySkillOwner[op];
+      list.sort(function (a, b) { return String(a.label).localeCompare(String(b.label), 'zh'); });
+      var step = Math.min(0.40, 0.92 / list.length);
+      var t0 = own.at + (step * (list.length - 1)) / 2;      // 整组以 owner 角度为中心
+      list.forEach(function (n, i) {
+        var t = t0 - i * step;
+        var rr = R1 * 1.58 * (1 + (i % 2 ? 0.05 : -0.05));   // 奇偶错开一点，标签不叠
+        n.x = Math.cos(t) * rr; n.z = Math.sin(t) * rr;
+        n.y = own.y + Math.sin(t * 3) * 16 + (i % 2 ? 52 : -52);
+        n.r = 5 + Math.min(4, Math.sqrt(n.size / 2200));
+      });
+    });
+    // ⑤ 项目：owner 扇区里靠内（0.68R），多个项目沿扇区散开
+    var byProjOwner = {};
+    projects.forEach(function (n) {
+      var own = n.owner ? areaBy[n.owner] : null;
+      if (own) (byProjOwner[n.owner] = byProjOwner[n.owner] || []).push(n);
+      else lone.project.push(n);
+    });
+    Object.keys(byProjOwner).forEach(function (op) {
+      var own = areaBy[op], list = byProjOwner[op];
+      list.forEach(function (n, i) {
+        var t = own.at - 0.17 + (i - (list.length - 1) / 2) * 0.19;
+        var rr = R1 * (0.66 + (i % 2 ? 0.05 : 0));
+        n.x = Math.cos(t) * rr; n.z = Math.sin(t) * rr;
+        n.y = own.y * 0.5 + (i % 2 ? 16 : -16);
+        n.r = 5.4;
+      });
+    });
+    // ⑥ 提交链：owner 扇区最外一层（反向偏角），像场景外面挂的年表
+    chains.forEach(function (n) {
+      var own = areaBy[n.panel];
+      if (own) placeNear(n, own, 1.86, -0.14, -34, 4.4);
+      else lone.chain.push(n);
+    });
+    // ⑦ 共享文档：贴内核的一圈小三角（不占场景扇区，避免压住场景标签）
+    var R0 = R1 * 0.52;
+    docs.forEach(function (n, i) {
+      var t = -Math.PI / 2 + Math.PI * 0.34 + (i / Math.max(1, docs.length)) * Math.PI * 2;
+      n.x = Math.cos(t) * R0; n.z = Math.sin(t) * R0;
+      n.y = Math.sin(t * 2) * 26;
+      n.r = 8;
+    });
+    // ⑧ 数据源：内核外一小圈（"我的家底"）
+    var RS = R1 * 0.36;
     srcs.forEach(function (n, i) {
-      var t = (i / Math.max(1, srcs.length)) * Math.PI * 2 + 0.2;
-      var rr = 168;
-      n.x = Math.cos(t) * rr; n.z = Math.sin(t) * rr; n.y = (i % 2 ? 14 : -14);
+      var t = 0.2 + (i / Math.max(1, srcs.length)) * Math.PI * 2;
+      n.x = Math.cos(t) * RS; n.z = Math.sin(t) * RS;
+      n.y = (i % 2 ? 14 : -14);
       n.r = 5.2;
     });
-
-    // 提交链：再外一圈（1.52 倍、反向偏角），像"笔记外面的年表"
-    chains.forEach(function (n) {
-      var own = areaByLabel[n.panel];
-      if (!own) return;
-      var ang = Math.atan2(own.z, own.x) - 0.13;
-      var rad = Math.hypot(own.x, own.z) * 1.52;
-      n.x = Math.cos(ang) * rad; n.z = Math.sin(ang) * rad;
-      n.y = own.y - 22; n.r = 4.4;
-    });
-
-    // 私有记忆：贴在场景**外侧**（1.34 倍、同角度偏一点），像场景的"随身笔记"
-    mems.forEach(function (n, i) {
-      var own = areaByLabel[n.ownerPanel];
-      if (!own) return;
-      var ang = Math.atan2(own.z, own.x) + 0.11;
-      var rad = Math.hypot(own.x, own.z) * 1.34;
-      n.x = Math.cos(ang) * rad; n.z = Math.sin(ang) * rad;
-      n.y = own.y + 26; n.r = 4.6;
-    });
-
-    // 2026-10-26：项目不再是"一圈"，而是**贴着它的 owner 场景**摆（径向 0.6 倍、同角度）⇒ 一眼看出"这项目归谁"
-    projects.forEach(function (n, i) {
-      var own = n.owner ? areaByLabel[n.owner] : null;
-      if (own) {
-        var ang = Math.atan2(own.z, own.x);
-        var rad = Math.hypot(own.x, own.z) * 0.72 + (i % 2 ? 22 : -22);
-        n.x = Math.cos(ang) * rad + Math.cos(ang + 1.57) * ((i % 2 ? 14 : -14));
-        n.z = Math.sin(ang) * rad + Math.sin(ang + 1.57) * ((i % 2 ? 14 : -14));
-        n.y = own.y * 0.5 + (i % 2 ? 10 : -10);
-      } else {
-        var t = (i / Math.max(1, projects.length)) * Math.PI * 2 + 0.32;
-        var rp = 168 + (i % 2 ? 16 : 0);
-        n.x = Math.cos(t) * rp; n.y = Math.sin(t * 1.4) * 34; n.z = Math.sin(t) * rp;
-      }
-      n.r = 5.4;
-    });
-    docs.forEach(function (n, i) {
-      var t = [0, 2.1, 4.2][i % 3];
-      n.x = Math.cos(t) * R0; n.y = Math.sin(t) * 30; n.z = Math.sin(t) * R0; n.r = 8;
-    });
+    // ⑨ 无归属的卫星：外圈均匀铺开（半径各不相同，互不重叠）
+    function placeRing(list, radK, yAmp, yBase) {
+      list.sort(function (a, b) { return String(a.label).localeCompare(String(b.label), 'zh'); });
+      list.forEach(function (n, i) {
+        var t = 0.5 + (i / Math.max(1, list.length)) * Math.PI * 2;
+        n.x = Math.cos(t) * R1 * radK; n.z = Math.sin(t) * R1 * radK;
+        n.y = yBase + Math.sin(t * 1.7) * yAmp;
+      });
+    }
+    placeRing(lone.skill, 1.62, 150, 0);
+    placeRing(lone.memory, 1.30, 40, 10);
+    placeRing(lone.project, 0.84, 60, 0);
+    placeRing(lone.chain, 1.94, 40, -20);
+    lone.skill.forEach(function (n) { n.r = 5 + Math.min(4, Math.sqrt(n.size / 2200)); });
     nodes.filter(function (n) { return n.kind === 'core'; }).forEach(function (n) { n.x = 0; n.y = 0; n.z = 0; });
+    // ⑩ 视口适配：按**当前画布**投影一遍，把整张图缩进可视区（上方 HUD / 下方图例留白）。
+    //    面板变宽变窄都会重跑（见 ResizeObserver）⇒ 任何尺寸开局都不裁切。
+    fitToViewport();
+  }
+
+  // 投影包围盒 → 整体缩放。透视是非线性的（越靠前的点被放得越大），所以必须**迭代到收敛**：
+  //   只缩不放会在窄面板上留下一大片空白（第一轮按被透视放大的包络缩得过头，后面又不敢放大）。
+  // 注意：适配按**默认缩放 REF_ZOOM / 默认机位**算，不按用户当前滚轮与拖动 —— 否则用户放大后
+  // 一改面板宽度，布局会被永久缩小（缩完再复位就看不清了）。可用区还要扣掉顶部 HUD 与底部图例的
+  // **实际高度**（窄面板时 HUD 会换行变高，写死 108px 会让节点钻到字底下）。
+  var REF_ZOOM = 1.42;
+  var viewShiftY = 0;              // 可用区中心与画布中心的纵向偏差（HUD 比图例高时把图整体下移）
+  function fitToViewport() {
+    if (!nodes.length || !W || !H) return;
+    var clamp = function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); };
+    var hudH = (hud && hud.offsetHeight) ? hud.offsetHeight : 0;
+    var legH = (legend && legend.offsetHeight) ? legend.offsetHeight : 0;
+    var padX = clamp(W * 0.10, 34, 92);
+    var padTop = Math.max(clamp(H * 0.12, 64, 108), hudH ? (hudH + 26) : 0);
+    var padBot = Math.max(clamp(H * 0.10, 56, 86), legH ? (legH + 20) : 0);
+    var availW = Math.max(100, (W - padX * 2) / 2);
+    var availH = Math.max(80, (H - padTop - padBot) / 2);
+    viewShiftY = (padTop - padBot) / 2;
+    var sRy = ry, sRx = rx;
+    ry = RY0; rx = RX0;
+    for (var it = 0; it < 8; it++) {
+      var minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
+      nodes.forEach(function (n) {
+        var p = project(n, REF_ZOOM);
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      });
+      var halfW = Math.max(1, (maxX - minX) / 2);
+      var halfH = Math.max(1, (maxY - minY) / 2);
+      var k = Math.min(availW / halfW, availH / halfH);
+      if (k > 0.97 && k < 1.04) break;             // 收敛：两个方向都用上了
+      k = Math.max(0.25, Math.min(2.5, k));        // 每轮限幅，防透视非线性导致来回震荡
+      nodes.forEach(function (n) { n.x *= k; n.y *= k; n.z *= k; });
+    }
+    ry = sRy; rx = sRx;
   }
 
   // ---------- 画布 ----------
@@ -8426,7 +8632,7 @@ renderers.neuron = (body, meta, head) => {
     cv.style.width = W + 'px'; cv.style.height = H + 'px';
     makeStars();
   }
-  function project(n) {
+  function project(n, zOverride) {
     var cy = Math.cos(ry), sy = Math.sin(ry);
     var x1 = n.x * cy - n.z * sy;
     var z1 = n.x * sy + n.z * cy;
@@ -8434,8 +8640,9 @@ renderers.neuron = (body, meta, head) => {
     var y1 = n.y * cx0 - z1 * sx0;
     var z2 = n.y * sx0 + z1 * cx0;
     var f = 820;
-    var s = (f / (f + z2 + 420)) * zoom;
-    return { x: W / 2 + x1 * s, y: H / 2 + y1 * s, s: s, z: z2 };
+    var zz = (zOverride == null) ? zoom : zOverride;
+    var s = (f / (f + z2 + 420)) * zz;
+    return { x: W / 2 + x1 * s, y: H / 2 + y1 * s + viewShiftY, s: s, z: z2 };
   }
   function draw() {
     var ctx = cv.getContext('2d');
@@ -8964,7 +9171,9 @@ renderers.neuron = (body, meta, head) => {
     bRot.classList.toggle('on', auto);
   });
   bReset.addEventListener('click', function () {
-    ry = -0.35; rx = 0.18; zoom = 1.42; sel = null; hover = null; detail.classList.remove('on');
+    ry = RY0; rx = RX0; zoom = 1.42; sel = null; hover = null; detail.classList.remove('on');
+    // 复位 = 回默认机位；顺便按默认机位重排一次（用户可能在别的机位下改过面板宽度，适配是按 REF 机位算的）
+    if (nodes.length) layout();
   });
   bReload.addEventListener('click', function () {
     introBoot = true;                 // 2026-10-27：重读 = 重读数据 + 重播一次入场动画
@@ -9010,7 +9219,9 @@ renderers.neuron = (body, meta, head) => {
 
   var ro = null;
   try {
-    ro = new ResizeObserver(function () { fit(); });
+    // 2026-11-07：尺寸变了除了重设位图，还要重排一次 —— 节点半径是按画布尺寸适配的（见 fitToViewport），
+    //   只 fit() 不 layout() 会让窄面板里外圈节点一直裁在画布外。
+    ro = new ResizeObserver(function () { fit(); if (nodes.length) layout(); });
     ro.observe(body);
   } catch (e) { /* 老内核没有 ResizeObserver */ }
   fit();

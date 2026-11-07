@@ -10,7 +10,7 @@
 //   ② **空会话不进侧边栏**：默认建完塞一条开场消息再打断（`--no-seed` 可关）。
 //
 // 用法：
-//   node scripts\建会话.mjs --title "设计杂活"                       # 默认挂 <临时目录> 的工作区
+//   node scripts\建会话.mjs --title "设计杂活"                       # 默认挂工作台根（$APP，已登记的工作区）
 //   node scripts\建会话.mjs --title "设计杂活" --cwd "<资料库>"        # 换工作区
 //   node scripts\建会话.mjs --title "设计杂活" --no-seed --dry        # 空跑，不真建
 //   输出最后一行就是 sessionId（可直接抄进 scenarios\*.json）。
@@ -27,7 +27,9 @@ const BASE = process.env.DSH_GUI_BASE || 'http://127.0.0.1:3083';
 const argv = process.argv.slice(2);
 const val = (k, d) => { const i = argv.indexOf(k); return i >= 0 && argv[i + 1] ? argv[i + 1] : d; };
 const title = val('--title', '');
-const cwd = val('--cwd', path.join(path.dirname(root), '工作区'));   // 默认工作区
+// 默认 cwd = 工作台根（$APP）——**必须是已登记的工作区**：`<根>\工作区` 那种空目录没登记过，
+// 会话会掉进「未分组」、AI 还会在空目录里干活（2026-11-07 失效路径事故）。
+const cwd = val('--cwd', path.dirname(root));
 const dry = argv.includes('--dry');
 const seedIt = !argv.includes('--no-seed');
 

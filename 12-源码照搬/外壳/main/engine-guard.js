@@ -102,6 +102,49 @@ function findDshCmd(manifest, logger) {
   return '';
 }
 
+// ---- 引擎（DSH 内核）版本探测：只读文件，不 spawn 子进程（2026-11-07）----
+// 为什么需要它：本仓库是「源码直跑 + 外部 CLI」，没有内置 引擎\ 目录 ⇒ inventory.versionInfo()
+//   的 engine 一直是 null，左栏版本行只剩「GUI 0.2.1-rc.3 · UI 2.0」——看着像 DSH 内核版本，
+//   而本机内核实际是 0.2.2-rc.1（dsh --version 实测）。这里只读地从 CLI 安装布局里取内核版本。
+// 来源（按优先级；读不到就返回 null，由调用方如实说"未知"，绝不猜）：
+//   ① 官方桌面版：<resources>\app.asar\dsh\node_modules\@deepseek-ai\dsh\package.json
+//      （app.asar 是归档文件，Electron 主进程的 fs 能读；纯 Node 环境读不到会抛 ⇒ 捕获后跳过）
+//   ② npm 全局安装：从 CLI 往上逐层找 node_modules\@deepseek-ai\dsh\package.json
+//   ③ 桌面版元数据兜底：<resources>\runtime\primary-runtime\runtime.json 的 desktopVersion
+//      （2026-11-07 只读核查：该值与 dsh --version、asar 里的内核包版本三者一致）
+function readJsonFile(p) {
+  try { return JSON.parse(fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '')); } catch (e) { return null; }
+}
+function readEnginePkgVersion(p) {
+  const pkg = readJsonFile(p);
+  if (!pkg) return null;
+  const name = String(pkg.name || '');
+  // 只认引擎包：@deepseek-ai/dsh*（别把碰巧叫 dsh 的无关包当内核）
+  if (name && !/^@deepseek-ai\/dsh(\b|-)/.test(name)) return null;
+  return pkg.version ? String(pkg.version) : null;
+}
+function detectEngineVersion(cliPath) {
+  if (!cliPath) return null;
+  const cliDir = path.dirname(cliPath);
+  const resources = path.resolve(cliDir, '..', '..', '..'); // …\runtime\cli\bin → …\resources
+  // ① 官方桌面版：内核包在 asar 里
+  let v = readEnginePkgVersion(path.join(resources, 'app.asar', 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'));
+  if (v) return { version: v, source: 'asar' };
+  // ② npm 全局安装：CLI 的上级目录里找 node_modules\@deepseek-ai\dsh
+  let dir = cliDir;
+  for (let i = 0; i < 5; i++) {
+    v = readEnginePkgVersion(path.join(dir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'));
+    if (v) return { version: v, source: 'npm' };
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  // ③ 桌面版元数据
+  const rt = readJsonFile(path.join(resources, 'runtime', 'primary-runtime', 'runtime.json'));
+  if (rt && rt.desktopVersion) return { version: String(rt.desktopVersion), source: 'runtime.json' };
+  return null;
+}
+
 function serverSpawnEnv(dshDataDir, rootDir, logger) {
   const env = Object.assign({}, process.env);
   env.DSH_HOME = dshDataDir;
@@ -145,6 +188,7 @@ function killProcessTree(pid) {
 module.exports = {
   resolveNodeExe,
   findDshCmd,
+  detectEngineVersion,
   serverSpawnEnv,
   captureToken,
   probe,

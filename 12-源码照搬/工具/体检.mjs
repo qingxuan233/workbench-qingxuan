@@ -22,6 +22,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { scan as scanEncoding } from './编码检查.mjs';
 import binding from './_场景绑定.js';
+import { staleWorkspaceFindings } from './_工作区判据.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // 根 = 仓库根（本工具在 <根>\12-源码照搬\工具）。可用 --root / DSH_WORKBENCH_ROOT 覆盖。
@@ -457,6 +458,57 @@ const ASSERTIONS = [
 
       return f;
     }
+  },
+  {
+    id: 'A16', title: '实例工作区有效（默认工作区 / 所有登记工作区 / 面板会话 cwd 都落在真工作台上）', layer: 'L4 实例',
+    /**
+     * 「失效路径」的实例态分支：**路径存在 ≠ 路径有效**。
+     *   2026-11-07 事故：仓库搬家后引擎 workspace.json 仍指旧路径（旧目录还在、是空的）⇒ 新会话在空目录里干活；
+     *   A5「cwd 必须存在」抓不到（空目录也存在）。判据取本仓库自己的锚：落在 $APP 内，或路径下真有 外壳\main.js。
+     */
+    run(root, ctx) {
+      if (!ctx || ctx.mode !== 'instance') return [];       // 模板态没有引擎实例，不判
+      const f = [];
+      const wsFile = path.join(dshRoot(root), 'storages', 'workspace.json');
+      const ws = readJson(wsFile);
+      if (!ws) return [];                                   // 引擎从没启动过：交给 A1 报「会话库缺失」
+      const app = path.resolve(appRoot(root));
+      const tables = (ws.tables && ws.tables.workspaces) || {};
+      const inside = (p, base) => { const r = path.resolve(p); return r === base || r.startsWith(base + path.sep) };
+      const isWorkbenchRoot = (p) => exists(path.join(p, '外壳', 'main.js')) || exists(path.join(p, '12-源码照搬', '外壳', 'main.js'));
+      const valid = (p) => exists(p) && (inside(p, app) || isWorkbenchRoot(p));
+
+      // ① 默认工作区：**登记过**就必须有效（路径存在、且是本工作台）。
+      //    未登记（引擎内部悬空 id）不判：那是引擎自己的状态，没有 RPC 可改、运行期落盘还会覆盖文件写入，
+      //    本仓库能修、也必须修的是「登记过的路径别指向失效目录」——这条才可操作、可证伪。
+      const defId = String((ws.global && ws.global.defaultWorkspaceId) || '');
+      const def = defId && tables[defId];
+      if (def) {
+        if (!exists(def.path)) f.push({ path: wsFile, msg: `默认工作区路径不存在：${def.path}` });
+        else if (!valid(def.path)) f.push({ path: wsFile, msg: `默认工作区路径已失效（不在本工作台内、也没有 外壳\\main.js）：${def.path}` });
+      }
+
+      // ② 面板会话的 cwd 必须落在**登记过且真的有效**的工作区里。
+      //    cwd 存在不算数：旧路径的目录还在、只是空的 —— 这次事故的形态正是「空目录里干活」。
+      const wsList = Object.values(tables)
+        .map((w) => ({ path: String((w && w.path) || ''), ok: !!w && valid(String((w && w.path) || '')) }))
+        .filter((w) => w.path);
+      const cacheDir = path.join(dshRoot(root), 'storages', 'session_projcache', 'sessions');
+      for (const sc of ctx.scenes) {
+        for (const p of harnessPanels(sc)) {
+          const id = binding.effectiveSessionId(ctx.manifest, sc.id, p); if (!id) continue;
+          const j = readJson(path.join(cacheDir, id + '.json'));
+          const cwd = j && j.record && j.record.identity && j.record.identity.cwd; if (!cwd) continue;
+          const hit = wsList.find((w) => inside(cwd, w.path));
+          if (!hit) f.push({ path: path.join(cacheDir, id + '.json'), msg: `面板 ${p.id} 的会话 cwd 不在任何已登记工作区内：${cwd}` });
+          else if (!hit.ok) f.push({ path: path.join(cacheDir, id + '.json'), msg: `面板 ${p.id} 的会话 cwd 落在失效工作区（${hit.path}）⇒ 等于在空目录里干活` });
+        }
+      }
+
+      // ③ **每一张登记过的工作区**都必须有效（只查默认工作区会漏 —— 旧仓库根曾长期空挂在登记表里）
+      f.push(...staleWorkspaceFindings({ tables, wsFile, defId, exists, valid }));
+      return f;
+    }
   }
 ];
 
@@ -631,10 +683,32 @@ function makeFixture(root, o = {}) {
   }
 
   // 会话缓存（cwd）
-  const cwd = o.deadCwd ? path.join(root, 'gone-workspace') : path.join(root, '工作区');
+  const cwd = o.deadCwd ? path.join(root, 'gone-workspace')
+    : o.cwdOutside ? path.join(root, 'outside-cwd')
+    : o.badPanelWsOutside ? path.join(path.dirname(root), 'stale-panel-' + path.basename(root))
+    : path.join(root, '工作区');
   if (!o.deadCwd) fs.mkdirSync(cwd, { recursive: true });
   w(path.join(dshRoot(root), 'storages', 'session_projcache', 'sessions', sid + '.json'),
     JSON.stringify({ record: { identity: { cwd } } }));
+
+  // 引擎工作区登记（A16）：默认工作区 = <fixture>\工作区（落在工作台内）
+  //   反例各造一种「失效路径」：路径不存在 / 路径在但已经不是工作台 / 面板 cwd 落在失效工作区。
+  {
+    const wsId = 'ws-11111111-2222-3333-4444-555555555555';
+    const wsPath = o.badDefaultOutside ? path.join(path.dirname(root), 'stale-' + path.basename(root))
+      : o.badPanelWsOutside ? path.join(path.dirname(root), 'stale-panel-' + path.basename(root))
+      : o.badDefaultPath ? path.join(root, 'gone-workspace')
+      : path.join(root, '工作区');
+    if (o.badDefaultOutside) fs.mkdirSync(wsPath, { recursive: true });   // 目录存在但里面没有 外壳\main.js
+    const table = {};
+    table[wsId] = { path: wsPath, title: '工作区', sessionIds: [] };
+    // badRegisteredOutside：默认工作区是好的，但另有一张登记项指着失效旧路径（2026-11-07 真实形态）
+    if (o.badRegisteredOutside) { const p2 = path.join(path.dirname(root), 'stale-registered-' + path.basename(root)); fs.mkdirSync(p2, { recursive: true }); table['ws-66666666-7777-8888-9999-000000000000'] = { path: p2, title: '旧工作区', sessionIds: [] }; }
+    w(path.join(dshRoot(root), 'storages', 'workspace.json'), JSON.stringify({
+      global: { defaultWorkspaceId: wsId, workspaceIds: o.badRegisteredOutside ? [wsId, 'ws-66666666-7777-8888-9999-000000000000'] : [wsId], archivedSessionIds: [] },
+      tables: { workspaces: table }
+    }, null, 1));
+  }
 
   // 场景配置
   w(path.join(root, '外壳', 'scenarios', 'command.json'), JSON.stringify({
@@ -721,6 +795,11 @@ function selfTest() {
     { id: 'A15', opts: { badBase: true, dupBase: true }, desc: '同一个基准路径定义了两次' },
     { id: 'A15', opts: { badPin: true }, desc: '场景 json 的 pinTarget 点着不存在的文件' },
     { id: 'A15', opts: { badRef: true }, desc: '代码引用了不存在的 scenarios\\*.md' },
+    // A16 的四类坏样本（实例态「失效路径」：路径存在 ≠ 有效）
+    { id: 'A16', opts: { badDefaultPath: true }, desc: '默认工作区路径不存在' },
+    { id: 'A16', opts: { badDefaultOutside: true }, desc: '默认工作区路径存在但已不是工作台（旧路径空挂）' },
+    { id: 'A16', opts: { badPanelWsOutside: true }, desc: '面板会话 cwd 落在失效工作区（空目录里干活）' },
+    { id: 'A16', opts: { badRegisteredOutside: true }, desc: '登记表里还挂着一张失效工作区（默认工作区是好的 ⇒ 只看默认会漏）' },
   ];
 
   let pass = 0, fail = 0;

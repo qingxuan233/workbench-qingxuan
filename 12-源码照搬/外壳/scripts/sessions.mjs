@@ -23,7 +23,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MANIFEST_PATH = path.join(path.dirname(root), '工作台.json');
 const HARNESS_DIR = process.env.DSH_HARNESS_DIR || path.join(path.dirname(root), '引擎数据');
 const DSH_HOME = process.env.DSH_CUSTOMER_HOME || path.join(path.dirname(root), '引擎数据', '.dsh');
-const DEFAULT_CWD = path.join(path.dirname(root), '工作区');
+// 轮换出来的新会话默认落在工作台根（$APP，已登记的工作区）；`<根>\工作区` 是未登记空目录，
+// 落进去会话会掉进「未分组」且 AI 在空目录里干活（2026-11-07 失效路径事故）。
+const DEFAULT_CWD = path.dirname(root);
 const KEEP_CWD = process.argv.includes('--keep-cwd');
 
 function readJson(p) {

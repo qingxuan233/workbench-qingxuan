@@ -76,7 +76,7 @@ if (argv[0] === 'add') {
   const file = val('--file', '');
   const propose = val('--propose', '');
   if (!file || !propose) { console.error('用法：add --file <相对路径> --anchor <小节> --propose "改成什么" [--reason "为什么"]'); process.exit(2) }
-  const scope = val('--scope', /^(00-|05-|总纲|README|说明)/.test(file) ? '宪法层' : '机制层');
+  const scope = val('--scope', /^(00-|05-|总纲|文档[\\/]|README|说明)/.test(file) ? '宪法层' : '机制层');
   const rows = readAll();
   const rec = {
     id: nextId(rows),

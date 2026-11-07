@@ -1119,7 +1119,22 @@ const HARNESS_WIDE_PIN_JS = `(() => {
 })()`;
 const HARNESS_CHAT_CSS = [
   '[style*="grid-template-columns"][style*="minmax(0"] { grid-template-columns: minmax(0, 1fr) !important; }',
-  '[style*="grid-template-columns"][style*="minmax(0"] [data-side="sidebar"], [style*="grid-template-columns"][style*="minmax(0"] [data-side="details"] { display: none !important; }',
+  // ★2026-11-07 第四波（引擎 0.2.2-rc.1 回归 · 用户：「各场景中 DSH 对话窗口宽度没有自适应」）★
+  //   引擎 0.2.2 的框架用 **grid-area** 定位三列：sidebarCol=1/1、centerCol=1/2、rightbarCol=1/3（见 AppFrame.module.css）。
+  //   上面那条只把 grid-template-columns 压成**一条轨道**，centerCol 的 grid-area:1/2 没变 ⇒ 它落在「隐式第 2 列」
+  //   （auto 宽），第 1 列被 1fr 撑满却没内容 ⇒ 面板左侧整片空白、对话列被压成几十像素。
+  //   实测（862px 面板）：中心列 122px @x=740、会话列 35px —— 正是用户截图里那条「竖排一个字」的文字。
+  //   ⇒ 单轨道必须把中心列钉回第 1 列。这里用 :has 锚定「含聊天流的那一列」（不依赖哈希类名，引擎换版仍对），
+  //     再用类名 substring 兜一条；JS 那半边（HARNESS_FIX_JS 里 if (center) 段）有同样的兜底。
+  '[style*="grid-template-columns"][style*="minmax(0"] > :has([data-chat-flow]) { grid-column: 1 / -1 !important; grid-row: 1 !important; }',
+  '[style*="grid-template-columns"][style*="minmax(0"] > [class*="centerCol"] { grid-column: 1 / -1 !important; grid-row: 1 !important; }',
+  // 2026-11-07 修：原来这条写的是 [data-side="sidebar"] / [data-side="details"]，**选不中任何元素**。
+  //   对照本机引擎 0.2.2-rc.1 的 app.asar 实测：data-side 这个属性**只出现在宽度拖拽手柄**上
+  //   （ConversationRoot 的 `"data-side": props.side`），取值域只有 left / right；
+  //   `data-side=sidebar`、`data-side=details`、`side: "details"` 在引擎里**各 0 次命中**。
+  //   ⇒ 选择器语法合法但恒空 ⇒ 侧栏/详情列**从来没被这条 CSS 藏住过**，属静默失效。
+  //   侧栏/详情列的真实隐藏由下方 HARNESS_FIX_JS 的结构法承担（定位含 [data-chat-flow] 的中心列，
+  //   隐藏框架其余非 absolute 子元素），这里不再写一条恒空的 CSS 兜底 —— 宁可没有，也不留假保险。
   '[style*="grid-template-columns"][style*="minmax(0"] [data-phase] > header { display: none !important; }',
   '[style*="grid-template-columns"][style*="minmax(0"] [data-width-handle] { display: none !important; }',
   // 文字铺满：老写法 `[data-phase] { --dsh-chat-content-width: 100% !important }` 在引擎 0.1.6 上整条空转，
@@ -1163,8 +1178,18 @@ const HARNESS_FIX_JS = `(() => {
         if (pos === 'absolute') continue;
         c.style.setProperty('display', 'none', 'important');
       }
+      // ★2026-11-07 第四波（引擎 0.2.2-rc.1）★：单轨道下把中心列钉回第 1 列。
+      //   类上的 grid-area:1/2 会把它挤进隐式第 2 列（auto 宽）⇒ 第 1 列 1fr 全空、对话列被压成几十像素。
+      //   与 HARNESS_CHAT_CSS 里那两条规则同一件事，JS 这半边负责 React 重渲染后的自维持。
+      try {
+        center.style.setProperty('grid-column', '1 / -1', 'important');
+        center.style.setProperty('grid-row', '1', 'important');
+      } catch (e) { /* ignore */ }
     }
-    f.querySelectorAll('[data-side="sidebar"], [data-side="details"], [data-width-handle]').forEach(function (h) {
+    // 2026-11-07 修：这条原来还带 [data-side="sidebar"] / [data-side="details"]，两者在引擎里 0 命中
+    //   （见上方 HARNESS_CHAT_CSS 的实测说明）；真正存在的只有 [data-width-handle]。
+    //   侧栏/详情列由上面 1156-1166 的结构法（按 grid 列位置）负责，这条只收掉宽度拖条。
+    f.querySelectorAll('[data-width-handle]').forEach(function (h) {
       h.style.setProperty('display', 'none', 'important');
     });
     f.querySelectorAll('[data-phase]').forEach(function (r) {
@@ -1230,7 +1255,10 @@ const HARNESS_FIX_JS = `(() => {
     frameCls: f2 ? (f2.className && f2.className.toString().slice(0, 60) || '') : '',
     frameRect: rect,
     kidsInfo: kidsInfo,
-    sidebarEls: f2 ? f2.querySelectorAll('[data-side="sidebar"]').length : 0,
+    // 2026-11-07：原来数的是 [data-side="sidebar"]，引擎里 0 命中 ⇒ 这个诊断值**恒为 0**，
+    //   看着像"侧栏没找到"，其实一直是死的。改成数真实存在的结构：框架列数 + 宽度拖条。
+    sidebarEls: f2 ? (f2.children.length - 1) : 0,
+    widthHandles: f2 ? f2.querySelectorAll('[data-width-handle]').length : 0,
     winW: window.innerWidth,
     winH: window.innerHeight,
     title: document.title,
@@ -1618,6 +1646,8 @@ const CREDENTIALS_PATH = path.join(DSH_DATA_DIR, '.credentials.yaml');
 // 清点类接口（插件 / 技能 / 设置 / 工具清单）已抽离至 main/inventory.js
 inventory.init({
   harnessDir: HARNESS_DIR,
+  // 没有内置 引擎\ 时，版本卡/左栏的"内核版本"从外部 CLI 安装目录只读探测（见 engine-guard.detectEngineVersion）
+  engineCliPath: findDshCmd,
   pluginsDir: PLUGINS_DIR,
   dshDataDir: DSH_DATA_DIR,
   toolsCatalogFile: path.join(__dirname, 'data', '工具清单.json'),

@@ -393,10 +393,20 @@ function cmdHandover(arg) {
   audit('handover', name, { archive: file })
   cmdStamp(name)
   // 2026-10-28（宿主定）：「写入即索引」——交接完顺手把各场景 §〇 灌进记忆库（记了就能搜；失败不影响交接）
+  // ⚠ 2026-11-07 修死路径：`记忆库.mjs` 只存在于作者机，公开版从来不随仓库分发。
+  //   原代码用 `__MEMLIB_OK` 当开关，但那个变量**从来没定义过** ⇒ 每次交接都抛 ReferenceError
+  //   被 catch 吞成「记忆库入库异常」，看起来像"入库失败"，其实是开关根本不存在。
+  //   现在按文件真值判：探得到才跑，探不到就明说跳过（不写死 true、也不留未定义变量）。
+  const memLib = path.join(TOOL_DIR, '记忆库.mjs')
+  const memLibOk = fs.existsSync(memLib)
   try {
-    const r = __MEMLIB_OK ? spawnSync(process.execPath, [path.join(TOOL_DIR, '记忆库.mjs'), '--import'], { encoding: 'utf8', windowsHide: true, timeout: 180000 }) : { status: 0, stdout: '(公开版无记忆库，跳过)' }
-    const last = String(r.stdout || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(-1)[0] || ''
-    console.log(r.status === 0 ? `✓ 记忆库已入库（写入即索引）：${last}` : `⚠ 记忆库入库失败（不影响交接，exit=${r.status}）`)
+    const r = memLibOk ? spawnSync(process.execPath, [memLib, '--import'], { encoding: 'utf8', windowsHide: true, timeout: 180000 }) : null
+    if (!memLibOk) {
+      console.log('· 记忆库未随仓库分发（' + path.relative(WORKBENCH_ROOT, memLib) + ' 不存在），跳过入库（不影响交接）')
+    } else {
+      const last = String((r && r.stdout) || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(-1)[0] || ''
+      console.log(r.status === 0 ? `✓ 记忆库已入库（写入即索引）：${last}` : `⚠ 记忆库入库失败（不影响交接，exit=${r.status}）`)
+    }
   } catch (e) {
     console.log('⚠ 记忆库入库异常（不影响交接）：' + String((e && e.message) || e).slice(0, 120))
   }

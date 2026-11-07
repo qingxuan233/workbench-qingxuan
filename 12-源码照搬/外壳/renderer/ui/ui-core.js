@@ -105,6 +105,25 @@
     }
   };
 
+  // ---------- 宿主能力 ----------
+  // ⚠ preload.js 用 `exposeInMainWorld('app', { …, app: { openPath, revealPath } })` 暴露桥对象：
+  //   真正的打开目录接口在 **window.app.app.openPath**。2026-11-07 实测：老代码写 `window.app.openPath`
+  //   恒为 undefined ⇒ 左栏「工作台目录」/ 命令面板的打开动作点了完全没反应（还不报错）。
+  //   这里收口成一个入口，顺便把失败原因交回调用方显示（路径不存在 / 老宿主没接口）。
+  WB.host = {
+    app: function () { return (window.app && window.app.app) || null; },
+    openPath: function (p, onErr) {
+      var A = WB.host.app();
+      if (!A || typeof A.openPath !== 'function') {
+        if (onErr) onErr('这个工作台版本还没有打开目录的接口，重启一次工作台后可用');
+        return;
+      }
+      Promise.resolve(A.openPath(p)).then(function (r) {
+        if (r && r.ok === false && onErr) onErr('打不开：' + (r.err || r.error || '未知原因'));
+      }, function (e) { if (onErr) onErr('打不开：' + ((e && e.message) || e)); });
+    }
+  };
+
   // ---------- 工具 ----------
   WB.util = {
     debounce: function (fn, ms) {

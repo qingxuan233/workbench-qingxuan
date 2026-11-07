@@ -102,6 +102,41 @@ function setupSystemIO(ipcMain, { workbenchRoot, windowOfEvent, getMainWindow, l
     }
   });
 
+  // ---- 通用「本地列目录」能力（2026-11-07 补）----
+  // 为什么补：这个能力原来只写在 main/legacy-services.js 的 setupLegacyServices() 里（通道 oa:files:local），
+  //   但那个 setup 函数**没有任何地方调用**（main.js 只 require、没 setup）⇒ 通道根本不存在
+  //   ⇒ 渲染层每次调 app.oa.filesLocal 都 reject。实测后果：
+  //     · 记忆神经元（renderers.neuron）列技能目录失败 → 退回硬编码技能兜底表（25 个旧工作区技能名，
+  //       本机只有 3 个存在）→ 面板常驻「⛔ 路径失效 22」；
+  //     · 通用预览（view）的缩略图网格、客户卡片墙（wb-cards）列目录也整块不可用。
+  // 现在：新通道 kun:file:list（preload 的 app.file.list），并保留 oa:files:local 作为旧通道别名
+  //   （preload 的 app.oa.filesLocal 还在被老渲染器使用，直接删通道会让它们整块失灵）。
+  // 只读、不写、不做路径白名单：这是宿主通用能力，跟任何场景数据无关。
+  const listLocalDir = async (p) => {
+    const base = toSafePath(p) || path.join(workbenchRoot || process.cwd(), '工作区');
+    try {
+      const ents = await fs.promises.readdir(base, { withFileTypes: true });
+      const rows = await Promise.all(ents.map(async (en) => {
+        let isDir = en.isDirectory();
+        let size = 0;
+        let mtime = 0;
+        try {
+          const st = await fs.promises.stat(path.join(base, en.name));
+          isDir = st.isDirectory();
+          size = isDir ? 0 : st.size;
+          mtime = Math.floor(st.mtimeMs / 1000);
+        } catch (err) { /* 单项读不到不影响整目录 */ }
+        return { name: en.name, isDir, size, mtime };
+      }));
+      rows.sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, 'zh'));
+      return { ok: true, base, rows };
+    } catch (ex) {
+      return { ok: false, err: '无法读取目录: ' + base, base, rows: [] };
+    }
+  };
+  ipcMain.handle('kun:file:list', (e, p) => listLocalDir(p));
+  ipcMain.handle('oa:files:local', (e, p) => listLocalDir(p));
+
   ipcMain.handle('kun:file:read', async (e, p) => {
     const t = toSafePath(p);
     if (!t) return { ok: false, err: 'empty' };

@@ -29,10 +29,9 @@
     } catch (e) { return ''; }
   }
 
+  // ⚠ 宿主能力在 window.app.app.openPath（见 ui-core.js 的 WB.host 说明）；老写法恒 undefined ⇒ 点了没反应。
   function openPath(p) {
-    try {
-      if (window.app && window.app.openPath) window.app.openPath(p);
-    } catch (e) { /* ignore */ }
+    WB.host.openPath(p, function (m) { try { console.warn('[WB 命令] ' + m); } catch (e) { /* ignore */ } });
   }
 
   function activeTab() {
@@ -107,6 +106,29 @@
     });
   }
 
+  // 工具数量：从宿主的工具清单（preload.js:361 toolsCatalog → data\工具清单.json）现算，不再写死。
+  //   原来这里硬编码 '47 个工具'，而清单实际是 48 个（9 个 section：6+3+8+5+6+7+8+3+2），
+  //   以后再加工具又会漂。取不到时退回中性文案，宁可不提数字也不给错数字。
+  var TOOL_COUNT = 0;          // 0 = 还没拿到
+  function countTools(cat) {
+    var n = 0;
+    try {
+      (cat && cat.groups || []).forEach(function (g) {
+        (g && g.sections || []).forEach(function (s) { n += (s && Array.isArray(s.items)) ? s.items.length : 0; });
+      });
+    } catch (e) { return 0; }
+    return n;
+  }
+  function refreshToolCount() {
+    // preload.js 用 contextBridge.exposeInMainWorld('app', …) 暴露，toolsCatalog 挂在这个对象上
+    var T = (typeof window !== 'undefined' && window.app) ? window.app : null;
+    if (!T || typeof T.toolsCatalog !== 'function') return;
+    Promise.resolve().then(function () { return T.toolsCatalog(); }).then(function (cat) {
+      var n = countTools(cat);
+      if (n > 0) TOOL_COUNT = n;
+    }).catch(function () { /* 取不到就保持中性文案 */ });
+  }
+
   function actionItems() {
     var out = [
       {
@@ -140,7 +162,8 @@
         run: function () { click('btn-skills'); }
       },
       {
-        group: '操作', title: '工具（Tools）', desc: '47 个工具的清单与用法',
+        group: '操作', title: '工具（Tools）',
+        desc: TOOL_COUNT ? (TOOL_COUNT + ' 个工具的清单与用法') : '工具清单与用法',
         icon: WB.dom.h('span', { class: 'wb-cmd-ico-t', text: '🛠' }),
         keywords: 'tool 工具',
         run: function () { click('btn-tools'); }
@@ -290,6 +313,7 @@
     overlay.hidden = false;
     overlay.classList.add('open');
     input.value = '';
+    refreshToolCount();   // 每次打开顺手对一次工具数（异步；拿到了下一帧 render 就会用上）
     render();
     setTimeout(function () { try { input.focus(); } catch (e) {} }, 10);
   }
@@ -340,5 +364,6 @@
     if (window.__WB_UI_MODE === 'classic') return;   // 经典界面不创建命令面板
     if (window.__WB_UI_SOLO) return;                 // 分离窗口保持旧布局
     build();
+    refreshToolCount();   // 首屏就把工具数取回来，别等第一次打开
   });
 })();

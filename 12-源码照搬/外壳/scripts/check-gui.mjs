@@ -505,17 +505,33 @@ if (fs.existsSync(path.join(_engineDir, 'apps', 'cli'))) {
 // 上游一改，壳不会崩但会静默降级：面板藏不住侧栏、钉会话失效、状态小字乱报。
 // 这里直接复用 engine-after.mjs（它核对：产物是否配套 / 上游实现是否还在 / 插件接线 / 数据目录 / 适配版本），
 // 再加两条壳侧自身的检查。
+//
+// ★2026-11-07 三态★：engine-after.mjs 现在 exit 0=真验证过、1=失败、3=跳过（无内置引擎 ⇒ 未验证）。
+//   以前它跳过也是 0，于是这一节把「引擎一项都没核」打印成一串 ✓ —— 这正是"假验证闭环"。
+//   现在：跳过 ⇒ warning（不是 ✓，也不是 ✗）；只有真的验过才 ✓；失败才 ✗。
 head('11. 引擎接线（产物配套 · 上游实现 · 插件接线 · 适配版本）');
 if (exists('scripts/engine-after.mjs')) {
   const r = safeSpawnSync(process.execPath, ['scripts/engine-after.mjs'], { cwd: ROOT, encoding: 'utf8' });
-  const lines = (String(r.stdout || '') + String(r.stderr || '')).split(/\r?\n/).filter((l) => l.trim());
-  for (const l of lines) {
-    const t = l.trim();
-    if (/^✓/.test(t)) ok(t.replace(/^✓\s*/, ''));
-    else if (/^✗/.test(t)) bad(t.replace(/^✗\s*/, ''));
-    else if (/^!/.test(t)) warn(t.replace(/^!\s*/, ''));
+  const raw = String(r.stdout || '') + String(r.stderr || '');
+  let verdict = '';
+  for (const l of raw.split(/\r?\n/)) {
+    const m = l.trim().match(/^结论：\s*(VERIFIED|SKIPPED|FAILED)/);
+    if (m) verdict = m[1];
   }
-  if (r.status !== 0) bad('engine-after.mjs 报告了需要处理的问题（见上）');
+  // 引擎版本 / 适配版本这条**确实核对到了**（外部引擎形态下也查得动），单独报一条 ✓
+  const verLine = (raw.split(/\r?\n/).map((l) => l.trim()).filter((t) => /^[✓!]\s*外部引擎版本：/.test(t))[0] || '')
+    .replace(/^[✓!]\s*/, '');
+  if (/版本未知|\*\*未知\*\*/.test(verLine)) warn('引擎版本：' + verLine.replace(/^外部引擎版本：/, ''));
+  else if (verLine) ok(verLine);
+  if (verdict === 'VERIFIED') {
+    ok('engine-after: 8 个上游锚点逐条核对通过');
+  } else if (verdict === 'FAILED') {
+    bad('engine-after: 失败 —— 见 node scripts/engine-after.mjs 的完整输出');
+  } else {
+    // 跳过：把"哪几项没核"原样说清，别让人以为这一节绿了
+    warn('engine-after: 跳过（没有内置 引擎\\ 目录）⇒ 产物配套 / 上游锚点源码扫描（表内 10 条）/ 插件接线'
+      + '**这三类一项都没核**，本机 GUI 适配未经验证；拿证据的办法见 _本机产物/优化报告/DSH内核兼容.md');
+  }
 } else {
   warn('scripts/engine-after.mjs 缺失，跳过引擎接线核对');
 }

@@ -27,6 +27,13 @@
    "privateMemory": [
     "本地电脑\\场景私有记忆.md"
    ]
+  },
+  {
+   "panel": "webai-chat",
+   "scene": "网页AI",
+   "privateMemory": [
+    "网页AI\\场景私有记忆.md"
+   ]
   }
  ]
 }

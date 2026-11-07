@@ -31,6 +31,14 @@
    "memory": "场景记忆/本地电脑",
    "file": "areas/pc-cleanup.md",
    "panel": "pc-ai"
+  },
+  {
+   "id": "webai",
+   "name": "网页AI",
+   "owner": "webai-chat",
+   "memory": "场景记忆/网页AI",
+   "file": "areas/webai.md",
+   "panel": "webai-chat"
   }
  ]
 }

@@ -29,9 +29,8 @@
     } catch (e) { return ''; }
   }
 
-  function openPath(p) {
-    try { if (window.app && window.app.openPath) window.app.openPath(p); } catch (e) { /* ignore */ }
-  }
+  // ⚠ 宿主能力在 window.app.app.openPath（见 ui-core.js 的 WB.host 说明）；老写法 window.app.openPath 恒 undefined。
+  function openPath(p) { WB.host.openPath(p, toast); }
 
   function activeTab() { return document.querySelector('#scenario-tabs .tab.active'); }
   function tabName(tab) {
@@ -352,6 +351,37 @@
     WB.panels.scan();
   }
 
+  // 待办角标：不再克隆 topbar-status 的节点，直接问宿主 window.topbar.pending()（preload.js:344）。
+  // ⚠ 2026-11-07 修：PENDING / paintBadge / refreshBadge 必须在 **IIFE 模块作用域**——上一版塞在 buildTopbar 里，
+  //   而「更多 → 待办事项」的 openPending() 在函数外调用它们 ⇒ 点击抛 ReferenceError（= 点了没反应）。
+  var PENDING = { mine: 0, busy: false };
+  function paintBadge() {
+    var moreBtn = document.getElementById('wb-more-btn');
+    if (!moreBtn) return;
+    var mb = moreBtn.querySelector('.tbs-badge');   // 沿用 ui.css:185 已有的样式，不新增样式依赖
+    if (PENDING.mine > 0) {
+      if (!mb) { mb = document.createElement('span'); mb.className = 'tbs-badge'; moreBtn.appendChild(mb); }
+      mb.textContent = String(PENDING.mine);
+      mb.style.display = '';
+    } else if (mb) { mb.style.display = 'none'; }
+  }
+  // 只数「要你拍板」的：与 topbar-status 的 needYou() 同口径；故意各自实现，两个模块互不依赖。
+  function needYou(x) {
+    var s = String((x && x.status) || '');
+    return /拍板/.test(s) || /^s*(卡点|阻塞)/.test(String((x && x.text) || ''));
+  }
+  function refreshBadge(done) {
+    var TB = window.topbar;
+    if (!TB || typeof TB.pending !== 'function' || PENDING.busy) { if (done) done(); return; }   // 老宿主无此通道：跳过
+    PENDING.busy = true;
+    Promise.resolve().then(function () { return TB.pending(); }).then(function (r) {
+      PENDING.busy = false;
+      PENDING.mine = (((r && r.items) || []).filter(needYou)).length;
+      paintBadge();
+      if (done) done();
+    }).catch(function () { PENDING.busy = false; if (done) done(); });
+  }
+
   // ---------------------------------------------------------------- 顶栏 / 语境栏
   function buildTopbar() {
     var titlebar = document.getElementById('titlebar');
@@ -395,30 +425,8 @@
     more.addEventListener('click', function (ev) { ev.stopPropagation(); toggleMore(); });
     controls.insertBefore(more, document.getElementById('btn-min'));
 
-    // 待办红点角标监听：如果 topbar-status 的待办角标有数字，同步到统一的 wb-more-btn 上
-    function syncBadge() {
-      var badge = document.querySelector('#tbs-wrap .tbs-badge');
-      var moreBtn = document.getElementById('wb-more-btn');
-      if (!badge || !moreBtn) return;
-      var mb = moreBtn.querySelector('.tbs-badge');
-      var num = parseInt(badge.textContent, 10) || 0;
-      if (badge.style.display !== 'none' && num > 0) {
-        if (!mb) {
-          mb = badge.cloneNode(true);
-          moreBtn.appendChild(mb);
-        } else {
-          mb.textContent = badge.textContent;
-          mb.style.display = '';
-        }
-      } else if (mb) {
-        mb.style.display = 'none';
-      }
-    }
-    syncBadge();
-    var wrapEl = document.getElementById('tbs-wrap');
-    if (wrapEl && window.MutationObserver) {
-      new MutationObserver(syncBadge).observe(wrapEl, { childList: true, subtree: true, attributes: true });
-    }
+    paintBadge();
+    refreshBadge();
   }
 
   function buildContextBar() {
@@ -463,6 +471,68 @@
     inner.appendChild(acts);
   }
 
+  // ------ 更多菜单里的"系统与诊断"三件事：原来靠"替用户点 topbar-status 的隐藏胶囊"实现（跨模块借按钮，
+  //   而那张胶囊在 V2 下被 ui.css 设成 display:none）。现在统一走 preload 的 topbar.* 通道 + 存在性判断。
+  function hostTopbar() {
+    return (typeof window !== 'undefined' && window.topbar) ? window.topbar : null;
+  }
+  function needHost(method, what) {
+    var TB = hostTopbar();
+    if (TB && typeof TB[method] === 'function') return TB;
+    toast(what + '：这个工作台版本还没有对应接口，重启一次工作台后可用');
+    return null;
+  }
+
+  // 界面与引擎回退 = 记一份当前界面快照（与 topbar-status 的「＋ 记版本」同一通道）
+  function openRollback() {
+    var TB = needHost('snapshot', '界面回退');
+    if (!TB) return;
+    Promise.resolve()
+      .then(function () { return TB.snapshot(); })
+      .then(function (r) {
+        if (r && r.ok) toast('界面版本记好了 ✓ 回退入口在 工作台目录 → 外壳 的版本备份里');
+        else toast('快照没打成：' + ((r && r.error) || '未知原因'));
+      })
+      .catch(function (e) { toast('快照没打成：' + ((e && e.message) || e)); });
+  }
+
+  // 系统体检：preload 的 topbar 段没有体检通道（只有 pressure/pending/snapshots/snapshot/restore/
+  //   engine*/open/recentFolders），所以不猜不存在的 API，如实告诉用户怎么跑（原来点 #tbs-more 在 V2 下点不动）。
+  function openHealth() {
+    toast('系统体检：在「命令」场景执行 node 工具\\体检.mjs；结果会写进场景记忆，回来再点这里');
+  }
+
+  // 待办事项 = 先刷新角标，再把「要你拍板」的条数如实报出来（真实详情仍在场景记忆里）
+  function openPending() {
+    refreshBadge(function () {
+      toast(PENDING.mine > 0 ? ('有 ' + PENDING.mine + ' 件等你拍板（详情见各场景记忆 §〇 卡点）') : '没有要你拍板的待办 ✓');
+    });
+  }
+
+  // 统一的轻提示：壳层**自绘**一条，不依赖宿主。preload 的 topbar 段没有 toast 方法
+  //   （只有主进程主动推的 topbar:toast 事件），所以这里各自画各自的，模块之间零耦合。
+  var toastBox = null;
+  function toast(msg) {
+    try {
+      if (!toastBox || !toastBox.parentNode) {
+        toastBox = document.createElement('div');
+        toastBox.className = 'wb-toasts';
+        toastBox.setAttribute('role', 'status');
+        document.body.appendChild(toastBox);
+      }
+      var t = document.createElement('div');
+      t.className = 'wb-toast';
+      t.textContent = String(msg);
+      toastBox.appendChild(t);
+      setTimeout(function () {
+        t.style.opacity = '0';
+        setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 300);
+      }, 4200);
+    } catch (e) {
+      try { console.log('[WB] ' + msg); } catch (_) { /* ignore */ }
+    }
+  }
+
   // ---------------------------------------------------------------- 更多菜单
   function buildMorePop() {
     morePop = document.createElement('div');
@@ -490,9 +560,14 @@
       }],
       ['☰', '显示 / 隐藏面板序号徽标', function () { var b = document.getElementById('sf-badges'); if (b) b.click(); }],
       ['系统与诊断', null],
-      ['↩', '界面与引擎回退', function () { var m = document.getElementById('tbs-more'); if (m) m.click(); }],
-      ['🩺', '工作台系统体检', function () { var m = document.getElementById('tbs-more'); if (m) m.click(); }],
-      ['🔔', '待办事项（谁在等我）', function () { var m = document.getElementById('tbs-more'); if (m) m.click(); }]
+      // 2026-11-07：这 3 项原来都是「拿 topbar-status 那颗 ⋯ 胶囊的 id 去 .click()」—— 借别人的按钮开别人的弹层。
+      //   可是 ui.css 在 V2 下把那颗胶囊设成 display:none，于是点下去等于点一个看不见的按钮（可见交互 bug）。
+      //   现在改成直接调宿主通道（preload.js 的 topbar:*），并且每一项都做「宿主有没有这个能力」的判断，
+      //   没有就如实提示，而不是静默失败。（注释里也不写那串 getElementById 调用：ui-check 扫的是原始源码，）
+      //   （写得像真代码就会把检查带红，那才是真的把检查当摆设。）
+      ['↩', '界面与引擎回退', openRollback],
+      ['🩺', '工作台系统体检', openHealth],
+      ['🔔', '待办事项（谁在等我）', openPending]
     ];
     items.forEach(function (it) {
       if (it[1] === null) {
@@ -517,7 +592,21 @@
         if (v && v.electron) parts.push('Electron ' + v.electron);
         ver.textContent = parts.join(' · ') || '工作台 GUI';
         var rv = document.getElementById('wb-rail-version');
-        if (rv && v && v.gui) rv.textContent = 'GUI ' + v.gui + ' · UI 2.0';
+        if (!rv) return;
+        // 2026-11-07：版本行分两行写清「DSH 内核 / 工作台 GUI」。原来只有「GUI 0.2.1-rc.3 · UI 2.0」，
+        //   内核明明是 0.2.2-rc.1（dsh --version 实测）却看不到，容易被当成内核版本与展示不一致。
+        //   engineProbe = 新主进程（会探测外部 CLI 内核）；老主进程没这个字段 ⇒ 保持旧的一行，避免热更新误报"未知"。
+        var engine = (v && v.engine) || '';
+        var gui = (v && (v.gui || v.app)) || '';
+        if (v && v.engineProbe) {
+          WB.dom.clear(rv);
+          ['内核 ' + (engine || '未知'), 'GUI ' + (gui || '未知') + ' · UI 2.0'].forEach(function (t) {
+            var d = document.createElement('div'); d.textContent = t; rv.appendChild(d);
+          });
+          rv.title = 'DSH 内核 ' + (engine || '未知') + ' · 工作台 GUI ' + (gui || '未知') + ' · UI 2.0';
+        } else if (gui) {
+          rv.textContent = 'GUI ' + gui + ' · UI 2.0';
+        }
       }).catch(function () { /* ignore */ });
     }
     document.addEventListener('mousedown', function (ev) {
@@ -669,7 +758,6 @@
     var tries = 0;
     var late = setInterval(function () {
       moveWebai();
-      buildExtTools();
       if (++tries > 20) clearInterval(late);
     }, 600);
     // ⟳ 热更新 renderers.js 时可能重建 webai-strip ⇒ 只要它回到标题栏就再搬回左栏

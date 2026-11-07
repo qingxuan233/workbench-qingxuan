@@ -40,6 +40,9 @@ _临时/
 外壳/data/boot-preview.json
 外壳/server.log
 外壳/server.err.log
+# 轮转产物：main.js 的 rotateLog() 把超过 4MB 的 server.log 改名为 server.log.prev
+# （根 .gitignore 的 *.log 匹配不到 .log.prev，所以这里必须单独挡一次）
+外壳/server.log.*
 外壳/captures/
 
 # 记忆内部层（保留骨架，不提交个人内容）

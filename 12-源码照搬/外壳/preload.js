@@ -97,6 +97,9 @@ contextBridge.exposeInMainWorld('app', {
     read: (p) => ipcRenderer.invoke('kun:file:read', p),
     write: (p, text) => ipcRenderer.invoke('kun:file:write', p, text),
     stat: (p) => ipcRenderer.invoke('kun:file:stat', p),
+    // 列本地目录（2026-11-07）：{ ok, base, rows:[{name,isDir,size,mtime}] }，只读。
+    // 缺这个成员 = 主进程还是旧的（没 kun:file:list）⇒ 渲染层退回 app.oa.filesLocal；再没有就只能用静态清单。
+    list: (p) => ipcRenderer.invoke('kun:file:list', p),
     // Office/WPS 文档 → PDF（2026-10-13 加）：主进程借本机 Office 的 COM 转一次，缓存到 %TEMP%，
     // 渲染层拿回来的 pdf 路径喂给内核 PDF 阅读器 ⇒ Word / Excel / PPT 也能在预览面板里看。
     // 缺这个 = 主进程还是旧的 ⇒ 要重启一次 GUI（预览层会退回"用系统默认程序打开"的卡片，不会白屏）。

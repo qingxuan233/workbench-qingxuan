@@ -1,6 +1,6 @@
 # 换行由仓库强制，不依赖各人的 core.autocrlf —— 换机部署时这一点必须确定。
 # .bat / .cmd / .vbs 被 cmd 与 WSH 按 CRLF 逐行解析，检出成 LF 会把中文行切成碎片
-# 当命令执行（真实事故：'E:\git_code\DeepSeek' 不是内部或外部命令）。
+# 当命令执行（真实事故：中文行被切成碎片后，cmd 报 `'<工作台根>' 不是内部或外部命令`）。
 *.bat  text eol=crlf
 *.cmd  text eol=crlf
 *.vbs  text eol=crlf

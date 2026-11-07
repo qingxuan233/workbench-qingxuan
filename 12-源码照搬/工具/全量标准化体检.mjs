@@ -11,7 +11,7 @@
 //
 // 口径（别在这里另发明判据）：每一项都来自现有的检查脚本，以它们的退出码 / JSON 输出为准。
 // 这样「检查本身被改坏」不会被这张卡掩盖 —— 卡里显示的就是那几条命令的真实结果：
-//   体检.mjs（A1–A15）· check-gui · ui-check · 编码检查 · sessions --check · 场景校验 · 代码红线 · 验收 · 单测，
+//   体检.mjs（A1–A16）· check-gui · ui-check · 编码检查 · sessions --check · 场景校验 · 代码红线 · 验收 · 单测，
 //   再加一条运行时探测（端口 / 上次启动结果）。
 
 import { spawnSync } from 'node:child_process';
@@ -62,7 +62,7 @@ function makeGroup(icon, name, note, items) {
 
 // ── 各子检查的收口 ────────────────────────────────────────
 
-// 体检.mjs --json：逐条断言（A1–A15），有 findings 且 ok 的是「待办」
+// 体检.mjs --json：逐条断言（A1–A16），有 findings 且 ok 的是「待办」
 function parseAssertions(res) {
   if (res.missing) return [{ name: '体检.mjs', status: 'bad', detail: res.missing }];
   let data = null;
@@ -239,7 +239,7 @@ const sources = [];
 function note(name) { sources.push(name); }
 
 note('体检.mjs --json');
-const gAssert = makeGroup('🧭', '机制体检（A1–A15）', '路径 / 端口 / 记忆 / 会话 / 身份 / 编码 等 15 条断言', parseAssertions(run(['工具', '体检.mjs'], ['--json'])));
+const gAssert = makeGroup('🧭', '机制体检（A1–A16）', '路径 / 端口 / 记忆 / 会话 / 身份 / 编码 / 工作区 等 16 条断言', parseAssertions(run(['工具', '体检.mjs'], ['--json'])));
 
 note('check-gui.mjs');
 const gGui = makeGroup('🖥', '界面与结构', 'check-gui：目录契约 / 面板 / 注入脚本 / 引擎接线', parseGui(run(['外壳', 'scripts', 'check-gui.mjs'])));

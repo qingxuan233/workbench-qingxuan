@@ -3822,6 +3822,10 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(37, 99, 23
 html[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(37, 99, 235, .38); background-clip: content-box; }
 
 /* ---- ③ 焦点环：统一 2px 半透明（outline 不占布局）---- */
+/* 2026-11-07 补：以前只有下面这一行，缺"鼠标点击不留环"的配对规则 ⇒ 点完任何按钮/标签都挂着一圈蓝环。
+   :focus:not(:focus-visible) 放在前面、:focus-visible 放后面，两者同特异性(0,1,0)，靠顺序让键盘态赢。
+   ⛔ 只动"焦点环"这一件事，不改任何控件的既有选择器优先级。 */
+:focus:not(:focus-visible) { outline: none; }
 :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: var(--r-sm); }
 
 /* ---- ④ 过渡：按钮/标签/行统一 120ms（只过渡颜色类属性，不碰尺寸）---- */
@@ -4923,6 +4927,9 @@ html[data-theme="light"] .sb-reload { background: #fff; }
 .kneu-hud {
   position: absolute; left: 10px; right: 10px; top: 8px; z-index: 3;
   display: flex; align-items: center; gap: 10px; pointer-events: none;
+  /* 2026-11-07：窄面板时**整排换行**，不要靠挤压统计区硬塞 —— 否则统计段会被压成一条
+     十几行的竖列（占掉半个画布，节点只能缩到下面一小块）。 */
+  flex-wrap: wrap; row-gap: 6px;
 }
 .kneu-searchwrap {
   pointer-events: auto; display: inline-flex; align-items: center; gap: 6px;
@@ -4937,7 +4944,7 @@ html[data-theme="light"] .sb-reload { background: #fff; }
 /* 2026-10-27：统计改成小段布局——每段不拆行，窄面板时按「·」整段换行，读起来不再被"拆字" */
 .kneu-stat {
   pointer-events: none; font-size: 11.5px; color: var(--text-dim); text-shadow: 0 1px 3px rgba(0,0,0,.6);
-  display: flex; flex-wrap: wrap; align-items: center; gap: 1px 7px; flex: 1 1 auto; min-width: 0; line-height: 1.55;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 1px 7px; flex: 1 1 240px; min-width: 0; line-height: 1.55;
 }
 .kneu-seg { white-space: nowrap; }
 .kneu-seg.ok { color: #7fd4a8; }
@@ -5012,3 +5019,48 @@ html[data-theme="light"] .kneu-seg.bad { color: #d92d20; }
 html[data-theme="light"] .kneu-btn.on { color: #2563eb; box-shadow: 0 0 0 1px rgba(37, 99, 235, .28) inset; }
 html[data-theme="light"] .kneu-detail { background: rgba(255, 255, 255, .95); box-shadow: 0 12px 30px rgba(15, 23, 42, .14); }
 html[data-theme="light"] .kneu-dp { color: #2563eb; }
+
+/* ==========================================================================================
+   2026-11-07 · 交互状态补齐（UI/交互任务）—— 追加在文件末尾，只增「:disabled / min-height /
+   :focus-visible」这类**新选择器**，不改任何既有规则的属性值 ⇒ 想整体回滚：删掉本段即可。
+   ⛔ 只动可读性相关属性（透明度 / 光标 / 最小高度），不改颜色体系、不改尺寸体系。
+   ========================================================================================== */
+
+/* ---- ① 禁用态兜底：原来只有 .bd-refresh / .scr-refresh / .sr-btn / .webai-tb 四家认 :disabled，
+        其余按钮被置灰时**看不出来**，而且照样有 hover 反馈 ⇒ 用户会觉得"点了没反应"。 */
+button:disabled,
+button[disabled],
+.file-refresh:disabled,
+.tbs-btn:disabled,
+.tbs-pill:disabled,
+.tb-btn:disabled,
+.boot-btn:disabled,
+.boot-retry:disabled,
+.modal-close:disabled,
+.panel-expand:disabled,
+.sf-btn:disabled,
+.kneu-btn:disabled {
+  opacity: .42;
+  cursor: default;
+  pointer-events: none;       /* 连 hover 反馈一起断掉：视觉上"按不动" */
+}
+
+/* ---- ② 触达尺寸：webai 遮罩里「点这里重试 / 改用系统浏览器打开」是 <div>，
+        原来只有一行小字、可点区域约 18px 高，低于 28px 的可点下限。 */
+.webai-act {
+  min-height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 12px;
+  border-radius: 6px;
+}
+
+/* ---- ③ 键盘可达性：下面这几个控件自己写了 outline:none 却没有 :focus-visible 兜底，
+        纯键盘 Tab 过去完全看不见光标在哪（上面 ③ 那次修复只管"鼠标别留环"，不管"键盘要看见"）。 */
+.chat-field:focus-visible,
+.bd-search:focus-visible,
+.view-open-input:focus-visible,
+.flow-dlg-input:focus-visible,
+.tbs-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
