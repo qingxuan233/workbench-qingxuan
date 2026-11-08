@@ -73,6 +73,11 @@
   // 路线A（2026-11-08）：引擎在窄面板会切响应式抽屉（drawerMask 盖住整块 + leadingSeat + bottomRow）。
   //   只压“纯装饰/抽屉件”；**不动 sidebarCol 的显隐**——钉会话仍要靠侧栏找会话行。
   var RULE_DRAWER = '[class*="drawerMask"], [class*="leadingSeat"], [class*="bottomRow"] { display: none !important; pointer-events: none !important; }';
+  // B1（2026-11-08，用户拍板）：frame 下**只允许 centerCol 可见**（白名单裁切）。
+  //   实测（临时 3084）frame 顶层子件共 5~7 个：sidebarCol / centerCol / rightbarCol / bottomRow /
+  //   overlayLayer / drawerMask / leadingSeat；除 centerCol 与 overlayLayer（菜单/提及/模型下拉/审批浮层）
+  //   外全部 display:none。⚠ 不动 centerCol 与 chat 内部（对话/轨迹/统计/输入卡/工具卡原样保留）。
+  var RULE_WHITELIST = '[class*="sidebarCol"], [class*="rightbarCol"], [class*="bottomRow"], [class*="leadingSeat"], [class*="drawerMask"] { display: none !important; }';
 
   /**
    * 原 HARNESS_CHAT_CSS。
@@ -87,6 +92,7 @@
     rules.push(RULE_PHASE_HEADER);
     rules.push(RULE_WIDTH_HANDLE);
     rules.push(RULE_DRAWER);   // 路线A：窄面板抽屉件裁切（追加；不改老规则）
+    rules.push(RULE_WHITELIST);   // B1：只留 centerCol 可见（overlayLayer 例外，不动）
     return rules.concat(wideCss());
   }
 
