@@ -333,6 +333,9 @@ node 外壳\scripts\check-gui.mjs
 - ⛔ 不要为了让体检变绿去改断言；体检只报告，按它给的路径修。`ui-check` 同理（见 §5-10）。
 - ⛔ 不要 `git push --force`。
 - ⛔ 不要拷贝 `外壳\node_modules`（用 `--install` 重装）。
+- ⛔ **不要把「机写区」文件加回 git**（2026-11-08 ADR-10「人写区 / 机写区分离」）：
+  `_共享记忆\_跨场景通知.md`、`_任务台账.json(l)`、`待确认.jsonl`、`外壳\data\*` 运行产物（含 `scene-tab-order.json`、`gateway-token.json`、`harness-endpoint.json`、`gateway-access.log`）**只由运行时写**，已全部被 `.gitignore` 挡。
+  判据：`git status --short` 里出现它们 ⇒ ignore 规则被破坏，先补 `12-源码照搬\.gitignore` 的机写区段再 `git rm --cached`（磁盘文件保留）。**一份文件只允许一类写者**——人写区（记忆 md/身份卡/项目记忆）才进 git。
 - ⛔ 不要把 `--no-sandbox` 当成常规方案（它关掉了 Chromium 进程隔离；只在沙箱确实起不来时用，日志里会有记录）。
 - ⛔ 不要改 §0 的场景事实表标记区块（生成物，`--stamp` 重写）。
 - ⛔ **不要合并 `origin/WORK-MC` / `local-ui2-wip` / `backup-pre-upstream`**（都是反向回退，见 §8.5）。

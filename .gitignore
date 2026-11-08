@@ -37,6 +37,10 @@ logs/
 *credentials*
 *secret*
 *keyfile*
+# 例外（2026-11-08）：这是**光源码**，不是密钥文件 —— UI 里"模型与凭据"面板的实现，
+# 它只负责"打开 .credentials.yaml 的路径"和展示"是否已配置"，正文永不回显。
+# 没有它 index.html 会引用到 404（新机器克隆后白屏/缺面板）。
+!12-源码照搬/外壳/renderer/ui/ui-credential.js
 cloudflare.env
 github.env
 
@@ -58,8 +62,8 @@ _tmp/
 # 外壳/data：运行时状态（崩溃记录/启动日志/本机兼容模式标记），只放行这几个随源码走的清单
 12-源码照搬/外壳/data/*
 !12-源码照搬/外壳/data/boot-animation.json
-!12-源码照搬/外壳/data/scene-tab-order.json
 !12-源码照搬/外壳/data/工具清单.json
+# scene-tab-order.json 已归「机写区」（2026-11-08 ADR-10）：拖标签即改写，属运行时状态，不再入库
 
 # 引擎运行时会改写它（记录本机状态，如"公告已读"），不随仓库走；初始化会重置成 []
 12-源码照搬/引擎数据/.dsh/profiles/web/cordis.patch.yml

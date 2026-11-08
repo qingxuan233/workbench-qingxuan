@@ -288,7 +288,30 @@ function captureToken(text) {
   if (m && m[2]) {
     harnessToken = m[2];
     log('[token] captured: ' + m[2]);
+    publishEngineEndpoint();
   }
+}
+
+// ---- 私有 token 通道（2026-11-08 ADR-11）----
+// 背景：以前 5 个脚本各自用正则扫 server.log 抢 token —— 日志轮转/多实例/端口覆写都会静默断链。
+// 现在由壳把「当前引擎地址 + 当前 token」写成一个只给本机进程读的文件，脚本优先读它；
+// 扫日志只作为降级兜底（工具/_派单核心.mjs 里保留了该兜底分支）。
+// ⚠ 该文件在 外壳/data/ 下，属「机写区」，已被根 .gitignore 挡（`12-源码照搬/外壳/data/*`）。
+const ENDPOINT_FILE = path.join(__dirname, 'data', 'harness-endpoint.json');
+function publishEngineEndpoint() {
+  try {
+    if (!harnessToken) return;
+    const payload = {
+      baseUrl: BASE,
+      port: EFFECTIVE_DSH_PORT,
+      token: harnessToken,
+      ts: new Date().toISOString(),
+      pid: process.pid,
+    };
+    fs.mkdirSync(path.dirname(ENDPOINT_FILE), { recursive: true });
+    fs.writeFileSync(ENDPOINT_FILE, JSON.stringify(payload, null, 2), { mode: 0o600 });
+    try { fs.chmodSync(ENDPOINT_FILE, 0o600); } catch (e) { }
+  } catch (e) { log('[endpoint] 写 harness-endpoint.json 失败（已忽略）：' + ((e && e.message) || e)); }
 }
 
 // ---- 启动进度（渲染层加载页用）----
@@ -494,6 +517,7 @@ async function startServer() {
       const m = hist.match(/token=([A-Za-z0-9_\-]+)/);
       if (m) harnessToken = m[1];
     }
+    publishEngineEndpoint();
     log('[engine] 复用外部引擎 ⇒ 主界面走保命入口 http://127.0.0.1:' + SITE_PORT + '/chat（token 每次实时转发，永远是最新的）');
     sendBoot({ stage: 'ready', pct: 92, text: '引擎已就绪', detail: '复用正在运行的实例' });
     resetBootFail();
@@ -2664,7 +2688,10 @@ ipcMain.handle('webai:state', function () {
     })
   };
 });
+let agentGateway = null;
+try { agentGateway = require('./main/agent-gateway.js'); } catch (e) { }
 const webAiServer = http.createServer(function (req, res) {
+  if (agentGateway && agentGateway.handle(req, res)) return;
   const json = function (code, obj) {
     res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(obj));

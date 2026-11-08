@@ -44,19 +44,15 @@ function applyBadges() {
 // 不必为了改版本卡重启 GUI；这里不再重复实现，避免两处同时写同一块 DOM。
 
 
-// ---------- 热更新：带时间戳重载 styles.css + 板块数据 + renderers.js（不重载页面 → webview 对话保持） ----------
+// ---------- 热更新：带时间戳重载 styles.css + renderers.js（不重载页面 → webview 对话保持） ----------
 function hotReloadRenderers() {
   // 样式表同样带时间戳刷新，让 styles.css 改动热生效
   try {
     const css = document.querySelector('link[href*="styles.css"]');
     if (css) css.href = './styles.css?t=' + Date.now();
   } catch (e) { /* ignore */ }
-  try {
-    ['sector-data.js', 'us-sector-data.js'].forEach(name => {
-      const old = document.querySelector('script[data-hr="' + name + '"]');
-      if (old) { old.remove(); const s = document.createElement('script'); s.src = './' + name + '?t=' + Date.now(); s.dataset.hr = name; document.head.appendChild(s); }
-    });
-  } catch (e) { /* ignore */ }
+  // 2026-11-08：sector-data.js / us-sector-data.js 随行情面板下线被删除（P0-B），
+  // 原「板块数据热更新循环」成了空操作死代码 ⇒ 删掉；renderer.js 行数随之净减。
   return new Promise((resolve) => {
     const old = document.getElementById('renderers-script');
     if (old) old.remove();

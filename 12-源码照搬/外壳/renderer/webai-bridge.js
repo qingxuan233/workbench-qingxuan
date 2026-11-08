@@ -18,20 +18,7 @@ var __WB_ROOT = (function () {
 //            → 往页面里输入问题 + 回车/点发送 → 轮询页面文本直到"确认它答完"
 //            → 有新图/要图就把图抓成 dataURL 落到中转文件 → app.webai.done() 回传
 //
-// 设计取舍（都是踩过的坑，别改回去）：
-//  ① **复用**顶栏窗口而不是自己建 <webview>：登录态、预热、SSO 全归那套管；窗口是**可见**的，
-//     用户可以看着它干活，遇到验证码能直接接手。
-//  ② 读回答只读 `document.body.innerText` 的尾部，**不依赖任何站点选择器**（各家 DOM 一月一变，
-//     选择器必然烂）。找输入框用"最后一个可见的 textarea/contenteditable/input"这种通用启发式。
-//  ③ 幂等：⟳ 重跑会重新注入本文件，但 `window.__kunWebAiBridge` 挂在 window 上 ⇒ 状态不丢、
-//     监听不叠（preload 侧只有一个分发器，onTask 只是替换回调）。
-//  ④ 一次只干一件（S.busy 串行）：同一时刻往两个网页版打字，人手也跟不上，何况浏览器。
-//  ⑤ 图片走**中转文件**而不是塞进回答文本：dataURL 动辄几百 KB～几 MB，塞文本里会把"文字回答"
-//     整个冲掉（桥还会截尾 8000 字）。所以图只进中转文件，回答文本里留一行标记给脚本读。
-//  ⑥ **判定"答完了"必须先确认"它开始答了"**：发问后页面会长一次（出现我的气泡），随后是思考期，
-//     页面一动不动 —— 早期版本就在这儿误判、8 秒就返回了空回答。见 wait 循环里的 started/firstChange。
-//  ⑦ **要图要单独等**：豆包出图时先插一张同尺寸的 `data:image/svg+xml` 占位骨架，真图（blob:/https:）几百毫秒到几十秒后才换上；只按"文字稳定"收工必然抓到占位图（实测抓到 138 字节的骨架）——所以占位图一律排除，要图时最多再等 60 秒等真图出现。
-//  ⑧ 真图优先 `fetch` 拿原图（带登录态，签名 CDN 也行）；被 CORS 挡住时退化成对那块区域 `wv.capturePage()` 截屏（分辨率受窗口大小限制，是保底不是首选）。
+// 设计取舍：复用顶栏窗口维持登录态；启发式定位输入框；图片走中转文件；先确认开始再判结束；真图等待与截屏兜底。
 (function () {
   'use strict';
   var S = window.__kunWebAiBridge;
@@ -1231,10 +1218,7 @@ var __WB_ROOT = (function () {
       //   `全选 / 分享图片 / 复制链接 / 分享图片预览 / 分享对话` ⇒ 尾部切片切出来的"正文"就是这堆界面词（**15 字**）✗；
       //   而它太短 ⇒ 又骗过了下面 menuWall 的"≥40 字"门槛 ⇒ 一路当正文交回去（用户看到的就是"0 字/15 字界面词"）。
       var UIWORD = /^(全选|分享图片预览|分享图片|分享对话|复制链接|复制图片|复制代码|复制|下载图片|下载|重新生成|重新回答|再生成|生成中|编辑|删除|赞|踩|朗读|新工作任务|新对话|智能搜索|深度思考|停止生成|继续生成|展开|收起|回到顶部)$/;
-      function stripUi(s) {
-        return String(s || '').split('\n').map(function (x) { return x.trim(); })
-          .filter(function (x) { return x && !UIWORD.test(x); }).join('\n').replace(/^\s+|\s+$/g, '');
-      }
+      function stripUi(s) { return String(s || '').split('\n').map(function (x) { return x.trim(); }).filter(function (x) { return x && !UIWORD.test(x); }).join('\n').replace(/^\s+|\s+$/g, ''); }
       answer = stripUi(answer);
       if ((menuWall(answer) || answer.replace(/\s+/g, '').length < 4) && full) {
         var qi2 = txt.lastIndexOf(full);
@@ -1255,24 +1239,13 @@ var __WB_ROOT = (function () {
         }
       }
       if (menuWall(answer)) diag += '（⚠ 切出来的还是像页面的菜单/列表，不像回答 —— 请人工看一眼那个窗口）';
-      // ---------- 正文提取 E（v3.17）：★"这段字发问前就在页面上"= 界面文字，不是回答★ ----------
-      // 为什么必须有这一条（2026-09-23 体检实测，一刀解决三个站）：
-      //   豆包回 118 字「今天 14:41 收到收到 … 你能做些什么？ 你叫什么名字？」（**会话侧栏**）、
-      //   智谱回 75 字「AI画图 精选工具 一键生同款 重启对话」（**生图落地页**）、
-      //   通义回 1749 字「PPT创作 专家模式 参考资料 …」（**创作面板**）——
-      //   三个都是"发问前页面本来就有的字"，靠"像不像菜单"的形态判据都漏（通义那坨是空格分隔、**没有换行**，
-      //   menuWall 要求 ≥5 行 ⇒ 一行就不算菜单）。
-      //   而"发问前有没有"这件事是**事实**，不是形态猜测：页面只在没生成时才会一直长这样。
-      //   判据用"去掉空白后的核心字"互含（渲染器换行方式会变，逐字比会假阴性）。
+      // ---------- 正文提取 E（v3.17）：发问前就在页面上的文字属于界面元素，予以排除 ----------
       var coreOf = function (s) { return String(s || '').replace(/\s+/g, ''); };
       function answerInBaseline(s) {
         var c = coreOf(s);
         if (c.length < 8) return false;
         if (coreOf(before).indexOf(c) >= 0) return true;
-        // ⚠ "答案比快照长"这件事没法直接当证据：快照被截断时我们只知道**没截断的部分**，比它长的答案本来就该比不中。
-        //   夹具实测（2026-09-23）：通义那 1749 字的垃圾撞上 2500 字的尾部窗口是**假阴性**，也就是"该拦的没拦住"。
-        //   解法＝**锚点法**：尾部窗口的开头 60 字就是"这里被截断了"的哨兵 —— 找到了，就说明**该有的东西都在**，
-        //   这份窗口对判定是权威的，答案的核心字必须整段出现在里面；找不到，就不敢下结论（宁可漏判，也不误杀真回答）。
+        // 锚点法：检测截断窗口内是否包含基线内容
         var wins = [String(a.before || '')];
         if (before && before !== a.before) wins.push(String(before));
         for (var wi = 0; wi < wins.length; wi++) {
@@ -1508,41 +1481,66 @@ var __WB_ROOT = (function () {
     }
   };
 
-  // 串行队列：一次只伺候一个任务
-  var chain = Promise.resolve();
+  // 并发通道池（Per-Site Promise Map）与熔断器（Circuit Breaker）
+  var siteChains = new Map(), siteBusy = new Map(), siteFailures = new Map();
+  var MELT_THRESHOLD = 2, MELT_DURATION_MS = 300000;
+
   S.accept = function (task) {
-    trace('accept ' + (task && task.id) + ' key=' + (task && task.key) + ' busy=' + S.busy);
-    chain = chain.then(async function () {
-      if (!task || !task.id) return;
+    if (!task || !task.id) return Promise.resolve();
+    var key = task.key || 'default';
+    trace('accept ' + task.id + ' key=' + key + ' busy=' + (siteBusy.get(key) || false));
+
+    var failInfo = siteFailures.get(key), now = Date.now();
+    if (failInfo && failInfo.meltUntil > now) {
+      var rem = Math.ceil((failInfo.meltUntil - now) / 1000);
+      var meltErr = { ok: false, key: key, err: '站点 [' + key + '] 连续异常已熔断，剩余 ' + rem + 's 冷却（请检查登录或滑块）' };
+      say('任务 ' + task.id + ' 熔断拦截：' + key);
+      try { K.webai.done(task.id, meltErr); } catch (e) { }
+      return Promise.resolve();
+    }
+
+    var prevChain = siteChains.get(key) || Promise.resolve();
+    var curChain = prevChain.then(async function () {
       var mine = false;
-      try { mine = await K.webai.claim(task.id); } catch (e) { mine = false; trace('claim 抛错 ' + ((e && e.message) || e)); }
-      trace('claim ' + task.id + ' => ' + mine);
-      if (!mine) return;                        // 别的窗口抢到了（多窗口时只有一个干活）
-      S.busy = true;
-      say('收到任务 ' + task.id + ' → ' + task.key + '（' + String(task.text || '').slice(0, 24) + '…）');
+      try { mine = await K.webai.claim(task.id); } catch (e) { mine = false; }
+      if (!mine) return;
+      siteBusy.set(key, true);
+      S.busy = Array.from(siteBusy.values()).some(Boolean);
+      say('收到任务 ' + task.id + ' → ' + key + '（' + String(task.text || '').slice(0, 24) + '…）');
       try { S.lastDiag = ''; } catch (e) { }
-      var out;
-      // ★2026-11-04★ 看门狗：单子最长 = timeout + 45s 余量；到点必须收尾回包（否则 S.busy/chain 永久占住）。
-      //   ⚠ settled 守卫：正常收尾后 sleep 分支仍会醒，**不能再复活用户刚释放的 guest**。
-      var watchMs = Math.max(30000, Math.min(600000, Number(task.timeoutMs || 180000))) + 45000;
-      var settled = false;
+      var out, watchMs = Math.max(30000, Math.min(600000, Number(task.timeoutMs || 180000))) + 45000, settled = false;
       try {
         out = await Promise.race([
           handle(task).then(function (r) { settled = true; return r; }, function (e) { settled = true; throw e; }),
           sleep(watchMs).then(function () {
-            if (settled) return { ok: false, key: task.key, err: '看门狗：任务已收尾，忽略' };
-            // 顺手请界面静默重建这个站的 guest（页面卡死时这是唯一不打扰用户的自救）
-            try { if (window.__kunWebAiSilentMount) window.__kunWebAiSilentMount(task.key); } catch (e2) { }
-            return { ok: false, key: task.key, err: '看门狗：' + Math.round(watchMs / 1000) + 's 没有收尾（页面多半卡死了）—— 点那个窗口标题栏的 ⟳ 或关掉重开再问' };
+            if (settled) return { ok: false, key: key, err: '看门狗：任务已收尾，忽略' };
+            try { if (window.__kunWebAiSilentMount) window.__kunWebAiSilentMount(key); } catch (e2) { }
+            return { ok: false, key: key, err: '看门狗：' + Math.round(watchMs / 1000) + 's 没有收尾（页面多半卡死）', timeout: true };
           }),
         ]);
-      } catch (e) { out = { ok: false, key: task.key, err: String((e && e.message) || e) }; }
-      S.busy = false;
-      trace('done ' + task.id + ' ok=' + (out && out.ok) + ' err=' + String((out && out.err) || '').slice(0, 80));
+      } catch (e) { out = { ok: false, key: key, err: String((e && e.message) || e) }; }
+      siteBusy.set(key, false);
+      S.busy = Array.from(siteBusy.values()).some(Boolean);
+
+      if (out && out.ok) { siteFailures.delete(key); }
+      else {
+        var pf = (siteFailures.get(key) && siteFailures.get(key).count) || 0;
+        if (pf + 1 >= MELT_THRESHOLD) {
+          siteFailures.set(key, { count: pf + 1, meltUntil: Date.now() + MELT_DURATION_MS });
+          say('⚠ 站点 [' + key + '] 连续 ' + (pf + 1) + ' 次异常，已触发熔断保护 5 分钟');
+        } else { siteFailures.set(key, { count: pf + 1, meltUntil: 0 }); }
+      }
+      trace('done ' + task.id + ' ok=' + (out && out.ok));
       try { await K.webai.done(task.id, out); } catch (e) { }
       say('任务 ' + task.id + ' 结束：' + (out.ok ? out.text.length + ' 字' : '失败 ' + out.err));
-    }).catch(function (e) { S.busy = false; console.error('[webai-bridge] 队列异常', e); });
-    return chain;
+    }).catch(function (e) {
+      siteBusy.set(key, false);
+      S.busy = Array.from(siteBusy.values()).some(Boolean);
+      console.error('[webai-bridge] 队列异常 (' + key + ')', e);
+    });
+
+    siteChains.set(key, curChain);
+    return curChain;
   };
 
   // 注册（preload 只有一个分发器，这里只是替换回调 ⇒ ⟳ 重跑不会叠监听）

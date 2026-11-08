@@ -8,6 +8,13 @@
  *   ≤800 行等于让仓库永远红。所以对存量只做「不得增长」，与基线行数比较；
  *   基线之外的新文件才适用 800 行上限。基线日期见 BASELINE_DATE。
  *
+ * 2026-11-08「死区清理后重定」：
+ *   删掉两个死数据表（sector-data.js 8668 行 / us-sector-data.js 8394 行）与
+ *   renderers.js 的三个渲染死区（radar 雷达/机会池 822 行、market/board 残留 88 行、
+ *   flow 画布 814 行，保留仍被 view 复用的 flowPathParts），renderers.js 基线由
+ *   历史值 18863 按删除后实测值重定；其余项实测未变、保持现值。
+ *   死区判定依据见 _本机产物/优化报告/改造执行/P0-B-死区清理.md（本机产物，不入库）。
+ *
  * 检查项：
  *   1) 行数：新文件 ≤ 800；存量文件不得超过基线行数
  *   2) 硬编码盘符：源码字符串里的盘符绝对路径（存量按文件计数豁免，只挡新增）
@@ -29,17 +36,16 @@ import { registryFromSource } from './场景校验.mjs'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const APP = path.resolve(HERE, '..')
 const LIMIT = 800
-const BASELINE_DATE = '2026-11-04'
+const BASELINE_DATE = '2026-11-08'
 
-/** 存量 >800 行文件的行数基线：只允许变短，不允许变长 */
+/** 存量 >800 行文件的行数基线：只允许变短，不允许变长
+ *  2026-11-08 死区清理后重定：仅 renderers.js 按删除后实测值重定，其余项保持现值 */
 const BASELINE_LINES = {
-  '外壳/renderer/renderers.js': 18863,       // 2026-11-04：并入 WORK-MC 的内存修复（webai 预热策略 + 面板释放 + 浅色主题），基线同步
+  '外壳/renderer/renderers.js': 7520,        // 2026-11-08：死区清理后重定（删 radar/market/flow 三个死区，原基线 18863；实测 7519 行 +1 尾部空行）
   '外壳/main.js': 5130,
   '外壳/renderer/renderer.js': 1355,
   '外壳/renderer/topbar-status.js': 1733,
   '外壳/renderer/webai-bridge.js': 1569,     // 2026-11-04：并入主题同步（外壳深/浅色推给内嵌网页版 AI），基线同步
-  '外壳/renderer/sector-data.js': 8669,      // 行情数据表（存量数据文件）
-  '外壳/renderer/us-sector-data.js': 8395,   // 美股行情数据表（存量数据文件）
   '工具/体检.mjs': 887,                      // 2026-11-07：新增 A16「实例工作区有效」+ 3 个反例（死路径轮），基线同步；下次再加断言请先拆模块
 }
 

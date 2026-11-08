@@ -27,8 +27,6 @@
     "外壳/renderer/renderer.js",
     "外壳/renderer/topbar-status.js",
     "外壳/renderer/webai-bridge.js",
-    "外壳/renderer/sector-data.js",
-    "外壳/renderer/us-sector-data.js",
     "外壳/main.js",
     "外壳/preload.js",
     "外壳/node_modules",

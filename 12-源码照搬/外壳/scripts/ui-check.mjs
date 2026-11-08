@@ -33,7 +33,12 @@ const UI_FILES = [
   'renderer/ui/ui-core.js',
   'renderer/ui/ui-panels.js',
   'renderer/ui/ui-command.js',
-  'renderer/ui/ui-shell.js'
+  'renderer/ui/ui-shell.js',
+  // GUI 优化 P0/P1（2026-11-08）：3 个自举模块也必须进语法/体量/静态 id 检查，
+  // 否则"新增文件过了闸"只是因为它压根没被看（自欺，不是通过）。
+  'renderer/ui/ui-a11y.js',
+  'renderer/ui/ui-credential.js',
+  'renderer/ui/ui-empty.js'
 ];
 
 // ---------- 1) 语法 ----------
@@ -54,7 +59,7 @@ for (const f of UI_FILES) {
 // ---------- 2) index.html 加载顺序 ----------
 head('2. index.html 加载顺序');
 const html = read('renderer/index.html');
-const order = ['ui/preload-ui.js', 'styles.css', 'ui/ui.css', 'ui/ui-core.js', 'ui/ui-panels.js', 'ui/ui-command.js', 'ui/ui-shell.js'];
+const order = ['ui/preload-ui.js', 'styles.css', 'ui/ui.css', 'ui/ui-core.js', 'ui/ui-panels.js', 'ui/ui-command.js', 'ui/ui-shell.js', 'ui/ui-a11y.js', 'ui/ui-credential.js', 'ui/ui-empty.js'];
 let last = -1;
 let orderOk = true;
 for (const token of order) {
