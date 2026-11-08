@@ -54,7 +54,7 @@ head('1. JS 语法');
 // 必需文件（缺 = 壳跑不起来）与公开版剔除的业务模块（缺 = 设计如此）。
 // 业务模块只有在 index.html 仍引用它时才必须存在 —— 那才是真的会加载失败。
 const REQUIRED_JS = ['main.js', 'preload.js', 'renderer/renderer.js', 'renderer/renderers.js', 'renderer/theme-sync.js'];
-const OPTIONAL_JS = ['stock-store.js', 'oa-store.js', 'oa-ssh.js', 'renderer/ui/preload-ui.js', 'renderer/ui/ui-core.js', 'renderer/ui/ui-panels.js', 'renderer/ui/ui-command.js', 'renderer/ui/ui-shell.js', 'renderer/ui/ui-a11y.js', 'renderer/ui/ui-credential.js', 'renderer/ui/ui-empty.js', 'renderer/panels/panel-pc-drives.js', 'renderer/panels/panel-pc-ledger.js', 'renderer/panels/panel-review-files.js', 'renderer/panels/panel-view.js', 'renderer/panels/view-media.js', 'renderer/panels/embed-host.js', 'renderer/panels/panel-embed.js', 'renderer/panels/panel-review-doc.js', 'renderer/chrome.js', 'renderer/lib/embed-utils.js'];
+const OPTIONAL_JS = ['stock-store.js', 'oa-store.js', 'oa-ssh.js', 'renderer/ui/preload-ui.js', 'renderer/ui/ui-core.js', 'renderer/ui/ui-panels.js', 'renderer/ui/ui-command.js', 'renderer/ui/ui-shell.js', 'renderer/ui/ui-a11y.js', 'renderer/ui/ui-credential.js', 'renderer/ui/ui-empty.js', 'renderer/panels/panel-pc-drives.js', 'renderer/panels/panel-pc-ledger.js', 'renderer/panels/panel-review-files.js', 'renderer/panels/panel-view.js', 'renderer/panels/view-media.js', 'renderer/panels/embed-host.js', 'renderer/panels/panel-embed.js', 'renderer/panels/panel-review-doc.js', 'renderer/chrome.js', 'renderer/lib/embed-utils.js', 'renderer/boot-glue.js'];
 const _indexHtml = read('renderer/index.html');
 const isReferenced = (f) => new RegExp('["\'][^"\']*' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '["\']').test(_indexHtml);
 for (const f of REQUIRED_JS.concat(OPTIONAL_JS)) {
@@ -96,8 +96,8 @@ else ok('main → preload 无悬空');
 
 // ---------- 3) 场景面板类型覆盖 ----------
 head('3. 场景面板类型覆盖');
-// P2-D 拆域：注册源 = renderers.js + renderer/chrome.js + renderer/lib/embed-utils.js + renderer/panels/*.js
-const rendererSrcFiles = ['renderer/renderers.js', 'renderer/chrome.js', 'renderer/lib/embed-utils.js'].concat(
+// P2-D 拆域：注册源 = renderers.js + renderer/chrome.js + renderer/lib/embed-utils.js + renderer/boot-glue.js + renderer/panels/*.js
+const rendererSrcFiles = ['renderer/renderers.js', 'renderer/chrome.js', 'renderer/lib/embed-utils.js', 'renderer/boot-glue.js'].concat(
   fs.existsSync(path.join(ROOT, 'renderer', 'panels'))
     ? fs.readdirSync(path.join(ROOT, 'renderer', 'panels')).filter((f) => f.endsWith('.js')).sort().map((f) => 'renderer/panels/' + f)
     : []

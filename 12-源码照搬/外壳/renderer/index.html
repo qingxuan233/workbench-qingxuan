@@ -132,6 +132,8 @@
   <!-- 外壳 chrome / HARNESS 接线（P2-D 阶段2b）：必须在 renderers.js 之前（HARNESS 别名加载期读 adapter） -->
   <script src="chrome.js"></script>
   <script id="renderers-script" src="renderers.js"></script>
+  <!-- P2-D 阶段3d：启动引导 IIFE 区**必须在 renderers.js 之后**（加载期要用 renderers 侧的钩子/函数） -->
+  <script id="boot-glue-script" src="boot-glue.js"></script>
   <script src="renderer.js"></script>
   <!-- 顶栏状态区（2026-10-16 新增 · 压力灯 / 谁在等我 / 快照回滚）：纯增量，不动上面任何脚本 -->
   <script src="topbar-status.js"></script>

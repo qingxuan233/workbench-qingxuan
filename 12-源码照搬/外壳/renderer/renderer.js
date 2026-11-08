@@ -59,7 +59,11 @@ function hotReloadRenderers() {
     const s = document.createElement('script');
     s.id = 'renderers-script';
     s.src = './renderers.js?t=' + Date.now();   // 缓存击穿：强制重新拉取
-    s.onload = () => resolve(true);
+    s.onload = () => {   // P2-D：boot-glue 原来随 renderers.js 一起重跑；搬出后必须一起重跑，否则 ⟳ 后钩子不再刷新
+      const g = document.getElementById('boot-glue-script'); if (g) g.remove();
+      const gs = document.createElement('script'); gs.id = 'boot-glue-script'; gs.src = './boot-glue.js?t=' + Date.now();
+      document.head.appendChild(gs); resolve(true);
+    };
     s.onerror = () => { setStatus('渲染器热更新失败，请重启 GUI', true); resolve(false); };
     document.head.appendChild(s);
   });

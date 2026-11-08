@@ -41,7 +41,7 @@ const BASELINE_DATE = '2026-11-08'
 /** 存量 >800 行文件的行数基线：只允许变短，不允许变长
  *  2026-11-08 死区清理后重定：仅 renderers.js 按删除后实测值重定，其余项保持现值 */
 const BASELINE_LINES = {
-  '外壳/renderer/renderers.js': 3609,        // 2026-11-08 P2-D 阶段3c：embed 本体 238 + 主机侧/chrome 装饰区 771 + review-doc 286 搬入 panels/（实测 3608 行 +1 尾部空行；基线只许更小）
+  '外壳/renderer/renderers.js': 2794,        // 2026-11-08 P2-D 阶段3d：启动引导 IIFE 区 540 + 复盘/站点 helper 275 搬出（实测 2793 行 +1 尾部空行；基线只许更小）
   '外壳/main.js': 5130,
   '外壳/renderer/renderer.js': 1355,
   '外壳/renderer/topbar-status.js': 1733,

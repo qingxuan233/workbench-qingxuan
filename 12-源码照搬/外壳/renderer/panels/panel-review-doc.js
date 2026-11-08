@@ -291,3 +291,279 @@ APP['review-doc'] = function (body, meta, head) {
     if (window.__SR && window.__SR.cur === curRel) window.__SR.cur = '';
   };
 };
+
+// ============ 个人站场景（personal-site）：官网预览 / 关于 / 自媒体 / 联系 / 投喂 ============
+var SITE_BASE = null;
+
+// 二维码大图弹层（点击外部关闭）
+var siteQrLayer = null;
+
+// 官网/项目本地文件夹（2026-10-22：浏览根由主进程 SITE_BROWSE_DIR 决定，默认 <工作台>
+
+// 官网预览：webview 内嵌 <工作台>
+
+// 关于我：头像 + 简介 + 标签 + 时间线
+
+// 自媒体账号：B站 / 抖音 / 小红书 卡片（打开主页 + 二维码弹层）
+
+// 项目管理：项目卡片列表（图标 + 名字 + 状态 + 描述 + 本地路径 + 操作）
+
+// 我的网址：一条一条的列表（图标 + 名字 + 网址标签 + 在线状态，点击在浏览器打开）
+// 个人站为置顶网站（下方横栏分隔）；其余为个人站内容的相关链接；每 1 分钟自动探测一次在线状态
+
+// ============ code-urls（程序开发场景「网址」）：项目相关网址的实时状态（点击用系统浏览器打开）============
+// 数据来自场景 json：meta.urls = [{ name, url, note? }] —— 换项目只改 json，不动渲染器。
+// 只用宿主通用能力：app.site.probe（主进程发 HTTP，绕开渲染器跨域限制）/ app.site.open（系统浏览器打开）。
+// 首个用户：code-dev 场景「网址」窗口（取代原来那个空的「项目管理」预留位）。
+
+// ============ Blender 场景（blender）：实时画面 / 本地文件 ============
+// 场景独立性：只走 window.app.blender 这一套 IPC，不读股票 / OA / 个人站的任何数据。
+// 画面来自主进程的抓帧进程（PrintWindow 抓 Blender 窗口 → JPEG），由本地静态服务直出，
+// 渲染层只负责带时间戳轮询同一张图，所以帧数据不经过 IPC。
+
+// Blender 实时画面（大窗口）
+
+// Blender 本地文件（工作区浏览：<盘根>:\blender\blender控制）
+
+/* ══════════════════════════════════════════════════════════════════
+   OA 运维场景 · 文件面板（type = "file"）
+   meta.mode = 'local' → 只显本地；'cloud' → 只显云端；缺省 → 左右双栏
+   每个面板自带【工具条 + 列表】，互不串线
+   ══════════════════════════════════════════════════════════════════ */
+
+// =====================================================================================
+// 场景「自我复盘」（self-review）：右上角浏览 <盘根>:\DSH\自我复盘（md 镜像，只读）
+//                                 左上角大窗「单击即预览」（渲染 md + 跟读目录内相对链接）
+// -------------------------------------------------------------------------------------
+// 为什么另写一对面板，不复用现成的 file / site-folder：
+//   1) file 面板单击 = 交给系统程序打开，且只认图/视频；md 是纯文本，这里要的是"单击 = 在左窗渲染"；
+//   2) site-folder 的路径夹死在 SITE_DIR，预览走静态服务器（md 会被当纯文本吐出来）→ 不满足"渲染 md"；
+//   3) 本场景就这两个面板互相配合：桥接用一个挂在 window 上的小对象 __SR + 两个自定义事件即可，
+//      不碰别的场景，也不改 HARNESS_PIN_JS / styles 里任何既有规则。
+// 数据来源：主进程 app.review（根＝REVIEW_DIR，路径夹在该目录内，只读，无写接口）。
+// =====================================================================================
+var SR_LABEL = ((window.app && window.app.paths && window.app.paths.reviewDir) || '自我复盘');
+var SR_LAST_KEY = 'sr:self-review:last';   // 记住上次看的文档（按场景分区；切场景/重启后自动恢复）
+
+// ---------- 小工具（都带 sr 前缀，避免和工作台里的同名函数打架）----------
+function srEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+// 行内元素：`code` / **粗** / *斜* / ~~删~~ / [文字](链接)
+function srInline(s) {
+  var t = srEsc(s);
+  t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+  t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  t = t.replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  t = t.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  t = t.replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>');
+  return t;
+}
+// 迷你 Markdown → HTML：标题 / 粗斜删 / 行内码 / 围栏码 / 有序无序表 / 复选框 / 表格 / 引用 / 分割线 / 链接
+// （够用即止：档案与知识库这几篇就是标题 + 列表 + 表格 + 引用，不为它引入第三方库）
+function srMd(src) {
+  var lines = String(src == null ? '' : src).replace(/\r\n?/g, '\n').split('\n');
+  var html = [], i = 0, listOpen = false, para = [];
+  function flushPara() {
+    if (para.length) { html.push('<p>' + srInline(para.join(' ')) + '</p>'); para = []; }
+  }
+  function closeList() { if (listOpen) { html.push('</ul>'); listOpen = false; } }
+  function cells(s) {
+    return s.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map(function (c) { return c.trim(); });
+  }
+  while (i < lines.length) {
+    var ln = lines[i];
+    // 围栏代码块
+    if (/^\s*(```|~~~)/.test(ln)) {
+      flushPara(); closeList();
+      var body = [], j = i + 1;
+      while (j < lines.length && !/^\s*(```|~~~)\s*$/.test(lines[j])) { body.push(lines[j]); j++; }
+      html.push('<pre class="sr-code"><code>' + srEsc(body.join('\n')) + '</code></pre>');
+      i = j + 1; continue;
+    }
+    // 表格：本行含 | 且下一行是 |---| 分隔行
+    if (ln.indexOf('|') >= 0 && i + 1 < lines.length && /^\s*\|?[\s:|-]*-[\s:|-]*\|/.test(lines[i + 1])) {
+      flushPara(); closeList();
+      var head2 = cells(ln), trs = [], k = i + 2;
+      while (k < lines.length && lines[k].trim() && lines[k].indexOf('|') >= 0) { trs.push(cells(lines[k])); k++; }
+      html.push('<table class="sr-tb"><thead><tr>' + head2.map(function (c) { return '<th>' + srInline(c) + '</th>'; }).join('') +
+        '</tr></thead><tbody>' + trs.map(function (r) {
+          return '<tr>' + r.map(function (c) { return '<td>' + srInline(c) + '</td>'; }).join('') + '</tr>';
+        }).join('') + '</tbody></table>');
+      i = k; continue;
+    }
+    var h = ln.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { flushPara(); closeList(); html.push('<' + 'h' + h[1].length + '>' + srInline(h[2]) + '</h' + h[1].length + '>'); i++; continue; }
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(ln)) { flushPara(); closeList(); html.push('<hr>'); i++; continue; }
+    if (/^\s*>/.test(ln)) {
+      flushPara(); closeList();
+      var qb = [], m = i;
+      while (m < lines.length && /^\s*>/.test(lines[m])) { qb.push(lines[m].replace(/^\s*>\s?/, '')); m++; }
+      html.push('<blockquote>' + srMd(qb.join('\n')) + '</blockquote>');
+      i = m; continue;
+    }
+    var li = ln.match(/^\s*[-*+]\s+(.*)$/);
+    if (li) {
+      flushPara();
+      if (!listOpen) { html.push('<ul>'); listOpen = true; }
+      var t = li[1], box = '', cb = t.match(/^\[( |x|X)\]\s+(.*)$/);
+      if (cb) { box = '<span class="sr-cb">' + (cb[1].toLowerCase() === 'x' ? '☑' : '☐') + '</span> '; t = cb[2]; }
+      html.push('<li>' + box + srInline(t) + '</li>');
+      i++; continue;
+    }
+    var oli = ln.match(/^\s*\d+[.)]\s+(.*)$/);
+    if (oli) {
+      flushPara();
+      if (!listOpen) { html.push('<ul class="sr-ol">'); listOpen = true; }
+      html.push('<li>' + srInline(oli[1]) + '</li>');
+      i++; continue;
+    }
+    if (!ln.trim()) { flushPara(); closeList(); i++; continue; }
+    para.push(ln.trim()); i++;
+  }
+  flushPara(); closeList();
+  return html.join('\n');
+}
+// 相对路径解析：支持 ./ 与 ../（文档里的相对链接、目录名都用它）
+function srJoin(dir, p) {
+  var s = String(p == null ? '' : p).replace(/\\/g, '/');
+  try { s = decodeURIComponent(s); } catch (e) { /* 没转义就算了 */ }
+  if (/^[a-zA-Z]:/.test(s)) return s.replace(/^[a-zA-Z]:[\\/]*/, '').replace(/\\/g, '/');   // 绝对路径 → 归一到"相对根"
+  s = s.replace(/^\.\//, '');
+  var parts = String(dir || '').split('/').filter(Boolean);
+  s.split('/').forEach(function (seg) {
+    if (!seg || seg === '.') return;
+    if (seg === '..') parts.pop(); else parts.push(seg);
+  });
+  return parts.join('/');
+}
+function srParent(rel) {
+  var p = String(rel || '').split('/').filter(Boolean);
+  p.pop();
+  return p.join('/');
+}
+function srSize(n) {
+  var v = Number(n) || 0;
+  if (v < 1024) return v + ' B';
+  if (v < 1048576) return (v / 1024).toFixed(v < 10240 ? 1 : 0) + ' KB';
+  return (v / 1048576).toFixed(1) + ' MB';
+}
+function srTime(t) {
+  var n = Number(t) || 0;
+  if (!n) return '';
+  var d = new Date(n * 1000), p = function (x) { return (x < 10 ? '0' : '') + x; };
+  return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+// 主进程里"用系统程序打开 / 在资源管理器里显示"的接口名按存在性探测，避免写错名字静默失效
+function srOpenPath(p) {
+  var k = window.app || {}, a = k.app || {}, o = k.oa || {};
+  var fn = a.openPath || o.openPath;
+  if (typeof fn !== 'function') return false;
+  try { fn(p); return true; } catch (e) { return false; }
+}
+function srRevealPath(p) {
+  var k = window.app || {}, a = k.app || {}, o = k.oa || {};
+  var fn = a.revealPath || o.openFolder;
+  if (typeof fn !== 'function') return false;
+  try { fn(p); return true; } catch (e) { return false; }
+}
+function srCopy(text) {
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = String(text == null ? '' : text);
+    ta.style.position = 'fixed'; ta.style.left = '-9999px'; ta.style.top = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    var ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) { return false; }
+}
+function srFull(rel) { return SR_LABEL + '\\' + String(rel || '').replace(/\//g, '\\'); }
+// 复盘镜像的**绝对路径**：根目录就是 SR_LABEL 本身（不带结尾反斜杠），窗口二标题行 / ⧉ 都用它
+function srAbs(rel) { return rel ? srFull(rel) : SR_LABEL; }
+// 操作提示（「✓ 已复制…」）并进**标题行**（用户要求）：原来挂在内容区底部，空着时也占一排（21px），
+// 看着就像一条很粗的下边框、正文永远碰不到下沿。拿不到标题行时才退回内容区。
+function srTipIn(head, body, before) {
+  var t = el('span', 'sr-tip sr-head-tip');
+  if (head) { if (before && before.parentNode === head) head.insertBefore(t, before); else head.appendChild(t); }
+  else body.appendChild(t);
+  var timer = 0;
+  return function (msg, ms) {
+    t.textContent = msg || '';
+    t.title = msg || '';
+    if (timer) clearTimeout(timer);
+    if (msg && ms) timer = setTimeout(function () { t.textContent = ''; t.title = ''; }, ms);
+  };
+}
+
+// ---------- 左上「文档预览」的文件分流（★2026-10-11★ 用户要求：预览能力从"只能看 md"扩到"能预览的全部文件"）----------
+// 判据只看**扩展名**，并且判在渲染层（不在主进程）：
+//   ① 主进程的 review:read 对**任何**文件都会回 utf8 正文（它只是额外标了个 text 标志），
+//      "该不该按文本读"必须在这儿先判断 —— 否则 PDF / 图片会被当文本读成一屏乱码；
+//   ② 判在渲染层 = 不用动 main.js = 改完 ⟳ 就生效，不用重启 GUI。
+// 四类去处：
+//   md / text        → 左窗自己渲染（md 走 srMd；txt/json/js/csv/log… 按原文 <pre> 显示）
+//   image/video/audio/pdf/html → **整块交给通用预览渲染器**（renderers.view）：
+//                      滚轮缩放、播放条、内核 PDF 阅读器、HTML 内嵌渲染都在它那儿，本场景一行都不重复写
+//   opaque（docx/xlsx/pptx/zip/psd…）→ 内核渲染不了 ⇒ 明确提示卡 + 「用系统默认程序打开」按钮（不白屏、不静默失败）
+//   认不出扩展名的    → 先按文本读，正文里出现 NUL/大量坏字符再退回"打不开"卡片（无后缀、.sample 这类）
+var SR_EXT_TEXT = ['md', 'markdown', 'mdx', 'txt', 'text', 'json', 'jsonl', 'jsonc', 'ndjson', 'csv', 'tsv', 'log',
+  'ini', 'cfg', 'conf', 'env', 'yaml', 'yml', 'toml', 'xml', 'srt', 'ass', 'vtt',
+  'js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'vue', 'css', 'scss', 'less', 'sql', 'py', 'ps1', 'psm1', 'bat', 'cmd',
+  'sh', 'rb', 'go', 'rs', 'java', 'c', 'h', 'cpp', 'hpp', 'cs', 'php', 'lua', 'typ', 'sample'];
+var SR_EXT_HTML = ['html', 'htm', 'xhtml'];
+var SR_EXT_IMAGE = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico', 'avif'];
+var SR_EXT_VIDEO = ['mp4', 'webm', 'mov', 'mkv', 'm4v', 'avi'];
+var SR_EXT_AUDIO = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'];
+// ★2026-10-13★ Office / WPS 文档单独成一类（以前算 opaque、只给提示卡）：
+//   现在交给通用预览渲染器 → 主进程借本机 Office 转成 PDF → 内核 PDF 阅读器内嵌显示。
+//   留在 SR_EXT_OPAQUE 里的只剩"真的没法在面板里看"的：压缩包、PSD、可执行文件、数据库、镜像、APK。
+var SR_EXT_OFFICE = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'rtf', 'odt', 'ods', 'odp', 'wps', 'et', 'dps'];
+var SR_EXT_OPAQUE = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'psd', 'ai', 'exe', 'dll', 'msi', 'db', 'sqlite', 'bin', 'iso', 'apk'];
+function srExtOf(p) {
+  var m = /\.([A-Za-z0-9]+)$/.exec(String(p || '').trim());
+  return m ? m[1].toLowerCase() : '';
+}
+function srKindOf(p) {
+  var e = srExtOf(p);
+  if (!e) return 'maybe-text';                       // 无后缀：先按文本试
+  if (e === 'md' || e === 'markdown' || e === 'mdx') return 'md';
+  if (SR_EXT_HTML.indexOf(e) >= 0) return 'html';    // HTML：看渲染效果（不是当源码看）
+  if (SR_EXT_IMAGE.indexOf(e) >= 0) return 'image';
+  if (SR_EXT_VIDEO.indexOf(e) >= 0) return 'video';
+  if (SR_EXT_AUDIO.indexOf(e) >= 0) return 'audio';
+  if (e === 'pdf') return 'pdf';
+  if (SR_EXT_OFFICE.indexOf(e) >= 0) return 'office';   // Word/Excel/PPT：转 PDF 后内嵌显示
+  if (SR_EXT_TEXT.indexOf(e) >= 0) return 'text';
+  if (SR_EXT_OPAQUE.indexOf(e) >= 0) return 'opaque';
+  return 'maybe-text';
+}
+// 二进制嗅探（只给"认不出扩展名"的文件用）：NUL 字节 = 一定是二进制；坏字符（U+FFFD，utf8 解不开的字节）
+// 占比超过 5% 也算。真文本（哪怕是 GBK 的老笔记变成坏字符）不会满屏 NUL。
+function srLooksBinary(text) {
+  var s = String(text == null ? '' : text);
+  if (!s) return false;
+  if (s.indexOf('\u0000') >= 0) return true;
+  var bad = (s.match(/\uFFFD/g) || []).length;
+  return bad > 0 && bad / s.length > 0.05;
+}
+// 文件树里的小图标：一眼分清"点了会出图 / 会播 / 会渲染 / 打不开"
+function srRowIcon(name) {
+  var k = srKindOf(name);
+  if (k === 'md') return '📄';
+  if (k === 'image') return '🖼';
+  if (k === 'video') return '🎞';
+  if (k === 'audio') return '🔊';
+  if (k === 'pdf') return '📕';
+  if (k === 'office') return '📘';                   // Word/Excel/PPT：点开会在预览里转成 PDF
+  if (k === 'html') return '🌐';
+  if (k === 'text' || k === 'maybe-text') return '📃';
+  return '🧩';                                       // opaque：要交给系统程序打开
+}
+
+
+
+// ---------- 左上角：文档预览（渲染 md；单击右上文档即在此打开；文档内相对链接原地跟读）----------
