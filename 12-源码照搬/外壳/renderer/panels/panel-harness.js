@@ -405,6 +405,33 @@ APP['harness'] = (body, meta, head) => {
       } catch (e) { /* ignore */ }
       forceTargets = []; forceSaved = null;
     };
+    // ★B1（2026-11-08）★ 白名单把 sidebarCol display:none!important 后，引擎在"侧栏 0 布局"时
+    //   可能一个会话行都不渲染（[role="treeitem"]=0），pin 的①点行回退就失效。
+    //   找行前若 rows===0，**临时**把 sidebarCol 显形（display:flex!important + width:240px）扫一拍，
+    //   扫完立即恢复 ⇒ B1 的隐藏自动回来（用户看不到双导航）。
+    let sideSaved = null, sideEl = null;
+    const sidebarColEl = () => { try { return document.querySelector('[class*="sidebarCol"]'); } catch (e) { return null; } };
+    const showSidebarForScan = () => {
+      if (sideSaved) return;
+      sideEl = sidebarColEl();
+      if (!sideEl) return;
+      sideSaved = [sideEl.style.display, sideEl.style.width, sideEl.style.minWidth, sideEl.style.flex];
+      try {
+        sideEl.style.setProperty('display', 'flex', 'important');
+        sideEl.style.setProperty('width', '240px', 'important');
+        sideEl.style.setProperty('min-width', '240px', 'important');
+      } catch (e) { /* ignore */ }
+    };
+    const restoreSidebarAfterScan = () => {
+      try {
+        if (sideEl && sideSaved) {
+          sideEl.style.display = sideSaved[0]; sideEl.style.width = sideSaved[1];
+          sideEl.style.minWidth = sideSaved[2]; sideEl.style.flex = sideSaved[3];
+        }
+      } catch (e) { /* ignore */ }
+      sideEl = null; sideSaved = null;
+    };
+    const rowCountNow = () => { try { return document.querySelectorAll('[role="treeitem"]').length; } catch (e) { return 0; } };
     // 是否已经钉住：按"侧栏高亮行标题"判断（权威），命中绑定标题/指定标题/候选名都算到位
     // 画面证据：标题对 ≠ 画面已打开。2026-09-19 探针实测（全新分区 + 只写当前会话键）：
     //   document.title 已经是目标会话名、存储里也指向目标，但**画面仍是「探索未至之境 / 选择一个工作区开始」**
@@ -520,6 +547,18 @@ APP['harness'] = (body, meta, head) => {
       }
       // 说明：走到这里只有一种情形 —— 标题还不像目标：可能应用还在加载（下一轮就好）、
       //   会话行还没渲染（下面会展开分组 / 临时显示侧栏）、或该会话 id 已失效（被归档/删除）。
+      // B1：侧栏被 display:none 时虚拟列表可能一个行都不渲染 ⇒ 临时显形一拍再扫（扫完/超时后恢复）
+      if (rowCountNow() === 0 && forceTimes < 6) {
+        forceTimes++;
+        showSidebarForScan();
+        refreshDiag(null);
+        setTimeout(() => {
+          const h = findBest(false) || findBest(true);
+          restoreSidebarAfterScan();
+          if (h) { doClick(h); forceHide(); } else { clickItem(); }
+        }, 800);
+        return;
+      }
       // ① 兜底：按标题在会话行里精确匹配（找不到时放宽再找一遍）
       let hit = findBest(false) || findBest(true);
       if (hit) { doClick(hit); forceHide(); return; }
