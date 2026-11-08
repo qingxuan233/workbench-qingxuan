@@ -112,6 +112,8 @@ function codeFiles() {
   //   盘符硬编码/真实会话 id/eval/新增文件 ≤800 行 这些红线必须同样适用（否则新增层天然免检）。
   walk('外壳/main')
   walk('外壳/core')
+  // 2026-11-08（P2）：engine-adapter = 引擎契约与注入脚本的唯一实现，同样是"会被提交的源码"
+  walk('外壳/engine-adapter')
   for (const e of fs.readdirSync(path.join(APP, '外壳'), { withFileTypes: true })) {
     if (e.isFile() && /\.(js|mjs)$/i.test(e.name)) out.add('外壳/' + e.name)
   }

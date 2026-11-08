@@ -25,7 +25,7 @@ const FILES = [
   'package.json', 'package-lock.json', 'start.vbs', 'icon.ico', 'icon.png',
   '.gitignore', '项目信息.md', '官方能力搬迁计划.md'
 ];
-const DIRS = ['renderer', 'scenarios', 'scripts', 'core'];   // 归档已并入 scenarios\归档（2026-10-16）；2026-11-08：core = 能力层（快照里已有，回滚必须一起还原，否则 core 与 renderer 版本错配）
+const DIRS = ['renderer', 'scenarios', 'scripts', 'core', 'engine-adapter'];   // 归档已并入 scenarios\归档（2026-10-16）；2026-11-08：core = 能力层；engine-adapter = 引擎契约实现（快照里已有，回滚必须一起还原）
 
 const snapshots = () => {
   if (!fs.existsSync(BK_DIR)) return [];

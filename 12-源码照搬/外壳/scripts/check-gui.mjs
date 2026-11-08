@@ -405,7 +405,7 @@ for (const s of ['scripts/check-injected.mjs', 'scripts/sessions.mjs']) {
 //   10.6 引擎侧扩展点结构正确：技能必须有 SKILL.md；插件目录要有开发约定
 head('10. 目录契约（哪里放什么 · 防乱建）');
 
-const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', 'main', '.git', 'GUI改造的项目信息', '.electron-cache', '.npm-cache', 'core'];   // 2026-10-16：归档并进 scenarios\归档，顶层不再有 归档；2026-11-01：.electron-cache/.npm-cache = npm/electron 的安装缓存，允许留在顶层；2026-11-04：main = 主进程按域拆出的模块；2026-11-08(P1)：core = 能力层（capability 注册表 + 中间件 + 领域服务 + 适配器）
+const ALLOWED_DIRS = ['renderer', 'scenarios', 'scripts', 'data', 'captures', 'node_modules', 'main', '.git', 'GUI改造的项目信息', '.electron-cache', '.npm-cache', 'core', 'engine-adapter'];   // 2026-10-16：归档并进 scenarios\归档，顶层不再有 归档；2026-11-01：.electron-cache/.npm-cache = npm/electron 的安装缓存；2026-11-04：main = 主进程按域拆出的模块；2026-11-08(P1)：core = 能力层；2026-11-08(P2)：engine-adapter = 引擎契约与注入脚本的唯一实现
 const ALLOWED_FILES = [
   'main.js', 'preload.js', 'stock-store.js', 'oa-store.js', 'oa-ssh.js', 'updater.js', 'crash.js',
   'package.json', 'package-lock.json', 'start.vbs', 'icon.ico', 'icon.png',

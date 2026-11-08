@@ -16,6 +16,8 @@ var __WB_ROOT = (function () {
 })();
 'use strict';
 
+var ENGINE_ADAPTER = (typeof window !== 'undefined' && window.__WB_ENGINE_ADAPTER) || null;   // P2：契约单一实现；index.html 须先加载 外壳/engine-adapter/contract.js
+
 var el = (tag, cls, text) => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -3689,54 +3691,15 @@ function initScenarioTabBar(opts) {
 //   所以两边同写 `calc(100% - 16px)` 时，恰好得到「输入卡比会话列宽 32px」＝引擎原设计的关系
 //   （原设计 887 / 919 就是差 32），同时各自还留 ≥8px 兜底留白（父层没内边距时也不会贴边）。
 //   一开始给列写 32px 时是这个结果：列 1560 / 卡 1608，两侧留白 48 vs 24 不对称 —— 别改回去。
-var HARNESS_WIDE_COL = 'calc(100% - 16px)';    // 会话列：父层内容盒 − 16px
-var HARNESS_WIDE_CARD = 'calc(100% - 16px)';   // 输入卡：父层内容盒 − 16px（父层内边距更小 ⇒ 卡比列宽 32px）
-var HARNESS_WIDE_CSS = [
-  '[data-chat-flow] { max-width: ' + HARNESS_WIDE_COL + ' !important; }',
-  '[data-composer-card] { max-width: ' + HARNESS_WIDE_CARD + ' !important; }',
-  // 兜底：万一某版把这两个变量声明在别的层上，也一起压掉。CSS module 的类名 = 哈希_局部名（实测
-  // `Rpcr1W_column` / `nrbKnG_card`），所以 `[class*=...]` 这种子串匹配是可靠的。
-  '[class*="embeddedBody"], [class*="column"] { --dsh-chat-content-width: ' + HARNESS_WIDE_COL +
-  ' !important; --dsh-composer-card-max-width: ' + HARNESS_WIDE_CARD + ' !important; }'
-].join('\n');
+// 单一实现：外壳/engine-adapter/contract.js（P2 收口；值/数组与两侧历史输出逐字节一致）
+var HARNESS_WIDE_COL = (ENGINE_ADAPTER && ENGINE_ADAPTER.WIDE_COL) || '';
+var HARNESS_WIDE_CARD = (ENGINE_ADAPTER && ENGINE_ADAPTER.WIDE_CARD) || '';
+var HARNESS_WIDE_CSS = (ENGINE_ADAPTER && ENGINE_ADAPTER.wideCss) ? ENGINE_ADAPTER.wideCss().join('\n') : '';   // 原常量是 join 后的 string（P2 单一实现）
 // ②的 JS 版：列/输入卡自身 + 祖先链逐层写变量，并**自维持**（宿主只投几次，页面重渲染后自己纠回来）。
 // 返回给宿主看的实测小字：「1列 1576/1592px」= 铺满了几列 · 列宽 / 可用宽。
 // 判读：两者只差十几像素（正是我们留的那 16px）= 已铺满；还差几百像素 = 没铺上（多半引擎换版、锚点没了）。
 // ⚠ 自维持定时器带 window 级守卫：宿主每 1.5 秒重注入一次（连续 30 秒），不守卫就会攒出几十个循环。
-var HARNESS_WIDE_PIN_JS = `(() => {
-  var COL = ${JSON.stringify(HARNESS_WIDE_COL)}, CARD = ${JSON.stringify(HARNESS_WIDE_CARD)};
-  var pinOnce = function () {
-    var layers = 0;
-    var pin = function (el) {
-      while (el && el.nodeType === 1) {
-        try {
-          el.style.setProperty('--dsh-chat-content-width', COL, 'important');
-          el.style.setProperty('--dsh-composer-card-max-width', CARD, 'important');
-        } catch (e) {}
-        layers++; el = el.parentElement;
-      }
-    };
-    var cols = document.querySelectorAll('[data-chat-flow]');
-    for (var i = 0; i < cols.length; i++) { try { cols[i].style.setProperty('max-width', COL, 'important'); } catch (e) {} pin(cols[i]); }
-    var cards = document.querySelectorAll('[data-composer-card]');
-    for (var j = 0; j < cards.length; j++) { try { cards[j].style.setProperty('max-width', CARD, 'important'); } catch (e) {} pin(cards[j]); }
-    var c0 = cols[0], pw = 0, w = 0;
-    // ⚠ 分母必须是"可用宽"＝父层**内容盒**（clientWidth 去掉左右内边距），不能用父层 border box：
-    //    max-width 里的 % 就是对这个内容盒算的。实测父层 border box 1656 / 内容盒 1592 / 列 1576 ⇒ 只差 16px。
-    if (c0) {
-      try {
-        w = c0.getBoundingClientRect().width;
-        var p = c0.parentElement || c0, cs = null;
-        try { cs = getComputedStyle(p); } catch (e2) {}
-        pw = p.clientWidth - ((cs && parseFloat(cs.paddingLeft)) || 0) - ((cs && parseFloat(cs.paddingRight)) || 0);
-      } catch (e) {}
-    }
-    return { cols: cols.length, cards: cards.length, layers: layers, w: Math.round(w), pw: Math.round(pw) };
-  };
-  var r = pinOnce();
-  try { if (!window.__kunWideTimer) window.__kunWideTimer = setInterval(pinOnce, 2000); } catch (e) {}
-  return r.cols + '列 ' + r.w + '/' + r.pw + 'px';
-})()`;
+var HARNESS_WIDE_PIN_JS = (ENGINE_ADAPTER && ENGINE_ADAPTER.widePinJs) ? ENGINE_ADAPTER.widePinJs({ layers: true }) : '';   // P2：单一实现（main 侧 layers:false）
 // 场景 0 = index.html 里的 #harness-webview：**引擎原生界面，设计上不做任何精简注入**（不隐藏侧栏/顶栏），
 // 所以这里只投"铺满"这一件事（CSS 兜底 + JS 逐层压变量），别的布局一律不动。
 // ⚠ 只作用于 #harness-webview；各场景面板（bl-ai / oa-ai / site-ai / mk-chat）走的是本文件里的
@@ -4131,19 +4094,7 @@ renderers.harness = (body, meta, head) => {
   // 主策略 = CSS 优先（不依赖 JS）：应用框架带内联 grid-template-columns 且含 minmax(0,1fr) 中列，
   // 用 !important 强制成 0 / 1fr / 0；标题栏 data-phase>header、拖条 data-width-handle、手柄 data-side 稳定属性。
   // 兜底 = JS 常驻（MutationObserver + 定时器）纠正 React 重渲染。
-  const HARNESS_CHAT_CSS = [
-    '[style*="grid-template-columns"][style*="minmax(0"] { grid-template-columns: minmax(0, 1fr) !important; }',
-    // 2026-11-07 修：原来这条写的是 [data-side="sidebar"] / [data-side="details"]，**恒选不中任何元素**
-    //   （本机引擎 0.2.2-rc.1：data-side 只在宽度拖拽手柄上，取值只有 left/right；sidebar/details 各 0 命中）。
-    //   侧栏/详情列的真实隐藏由下方 HARNESS_FIX_JS 的结构法承担（定位含 [data-chat-flow] 的中心列，
-    //   隐藏框架其余非 absolute 子元素）。这里不再留一条恒空的 CSS 兜底 —— 假保险比没有更糟。
-    '[style*="grid-template-columns"][style*="minmax(0"] [data-phase] > header { display: none !important; }',
-    '[style*="grid-template-columns"][style*="minmax(0"] [data-width-handle] { display: none !important; }',
-    // 文字铺满：老写法 `[data-phase] { --dsh-chat-content-width: 100% !important }` 在引擎 0.1.6 上
-    // **整条空转**（[data-phase] 不是会话相位容器、变量也不是在别处算的）——详见文件上方
-    // 「会话列铺满」那段实测说明。现在改成盖 max-width + 沿祖先链压变量，与场景 0 共用同一组常量。
-    HARNESS_WIDE_CSS
-  ].join('\n');
+  const HARNESS_CHAT_CSS = (ENGINE_ADAPTER && ENGINE_ADAPTER.chatCss) ? ENGINE_ADAPTER.chatCss({ centerColFix: false }).join('\n') : '';   // P2：单一实现（main 侧 centerColFix:true）
   // 钉住脚本（幂等：已装则不再重复装定时器；webview 内部重载后 window 重置，可重新注入）
   // pinTarget 支持「会话名」或「会话名数组」：多候选按顺序匹配——① 标题完全相等 ② 包含匹配，
   // **匹配时忽略大小写与空格**（兼容「oa系统运维」↔「<客户>oa系统运维」↔「<客户> OA 系统运维」）。
@@ -4757,108 +4708,7 @@ renderers.harness = (body, meta, head) => {
       }, { passive: true });
     })();
   })();`;
-  const HARNESS_FIX_JS = `(() => {
-    const pick = () => {
-      // 页面唯一带内联 grid-template-columns 且含 minmax( 的元素就是应用框架（已实测 grids=1）。
-      const all = document.querySelectorAll('[style*="grid-template-columns"]');
-      for (let i = 0; i < all.length; i++) {
-        const v = all[i].style.gridTemplateColumns || '';
-        if (v.indexOf('minmax(') >= 0) return all[i];
-      }
-      return null;
-    };
-    let WIDE = '';   // 铺满诊断（「1列 1354/1386px」），每次 fix 刷新
-    const fix = () => {
-      const f = pick();
-      if (!f) return false;
-      // 会话列铺满（三重法的 ①+②，见文件上方「会话列铺满」那段实测说明）：每次 fix 都重算一次，
-      // React 重渲染把 max-width 顶回去也能在一秒内纠回来；顺带把实测宽度留给下面的诊断。
-      try { WIDE = ${HARNESS_WIDE_PIN_JS}; } catch (e) { /* ignore */ }
-      // 单轨道：配合下方结构隐藏，仅剩的中心列占满整个框架
-      f.style.setProperty('grid-template-columns', 'minmax(0, 1fr)', 'important');
-      // 结构法：定位中心列（含聊天流/会话），隐藏框架其余非定位子元素（侧栏列/详情列）
-      let center = null;
-      const flow = f.querySelector('[data-chat-flow]') || f.querySelector('[data-phase]');
-      if (flow) {
-        let n = flow;
-        while (n && n.parentElement && n.parentElement !== f) n = n.parentElement;
-        if (n && n.parentElement === f) center = n;
-      }
-      // 保护：中心列未定位到就不做结构隐藏，避免整面板空白
-      if (center) {
-        const kids = f.children;
-        for (let i = 0; i < kids.length; i++) {
-          const c = kids[i];
-          if (c === center) continue;
-          let pos = 'static';
-          try { pos = getComputedStyle(c).position; } catch (e) { /* ignore */ }
-          if (pos === 'absolute') continue;
-          c.style.setProperty('display', 'none', 'important');
-        }
-      }
-      // 2026-11-07 修：去掉不存在的 [data-side="sidebar"] / [data-side="details"]（引擎里 0 命中）；
-      //   真正存在的只有 [data-width-handle]。侧栏/详情列由上面的结构法（按 grid 列位置）负责。
-      f.querySelectorAll('[data-width-handle]').forEach(function (h) {
-        h.style.setProperty('display', 'none', 'important');
-      });
-      f.querySelectorAll('[data-phase]').forEach(function (r) {
-        // ⚠ 这里以前还有一行「r.style.setProperty('--dsh-chat-content-width','100%','important')」，
-        //   2026-09-20 第三波删掉：本版 [data-phase] 是连接状态小圆点按钮，不是会话相位容器，
-        //   写在上面的宽度变量压根到不了会话列（实测列仍被 clamp 到 887px）。宽度改由
-        //   文件上方 HARNESS_WIDE_PIN_JS 直接盖 [data-chat-flow] / [data-composer-card] 的 max-width
-        //   并沿祖先链压变量——**不再依赖 [data-phase] 这个会跟着版本漂移的锚点**。
-        // 隐藏不含聊天流的子元素（即会话顶栏；body 含 [data-chat-flow]，保留）
-        const kids = r.children;
-        let hasFlow = false;
-        for (let j = 0; j < kids.length; j++) {
-          if (kids[j].querySelector('[data-chat-flow]')) { hasFlow = true; break; }
-        }
-        if (!hasFlow) return;
-        for (let j = 0; j < kids.length; j++) {
-          const c = kids[j];
-          if (c.querySelector('[data-chat-flow]')) continue;
-          c.style.setProperty('display', 'none', 'important');
-        }
-      });
-      if (flow) {
-        const sc = flow.parentElement;
-        if (sc && sc.firstElementChild && sc.firstElementChild !== flow) {
-          sc.firstElementChild.style.setProperty('display', 'none', 'important');
-        }
-      }
-      return true;
-    };
-    fix();
-    // ★幂等守卫（2026-09-20 第三波补）★：宿主会 dom-ready/did-finish-load 各投一次、之后连续 30 秒
-    //   每 1.5 秒再投一次，不守卫就会攒出几十个 MutationObserver + 1 秒循环空转（pin_v3 那边踩过同一个坑，
-    //   表现为面板小字周期乱跳 + 白扫 DOM）。现在：注入一次就 fix 一次（上面那行在守卫外），定时器只装一轮。
-    if (!window.__kunFixOn) {
-      window.__kunFixOn = 1;
-      try { new MutationObserver(fix).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] }); } catch (e) {}
-      setInterval(fix, 1000);
-    }
-    const all = document.querySelectorAll('[style*="grid-template-columns"]');
-    const f2 = pick();
-    const vals = [];
-    for (let i = 0; i < all.length && i < 5; i++) vals.push(all[i].style.gridTemplateColumns);
-    const rootEl = document.getElementById('root') || document.body;
-    return JSON.stringify({
-      found: !!f2,
-      grid: f2 ? f2.style.gridTemplateColumns : '',
-      grids: all.length,
-      vals: vals,
-      iframes: document.querySelectorAll('iframe').length,
-      hasPhase: document.querySelectorAll('[data-phase]').length,
-      hasChatFlow: document.querySelectorAll('[data-chat-flow]').length,
-      wide: WIDE,   // 铺满实测：「1列 1576/1592px」= 铺满几列 · 列宽/可用宽（宿主把它显示在面板标题行）
-      rootKids: rootEl ? rootEl.children.length : -1,
-      title: document.title,
-      url: location.href
-    });
-  })();
-  // ---- 钉住「oa系统运维」会话：面板固定显示该会话，主窗口切换会话不跟随 ----
-  ${HARNESS_PIN_JS}
-  `;
+  const HARNESS_FIX_JS = (ENGINE_ADAPTER && ENGINE_ADAPTER.fixJs) ? ENGINE_ADAPTER.fixJs({ profile: 'renderer', pinJs: HARNESS_PIN_JS }) : '';   // P2：布局修复 + 极简 JSON 诊断 + 嵌钉会话（单一实现）
 
   const injectFix = async () => {
     try { await wv.insertCSS(HARNESS_CHAT_CSS); } catch (e) { /* ignore */ }

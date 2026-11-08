@@ -23,7 +23,7 @@ const FILES = [
   'package.json', 'package-lock.json', 'start.vbs', 'icon.ico', 'icon.png',
   '.gitignore', '项目信息.md', 'GUI改造私有记忆.md', '官方能力搬迁计划.md', '迁移手册.md'
 ];
-const DIRS = ['renderer', 'scenarios', 'scripts', 'main', 'GUI改造的项目信息', 'core'];   // 归档已并入 scenarios\归档（2026-10-16）；2026-11-08：core = 能力层（check-gui 10.5 要求备份清单覆盖全部顶层源码条目）
+const DIRS = ['renderer', 'scenarios', 'scripts', 'main', 'GUI改造的项目信息', 'core', 'engine-adapter'];   // 归档已并入 scenarios\归档（2026-10-16）；2026-11-08：core = 能力层；engine-adapter = 引擎契约实现（check-gui 10.5 要求备份清单覆盖全部顶层源码条目）
 
 const list = () => {
   if (!fs.existsSync(BK_DIR)) return [];

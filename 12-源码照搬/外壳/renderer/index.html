@@ -114,6 +114,8 @@
   </div>
 
   <script src="panels/panel-registry.js"></script>
+  <!-- 引擎适配层（P2 收口）：必须在 renderers.js 之前加载（渲染层从 window.__WB_ENGINE_ADAPTER 取契约） -->
+  <script src="../engine-adapter/contract.js"></script>
   <script id="renderers-script" src="renderers.js"></script>
   <script src="renderer.js"></script>
   <!-- 顶栏状态区（2026-10-16 新增 · 压力灯 / 谁在等我 / 快照回滚）：纯增量，不动上面任何脚本 -->

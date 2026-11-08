@@ -5,10 +5,23 @@
 // 所以这里把它们抽出来，逐个 new Function() 解析一遍（只解析，不执行）。
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let bad = 0;
+
+// ── 引擎适配层（2026-11-08 P2）────────────────────────────────────────────
+// P2 起，`HARNESS_WIDE_*/CHAT_CSS/FIX_JS` 的唯一实现在 engine-adapter/contract.js（UMD）：
+//   主进程 require、渲染层读 window.__WB_ENGINE_ADAPTER。所以本检查器改成
+//   **从 adapter 的生成物解析**（仍然逐个 new Function 解析，判据不变：注入后能不能跑）。
+const ADAPTER_PATH = path.join(root, 'engine-adapter', 'contract.js');
+const ADAPTER_SRC = fs.existsSync(ADAPTER_PATH) ? fs.readFileSync(ADAPTER_PATH, 'utf8') : '';
+let A = null;
+try { A = createRequire(import.meta.url)(ADAPTER_PATH); } catch (e) {
+  console.log('✗ engine-adapter 加载失败：' + ((e && e.message) || e));
+  bad++;
+}
 
 // 取 "const NAME = `...`;" 里的模板内容（首个未转义反引号即结束；注入脚本内部不使用反引号）
 function pickLiteral(src, name) {
@@ -92,11 +105,40 @@ const subs = {
   ...wideSubs(r),
 };
 check('renderers.js · HARNESS_PIN_JS（钉会话+绑定）', pinRaw, subs);
-check('renderers.js · HARNESS_FIX_JS（布局修复，含钉会话）', pickLiteral(r, 'HARNESS_FIX_JS'), subs);
+// P2 起 FIX_JS 的唯一实现在 engine-adapter（上面已按 profile 各解析一遍）；renderers.js 只保留 PIN_JS，
+// 故此处不再检查 renderers 的 FIX_JS 字面量（反向断言在下面统一拦"又自带一份"）。
 
-// main.js：主进程注入的布局修复脚本（__DSH_PIN_TARGET__ 已移交渲染层，这里仍保留替换逻辑，替换为 no-op）
-check('main.js · HARNESS_FIX_JS', pickLiteral(m, 'HARNESS_FIX_JS'),
-  Object.assign({ __DSH_PIN_TARGET__: '["会话A"]' }, wideSubs(m)));
+// ── CSS 校验（和 JS 检查分开：CSS 过 new Function 必报 "Unexpected token '{'"）──────
+function checkCss(label, css, mustHave) {
+  const s = String(css || '');
+  if (!s.trim()) { console.log('✗ ' + label + '：为空'); bad++; return; }
+  let bal = 0, broken = false;
+  for (const ch of s) { if (ch === '{') bal++; else if (ch === '}') { bal--; if (bal < 0) { broken = true; break; } } }
+  if (broken || bal !== 0) { console.log('✗ ' + label + '：花括号不平衡（bal=' + bal + '）'); bad++; return; }
+  const miss = (mustHave || []).filter((n) => !s.includes(n));
+  if (miss.length) { console.log('✗ ' + label + '：缺少关键规则 ' + miss.join('、')); bad++; return; }
+  console.log('✓ ' + label + '：CSS 结构可解析（' + s.split('\n').length + ' 行）');
+}
+
+// ── engine-adapter（P2 收口的唯一实现）：每个 profile 的生成物都要能被解析 ──────────
+if (A) {
+  try {
+    check('engine-adapter · widePinJs(layers:false → 主进程)', A.widePinJs({ layers: false }), subs);
+    check('engine-adapter · widePinJs(layers:true → 渲染层)', A.widePinJs({ layers: true }), subs);
+    checkCss('engine-adapter · chatCss(centerColFix:true → 主进程)', A.chatCss({ centerColFix: true }).join('\n'),
+      ['grid-template-columns', 'data-chat-flow', 'grid-column: 1 / -1', 'centerCol']);
+    checkCss('engine-adapter · chatCss(centerColFix:false → 渲染层)', A.chatCss({ centerColFix: false }).join('\n'),
+      ['grid-template-columns', 'data-chat-flow', 'data-width-handle']);
+    check('engine-adapter · fixJs(profile:main)', A.fixJs({ profile: 'main' }), subs);
+    check('engine-adapter · fixJs(profile:renderer)（含钉会话）',
+      A.fixJs({ profile: 'renderer', pinJs: String(pinRaw || '') }), subs);
+  } catch (e) {
+    console.log('✗ engine-adapter 生成物解析期间异常：' + ((e && e.message) || e));
+    bad++;
+  }
+  if (A.SELECTORS && typeof A.SELECTORS === 'object') console.log('✓ engine-adapter · SELECTORS 导出在位（' + Object.keys(A.SELECTORS).length + ' 条）');
+  else { console.log('✗ engine-adapter · SELECTORS 缺失'); bad++; }
+}
 
 // 关键逻辑存在性断言：根治项不允许被回退掉
 const must = [
@@ -121,12 +163,12 @@ const must = [
   [r, 'const isGroupHead = (e) =>', '渲染层：不把分组头当会话点'],
   [r, 'const rowTitle = (row) =>', '渲染层：按行内标题节点取标题'],
   [r, 'const forceShow = () =>', '渲染层：列表没渲染时临时显示侧栏'],
-  [m, '钉住会话：已移交渲染层', '主进程：不再重复点击抢会话'],
+  [m, 'ENGINE_ADAPTER.fixJs', '主进程：布局修复/铺满脚本必须来自 engine-adapter（不许回退成自带副本）'],
   // 2026-09-20 第三波：会话列铺满（用户："现在会话又变窄了…包括每个场景窗口里的 ai 会话"）——
   // 两条链路都要有，且都不能再退回"往 [data-phase] 写变量"那个空转写法（本版 [data-phase] 是状态小圆点）。
   [r, 'var HARNESS_WIDE_PIN_JS', '渲染层：会话列铺满脚本还在（盖 [data-chat-flow]/[data-composer-card] 的 max-width）'],
   [r, 'HARNESS_WIDE_COL', '渲染层：铺满宽度常量还在（改数字前先跑 probe-chat-width 拿 before/after）'],
-  [m, 'const HARNESS_WIDE_PIN_JS', '主进程：会话列铺满脚本与渲染层保持一致'],
+  [r, 'ENGINE_ADAPTER.widePinJs', '渲染层：铺满脚本来自 engine-adapter（单一实现，不许自带副本）'],
 ];
 for (const [src, needle, why] of must) {
   if (src.includes(needle)) console.log('✓ ' + why);
@@ -161,6 +203,12 @@ const never = [
 for (const [src, re, why] of never) {
   if (re.test(src)) { console.log('✗ 禁止项复活：' + why); bad++; }
   else console.log('✓ ' + why);
+}
+// 反向断言（P2 收口）：两侧都不许再自带注入脚本的模板字面量（唯一实现在 engine-adapter）
+const LITERAL_FIX = 'HARNESS_FIX_JS = `';
+for (const [src, label] of [[m, 'main.js'], [r, 'renderers.js']]) {
+  if (src.includes(LITERAL_FIX)) { console.log('✗ 禁止项复活：' + label + ' 又自带 HARNESS_FIX_JS 字面量（必须走 engine-adapter）'); bad++; }
+  else console.log('✓ ' + label + ' 不自带注入脚本字面量（走 engine-adapter 单一实现）');
 }
 // 直达通道的"限量"断言（2026-09-19 三次定稿）：reload 只准一处，且必须带三道前置判断。
 //   ① readReloads() < RELOAD_MAX  —— 有重载预算，用完退回点击侧栏；
