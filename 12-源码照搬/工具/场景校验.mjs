@@ -39,11 +39,13 @@ const PLACEHOLDER = '__待填__'
 const readText = (p) => { try { return fs.readFileSync(p, 'utf8') } catch { return null } }
 const readJson = (p) => { try { return JSON.parse(readText(p) || '') } catch { return null } }
 
-/** 从 renderers.js 源码提取已注册的面板类型（与 check-gui.mjs 第 3 项同一判据） */
+/** 从 renderers.js + panels/*.js 源码提取已注册的面板类型（与 check-gui.mjs 第 3 项同一判据） */
 export function registryFromSource(src) {
   const types = new Set()
   for (const m of (src || '').matchAll(/renderers\[['"]([^'"]+)['"]\]\s*=/g)) types.add(m[1])
   for (const m of (src || '').matchAll(/\nrenderers\.([A-Za-z_$][\w$]*)\s*=/g)) types.add(m[1])
+  // P2-D 拆域：panels/*.js 用共享注册对象（`APP['type'] =` / `APP_RENDERERS['type'] =`）
+  for (const m of (src || '').matchAll(/APP(?:_RENDERERS)?\[['"]([^'"]+)['"]\]\s*=/g)) types.add(m[1])
   return types
 }
 
@@ -242,7 +244,20 @@ function collect(opts = {}) {
   const regFile = opts.regFile || REG_FILE
   const mainFile = opts.mainFile || MAIN_FILE
   const items = loadScenes(scenDir)
-  const types = registryFromSource(readText(regFile) || '')
+  // P2-D：注册源 = renderers.js + renderer/panels/*.js（多文件注册；只扩解析范围，断言不变）
+  const regText = (() => {
+    let t = readText(regFile) || ''
+    try {
+      const panelsDir = path.join(path.dirname(regFile), 'panels')
+      if (fs.existsSync(panelsDir)) {
+        for (const f of fs.readdirSync(panelsDir).filter((x) => x.endsWith('.js')).sort()) {
+          t += '\n' + (readText(path.join(panelsDir, f)) || '')
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return t
+  })()
+  const types = registryFromSource(regText)
   const ports = portsFromMain(readText(mainFile) || '')
   return { items, types, ports, result: validateScenes(items, { types, scenariosDir: scenDir }) }
 }

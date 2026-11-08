@@ -54,7 +54,7 @@ head('1. JS 语法');
 // 必需文件（缺 = 壳跑不起来）与公开版剔除的业务模块（缺 = 设计如此）。
 // 业务模块只有在 index.html 仍引用它时才必须存在 —— 那才是真的会加载失败。
 const REQUIRED_JS = ['main.js', 'preload.js', 'renderer/renderer.js', 'renderer/renderers.js', 'renderer/theme-sync.js'];
-const OPTIONAL_JS = ['stock-store.js', 'oa-store.js', 'oa-ssh.js', 'renderer/ui/preload-ui.js', 'renderer/ui/ui-core.js', 'renderer/ui/ui-panels.js', 'renderer/ui/ui-command.js', 'renderer/ui/ui-shell.js', 'renderer/ui/ui-a11y.js', 'renderer/ui/ui-credential.js', 'renderer/ui/ui-empty.js'];
+const OPTIONAL_JS = ['stock-store.js', 'oa-store.js', 'oa-ssh.js', 'renderer/ui/preload-ui.js', 'renderer/ui/ui-core.js', 'renderer/ui/ui-panels.js', 'renderer/ui/ui-command.js', 'renderer/ui/ui-shell.js', 'renderer/ui/ui-a11y.js', 'renderer/ui/ui-credential.js', 'renderer/ui/ui-empty.js', 'renderer/panels/panel-pc-drives.js'];
 const _indexHtml = read('renderer/index.html');
 const isReferenced = (f) => new RegExp('["\'][^"\']*' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '["\']').test(_indexHtml);
 for (const f of REQUIRED_JS.concat(OPTIONAL_JS)) {
@@ -96,10 +96,20 @@ else ok('main → preload 无悬空');
 
 // ---------- 3) 场景面板类型覆盖 ----------
 head('3. 场景面板类型覆盖');
-const renderersSrc = read('renderer/renderers.js');
+// P2-D 拆域：注册源 = renderers.js + renderer/panels/*.js（多文件注册；三种注册形态都认）
+const rendererSrcFiles = ['renderer/renderers.js'].concat(
+  fs.existsSync(path.join(ROOT, 'renderer', 'panels'))
+    ? fs.readdirSync(path.join(ROOT, 'renderer', 'panels')).filter((f) => f.endsWith('.js')).sort().map((f) => 'renderer/panels/' + f)
+    : []
+);
+const renderersSrcs = rendererSrcFiles.map((f) => ({ file: f, src: read(f) }));
+const renderersSrc = renderersSrcs.map((x) => x.src).join('\n');   // #6 的切片/命名空间检查沿用合并源
 const types = new Set();
-for (const m of renderersSrc.matchAll(/renderers\[['"]([^'"]+)['"]\]\s*=/g)) types.add(m[1]);
-for (const m of renderersSrc.matchAll(/\nrenderers\.([A-Za-z_$][\w$]*)\s*=/g)) types.add(m[1]);
+for (const { src } of renderersSrcs) {
+  for (const m of src.matchAll(/renderers\[['"]([^'"]+)['"]\]\s*=/g)) types.add(m[1]);
+  for (const m of src.matchAll(/\nrenderers\.([A-Za-z_$][\w$]*)\s*=/g)) types.add(m[1]);
+  for (const m of src.matchAll(/APP(?:_RENDERERS)?\[['"]([^'"]+)['"]\]\s*=/g)) types.add(m[1]);
+}
 console.log('  已注册类型：' + [...types].sort().join(', '));
 const scDir = path.join(ROOT, 'scenarios');
 const sceneIds = [];
@@ -116,26 +126,29 @@ for (const f of fs.readdirSync(scDir).filter((x) => x.endsWith('.json')).sort())
 
 // ---------- 4) 渲染器 cleanup ----------
 head('4. 渲染器定时器 cleanup');
-const lines = renderersSrc.split(/\r?\n/);
-const defs = [];
-lines.forEach((l, i) => {
-  if (/renderers(\.|\[)/.test(l) && /=\s*(\(|function)/.test(l) && !/^\s*\/\//.test(l)) {
-    const m = l.match(/renderers(?:\[['"]([^'"]+)['"]\]|\.([A-Za-z_$][\w$]*))/);
-    if (m) defs.push({ name: m[1] || m[2], line: i + 1 });
-  }
-});
+const lines = renderersSrc.split(/\r?\n/);   // #6 的切片继续用合并源
+// P2-D：按**每个注册源文件**分别切块（renderers.js + panels/*.js）；判据不变（含 setInterval 必须 return cleanup）
+const DEF_RUN_RE = /(?:renderers(?:\[['"]([^'"]+)['"]\]|\.([A-Za-z_$][\w$]*))|APP(?:_RENDERERS)?\[['"]([^'"]+)['"]\])\s*=\s*(\(|function)/;
 let timerBad = 0;
-for (let i = 0; i < defs.length; i++) {
-  const d = defs[i];
-  const end = i + 1 < defs.length ? defs[i + 1].line - 1 : lines.length;
-  const block = lines.slice(d.line - 1, end).join('\n');
-  // 注入到 webview 内部字符串里的定时器不算（它们跑在被嵌入页面里）
-  const inlineStrs = (block.match(/`[^`]*`/g) || []).join('\n');
-  const outside = block.split('`').filter((_, idx) => idx % 2 === 0).join('\n');
-  const timers = (outside.match(/setInterval\(/g) || []).length;
-  if (timers > 0 && !/return\s*(?:\(\s*\)\s*=>|function\s*\(|\(\)\s*=>)/.test(block)) {
-    bad(`renderers.${d.name}（L${d.line}）有 ${timers} 个 setInterval 但没返回 cleanup`);
-    timerBad++;
+for (const { file, src: fileSrc } of renderersSrcs) {
+  const srcLines = fileSrc.split(/\r?\n/);
+  const defs = [];
+  srcLines.forEach((l, i) => {
+    if (/^\s*\/\//.test(l)) return;   // 注释行不算注册
+    const m = l.match(DEF_RUN_RE);
+    if (m) defs.push({ name: m[1] || m[2] || m[3], line: i + 1 });
+  });
+  for (let i = 0; i < defs.length; i++) {
+    const d = defs[i];
+    const end = i + 1 < defs.length ? defs[i + 1].line - 1 : srcLines.length;
+    const block = srcLines.slice(d.line - 1, end).join('\n');
+    // 注入到 webview 内部字符串里的定时器不算（它们跑在被嵌入页面里）
+    const outside = block.split('`').filter((_, idx) => idx % 2 === 0).join('\n');
+    const timers = (outside.match(/setInterval\(/g) || []).length;
+    if (timers > 0 && !/return\s*(?:\(\s*\)\s*=>|function\s*\(|\(\)\s*=>)/.test(block)) {
+      bad(`renderer.${d.name}（${file} L${d.line}）有 ${timers} 个 setInterval 但没返回 cleanup`);
+      timerBad++;
+    }
   }
 }
 if (!timerBad) ok('所有含 setInterval 的渲染器都返回了 cleanup');
@@ -209,9 +222,10 @@ const blockOf = (startIdx) => {
 };
 const defIdx = [];
 lines.forEach((l, i) => {
-  if (/^renderers(\.|\[)/.test(l) && /=\s*(\(|function)/.test(l)) {
-    const m = l.match(/renderers(?:\[['"]([^'"]+)['"]\]|\.([A-Za-z_$][\w$]*))/);
-    if (m) defIdx.push({ name: m[1] || m[2], i });
+  // P2-D：三种注册形态都认（renderers.X / renderers['x'] / APP['x'] / APP_RENDERERS['x']）
+  if (/(?:renderers(\.|\[)|APP(?:_RENDERERS)?\[)/.test(l) && /=\s*(\(|function)/.test(l)) {
+    const m = l.match(/(?:renderers(?:\[['"]([^'"]+)['"]\]|\.([A-Za-z_$][\w$]*))|APP(?:_RENDERERS)?\[['"]([^'"]+)['"]\])/);
+    if (m) defIdx.push({ name: m[1] || m[2] || m[3], i });
   }
 });
 let nsBad = 0;

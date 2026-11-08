@@ -20,10 +20,20 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RENDERERS = path.join(ROOT, 'renderer', 'renderers.js');
+const PANELS_DIR = path.join(ROOT, 'renderer', 'panels');
 const SCEN_DIR = path.join(ROOT, 'scenarios');
-const src = fs.readFileSync(RENDERERS, 'utf8');
-const lines = src.split(/\r?\n/);
-const lineAt = (pos) => src.slice(0, pos).split(/\r?\n/).length;
+// P2-D 拆域：注册源从"单文件"扩展为 **renderers.js + renderer/panels/*.js**（多文件注册）。
+// 只读；panel-registry.js / panel-harness.js 等用 REGISTRY.register 的不在本审计范围（正则不会命中）。
+const SOURCE_FILES = [RENDERERS].concat(
+  fs.existsSync(PANELS_DIR)
+    ? fs.readdirSync(PANELS_DIR).filter((f) => f.endsWith('.js')).sort().map((f) => path.join(PANELS_DIR, f))
+    : []
+);
+const sources = SOURCE_FILES.map((file) => {
+  const src = fs.readFileSync(file, 'utf8');
+  return { rel: path.relative(ROOT, file).split(path.sep).join('/'), src, lines: src.split(/\r?\n/) };
+});
+const srcAll = sources.map((s) => s.src).join('\n');
 
 const ok = (m) => console.log('  ✓ ' + m);
 const info = (m) => console.log('  · ' + m);
@@ -38,42 +48,53 @@ for (const f of fs.readdirSync(SCEN_DIR).filter((x) => x.endsWith('.json') && !x
   } catch (e) { /* 坏 json 交给 check-gui */ }
 }
 
-// renderers.X = / renderers['x'] =
+// 注册形态（三种都认）：
+//   renderers.X = …… / renderers['x'] = …… / APP['x'] = …… / APP_RENDERERS['x'] = ……
+const DEF_RE = /(?:renderers(?:\.([A-Za-z_$][\w$]*)|\[\s*['"]([^'"]+)['"]\s*\])|APP_RENDERERS?\[\s*['"]([^'"]+)['"]\s*\]|APP\[\s*['"]([^'"]+)['"]\s*\])\s*=/g;
 const defs = [];
-const re = /renderers(?:\.([A-Za-z_$][\w$]*)|\[\s*['"]([^'"]+)['"]\s*\])\s*=/g;
-let m;
-while ((m = re.exec(src))) {
-  const name = m[1] || m[2];
-  const start = lineAt(m.index);
-  defs.push({ name, start });
+for (const s of sources) {
+  DEF_RE.lastIndex = 0;
+  let m;
+  while ((m = DEF_RE.exec(s.src))) {
+    const name = m[1] || m[2] || m[3] || m[4];
+    defs.push({ name, file: s.rel, start: s.src.slice(0, m.index).split(/\r?\n/).length });
+  }
 }
 const names = [...new Set(defs.map((d) => d.name))].sort();
 const all = names.map((n) => {
-  const pats = ['renderers.' + n, "renderers['" + n + "']", 'renderers["' + n + '"]'];
-  const refs = lines.reduce((k, l) => k + (pats.some((p) => l.includes(p)) ? 1 : 0), 0);
+  const pats = ['renderers.' + n, "renderers['" + n + "']", 'renderers["' + n + '"]',
+    "APP['" + n + "']", 'APP["' + n + '"]', "APP_RENDERERS['" + n + "']", 'APP_RENDERERS["' + n + '"]'];
+  const refs = srcAll.split(/\r?\n/).reduce((k, l) => k + (pats.some((p) => l.includes(p)) ? 1 : 0), 0);
   return { name: n, refs };
 });
 const dead = all.filter((x) => !used.has(x.name) && x.refs <= 1).map((x) => x.name);
 const reused = all.filter((x) => x.refs > 1 && !used.has(x.name)).map((x) => x.name);
 
-// 单引用顶层函数（只声明、无人调用）
+// 单引用顶层函数（只声明、无人调用）——按"全仓渲染源"合计引用数，避免跨文件引用被误判成孤儿
 const fns = [];
-const fre = /^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
-while ((m = fre.exec(src))) {
-  const name = m[1];
-  const count = (src.match(new RegExp('\\b' + name.replace(/[$]/g, '\\$') + '\\b', 'g')) || []).length;
-  if (count === 1) fns.push({ name, line: lineAt(m.index) });
+for (const s of sources) {
+  const fre = /^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
+  let m;
+  while ((m = fre.exec(s.src))) {
+    const name = m[1];
+    const count = (srcAll.match(new RegExp('\\b' + name.replace(/[$]/g, '\\$') + '\\b', 'g')) || []).length;
+    if (count === 1) fns.push({ name, file: s.rel, line: s.src.slice(0, m.index).split(/\r?\n/).length });
+  }
 }
 
-// 按渲染器声明行切块，估算每块行数（只用于排序，不精确到语句）
-defs.sort((a, b) => a.start - b.start);
-const blocks = defs.map((d, i) => {
-  const end = i + 1 < defs.length ? defs[i + 1].start - 1 : lines.length;
-  return { name: d.name, start: d.start, lines: Math.max(1, end - d.start + 1) };
-}).sort((a, b) => b.lines - a.lines);
+// 按渲染器声明行切块（**同文件内**到下一个声明为止），估算每块行数（只用于排序）
+const blocks = [];
+for (const s of sources) {
+  const own = defs.filter((d) => d.file === s.rel).sort((a, b) => a.start - b.start);
+  own.forEach((d, i) => {
+    const end = i + 1 < own.length ? own[i + 1].start - 1 : s.lines.length;
+    blocks.push({ name: d.name, file: s.rel, start: d.start, lines: Math.max(1, end - d.start + 1) });
+  });
+}
+blocks.sort((a, b) => b.lines - a.lines);
 
 head('1. 体量');
-ok('renderers.js：' + lines.length + ' 行 / ' + Buffer.byteLength(src) + ' 字节');
+for (const s of sources) ok(s.rel + '：' + s.lines.length + ' 行 / ' + Buffer.byteLength(s.src) + ' 字节');
 
 head('2. 面板类型覆盖');
 info('已注册 ' + names.length + ' 种：' + names.join(', '));
@@ -84,10 +105,10 @@ if (reused.length) info('未被场景直接引用、但被其他渲染器复用�
 
 head('3. 单引用顶层函数（孤儿候选）');
 if (!fns.length) ok('没有单引用顶层函数');
-else fns.forEach((f) => info(f.name + '（L' + f.line + '）'));
+else fns.forEach((f) => info(f.name + '（' + f.file + ' L' + f.line + '）'));
 
 head('4. 渲染器声明间隔（粗略，仅用于找大块）');
-blocks.slice(0, 10).forEach((b) => info(b.name + '：' + b.lines + ' 行（L' + b.start + '）'));
+blocks.slice(0, 10).forEach((b) => info(b.name + '：' + b.lines + ' 行（' + b.file + ' L' + b.start + '）'));
 
 console.log('\n提示：删除前先跑 node scripts/ui-preview.cjs --shot=data/audit.png --scene=command，');
 console.log('      再切 B站 / 自我复盘 / 本地电脑 各看一次（或跑 check-gui + 验收）。');

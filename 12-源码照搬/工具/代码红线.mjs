@@ -41,7 +41,7 @@ const BASELINE_DATE = '2026-11-08'
 /** 存量 >800 行文件的行数基线：只允许变短，不允许变长
  *  2026-11-08 死区清理后重定：仅 renderers.js 按删除后实测值重定，其余项保持现值 */
 const BASELINE_LINES = {
-  '外壳/renderer/renderers.js': 7520,        // 2026-11-08：死区清理后重定（删 radar/market/flow 三个死区，原基线 18863；实测 7519 行 +1 尾部空行）
+  '外壳/renderer/renderers.js': 7127,        // 2026-11-08 P2-D 拆域阶段1：pc-drives/pc-toplarge/pc-junk 搬入 renderer/panels/panel-pc-drives.js（实测 7126 行 +1 尾部空行；基线只许更小）
   '外壳/main.js': 5130,
   '外壳/renderer/renderer.js': 1355,
   '外壳/renderer/topbar-status.js': 1733,
@@ -181,8 +181,20 @@ function main() {
     if (mojiHits.length >= 2) reds.push(`${rel} ← 疑似 UTF-8 乱码（命中 ${mojiHits.length} 个哨兵）`)
   }
 
-  const regSrc = fs.existsSync(path.join(APP, '外壳/renderer/renderers.js'))
-    ? fs.readFileSync(path.join(APP, '外壳/renderer/renderers.js'), 'utf8') : ''
+  // P2-D：面板类型注册源 = renderers.js + renderer/panels/*.js（多文件注册；只扩解析范围，断言不变）
+  const regSrc = (() => {
+    const regFile = path.join(APP, '外壳/renderer/renderers.js')
+    let t = fs.existsSync(regFile) ? fs.readFileSync(regFile, 'utf8') : ''
+    try {
+      const panelsDir = path.join(APP, '外壳/renderer/panels')
+      if (fs.existsSync(panelsDir)) {
+        for (const f of fs.readdirSync(panelsDir).filter((x) => x.endsWith('.js')).sort()) {
+          t += '\n' + fs.readFileSync(path.join(panelsDir, f), 'utf8')
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return t
+  })()
   const types = registryFromSource(regSrc)
   const scenDir = path.join(APP, '外壳/scenarios')
   for (const f of fs.readdirSync(scenDir).filter((x) => x.endsWith('.json') && !x.startsWith('_')).sort()) {
@@ -190,7 +202,7 @@ function main() {
     try { j = JSON.parse(fs.readFileSync(path.join(scenDir, f), 'utf8')) } catch { reds.push(`外壳/scenarios/${f} ← 不是合法 JSON`); continue }
     for (const p of (j.panels || [])) {
       if (!p || !p.id || !p.type) { reds.push(`外壳/scenarios/${f} ← 面板缺少 id/type`); continue }
-      if (!types.has(p.type)) reds.push(`外壳/scenarios/${f} ← 面板 ${p.id} 的 type「${p.type}」未在 renderers.js 登记`)
+      if (!types.has(p.type)) reds.push(`外壳/scenarios/${f} ← 面板 ${p.id} 的 type「${p.type}」未在注册源（renderers.js / panels*.js）登记`)
     }
   }
 
