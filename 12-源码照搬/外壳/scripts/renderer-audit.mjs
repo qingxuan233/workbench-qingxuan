@@ -20,11 +20,14 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RENDERERS = path.join(ROOT, 'renderer', 'renderers.js');
+const CHROME = path.join(ROOT, 'renderer', 'chrome.js');
+const LIB_DIR = path.join(ROOT, 'renderer', 'lib');
 const PANELS_DIR = path.join(ROOT, 'renderer', 'panels');
 const SCEN_DIR = path.join(ROOT, 'scenarios');
-// P2-D 拆域：注册源从"单文件"扩展为 **renderers.js + renderer/panels/*.js**（多文件注册）。
+// P2-D 拆域：注册源/助手源从"单文件"扩展为 **renderers.js + chrome.js + lib/*.js + panels/*.js**。
 // 只读；panel-registry.js / panel-harness.js 等用 REGISTRY.register 的不在本审计范围（正则不会命中）。
-const SOURCE_FILES = [RENDERERS].concat(
+const SOURCE_FILES = [RENDERERS, CHROME].concat(
+  fs.existsSync(LIB_DIR) ? fs.readdirSync(LIB_DIR).filter((f) => f.endsWith('.js')).sort().map((f) => path.join(LIB_DIR, f)) : [],
   fs.existsSync(PANELS_DIR)
     ? fs.readdirSync(PANELS_DIR).filter((f) => f.endsWith('.js')).sort().map((f) => path.join(PANELS_DIR, f))
     : []
