@@ -203,20 +203,30 @@ async function engineRpc(method, args) {
 }
 
 // ── 唤醒：session/prompt（mode=queue）────────────────────────────────
-export async function wake({ taskId, to, title, content, from }) {
-  const scene = resolveScene(to);
-  if (!scene) return { ok: false, err: '场景不存在：' + to };
-  if (!scene.bound) return { ok: false, err: '场景未绑定会话（sessionId 仍是占位）：' + to };
-  const text = '【系统派单 · 任务编号 ' + taskId + '】\n来源：' + (from || 'external') +
+/** 唤醒提示词模板（导出供 core 的定制 wakeImpl 复用，避免两套文案漂移） */
+export function wakeText({ taskId, title, content, from }) {
+  return '【系统派单 · 任务编号 ' + taskId + '】\n来源：' + (from || 'external') +
     '\n标题：' + (title || '系统派单') + '\n指令：' + content +
     '\n\n请执行此任务。完成后运行：\nnode 工具\\派单.mjs --complete ' + taskId +
     ' --evidence "<客观证据与结论>"\n并在本会话简要回复确认。';
-  return engineRpc('session/prompt', {
+}
+
+/**
+ * wake —— 唤醒目标场景会话。
+ * 第二参 rpcFn 可选（P1 扩展，纯追加）：默认用本文件内部的 engineRpc（P0 行为完全不变）；
+ * core 可注入带 pid/端口校验的 RPC（core/adapters/engine.mjs 的 rpc）。
+ */
+export async function wake({ taskId, to, title, content, from }, rpcFn = engineRpc) {
+  const scene = resolveScene(to);
+  if (!scene) return { ok: false, err: '场景不存在：' + to };
+  if (!scene.bound) return { ok: false, err: '场景未绑定会话（sessionId 仍是占位）：' + to };
+  const fn = typeof rpcFn === 'function' ? rpcFn : engineRpc;
+  return fn('session/prompt', {
     request: {
       requestId: crypto.randomUUID(),
       sessionId: scene.sessionId,
       mode: 'queue',
-      content: [{ type: 'text', text }],
+      content: [{ type: 'text', text: wakeText({ taskId, title, content, from }) }],
     },
   });
 }
@@ -254,23 +264,32 @@ export async function dispatch(opts = {}) {
   try { writeNotice({ taskId, to: scene.id, title, content, from, scene }); } catch (e) { }
 
   // 异步唤醒：HTTP 层先拿到 taskId，不阻塞；CLI 层可以 await r.wake 拿到确定性结果
-  const wakePromise = wake({ taskId, to: scene.id, title, content, from })
-    .then((r) => {
-      withLock((release) => appendEvent({
-        type: 'status', taskId,
-        status: r.ok ? 'dispatched' : 'failed',
-        err: r.ok ? undefined : (r.err || r.text || '唤醒失败'),
-        evidence: r.ok ? 'engine session/prompt accepted' : undefined,
-      }, release));
-      return r;
-    })
-    .catch((e) => {
-      const msg = String((e && e.message) || e);
-      try {
-        withLock((release) => appendEvent({ type: 'status', taskId, status: 'failed', err: msg }, release));
-      } catch (e2) { }
-      return { ok: false, err: msg };
-    });
+  // P1 扩展（纯追加，默认路径与 P0 完全一致）：
+  //   opts.wakeImpl —— 替换唤醒实现（core 传带校验的 sessionPrompt，参数同 wake({taskId,to,title,content,from})）
+  //   opts.rpc      —— 注入引擎 RPC（不传 wakeImpl 时，用 wake(args, rpcFn) 复用同一份文案模板）
+  const wakeArgs = { taskId, to: scene.id, title, content, from };
+  const useDefaultWake = (typeof opts.wakeImpl !== 'function') && (typeof opts.rpc !== 'function');
+  const rpcFn = (typeof opts.rpc === 'function') ? opts.rpc : engineRpc;
+  const wakePromise = (useDefaultWake
+    ? wake(wakeArgs)
+    : Promise.resolve().then(() => (typeof opts.wakeImpl === 'function')
+      ? opts.wakeImpl(wakeArgs)
+      : wake(wakeArgs, rpcFn))
+  ).then((r) => {
+    withLock((release) => appendEvent({
+      type: 'status', taskId,
+      status: r.ok ? 'dispatched' : 'failed',
+      err: r.ok ? undefined : (r.err || r.text || '唤醒失败'),
+      evidence: r.ok ? 'engine session/prompt accepted' : undefined,
+    }, release));
+    return r;
+  }).catch((e) => {
+    const msg = String((e && e.message) || e);
+    try {
+      withLock((release) => appendEvent({ type: 'status', taskId, status: 'failed', err: msg }, release));
+    } catch (e2) { }
+    return { ok: false, err: msg };
+  });
 
   return { ok: true, taskId, replayed: false, status: 'pending', scene: scene.id, wake: wakePromise };
 }
@@ -299,4 +318,64 @@ export function complete(taskId, evidence) {
 export function list(limit = 20) {
   const all = readTasks().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   return all.slice(0, limit);
+}
+
+// ── P1 扩展（仅新增导出；上面所有现有导出与行为保持不变）──────────────────
+/**
+ * claim(taskId, agent) —— 任务被某个 agent 领取（状态 claimed）。
+ * 约定：已完成/已取消的任务不能再领；重复领取幂等返回同一状态。
+ */
+export function claim(taskId, agent) {
+  const id = String(taskId || '').trim();
+  const t = getTask(id);
+  if (!t) return { ok: false, code: 'E_VALIDATE', err: '任务不存在：' + id };
+  if (t.status === 'completed' || t.status === 'cancelled') {
+    return { ok: false, code: 'E_VALIDATE', err: '任务已结束（' + t.status + '），不能再领取：' + id };
+  }
+  const by = String(agent || 'agent').slice(0, 80);
+  if (t.status === 'claimed' && t.claimedBy === by) {
+    return { ok: true, taskId: id, status: 'claimed', claimedBy: by, replayed: true };
+  }
+  withLock((release) => appendEvent({
+    type: 'status', taskId: id, status: 'claimed', claimedBy: by, evidence: 'claimed by ' + by,
+  }, release));
+  return { ok: true, taskId: id, status: 'claimed', claimedBy: by };
+}
+
+/**
+ * cancel(taskId, opts?) —— 取消任务：引擎 `session/cancel` + 台账置 cancelled。
+ * opts.rpc 可注入带校验的引擎 RPC（core/adapters/engine.mjs 提供）；不传则用本文件内部的降级实现。
+ * 幂等：已 cancelled 直接返回成功；已完成不能取消。
+ */
+export async function cancel(taskId, opts = {}) {
+  const id = String(taskId || '').trim();
+  const t = getTask(id);
+  if (!t) return { ok: false, code: 'E_VALIDATE', err: '任务不存在：' + id };
+  if (t.status === 'completed') return { ok: false, code: 'E_VALIDATE', err: '任务已完成，不能取消：' + id };
+  if (t.status === 'cancelled') {
+    return { ok: true, taskId: id, status: 'cancelled', engine: { ok: true, skipped: true, err: '' }, replayed: true };
+  }
+
+  const scene = t.to ? resolveScene(t.to) : null;
+  let engine = { ok: false, skipped: true, status: 0, err: '场景未绑定会话，无法向引擎发 session/cancel' };
+  if (scene && scene.bound) {
+    const rpcFn = (typeof opts.rpc === 'function') ? opts.rpc : engineRpc;
+    let r = null;
+    try { r = await rpcFn('session/cancel', { request: { sessionId: scene.sessionId } }); }
+    catch (e) { r = { ok: false, err: String((e && e.message) || e) }; }
+    engine = {
+      ok: !!(r && r.ok),
+      skipped: false,
+      status: Number((r && r.status) || 0) || 0,
+      err: String((r && (r.err || r.text)) || ''),
+    };
+  }
+
+  withLock((release) => appendEvent({
+    type: 'status', taskId: id, status: 'cancelled',
+    evidence: engine.ok ? '引擎 session/cancel 已接受' : '已记录取消；引擎侧：' + (engine.err || '未执行'),
+    err: engine.ok ? undefined : (engine.err || undefined),
+  }, release));
+
+  return { ok: true, taskId: id, status: 'cancelled', engine };
 }

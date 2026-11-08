@@ -108,6 +108,10 @@ function codeFiles() {
   walk('工具')
   walk('外壳/scripts')
   walk('外壳/renderer')
+  // 2026-11-08（P1）：main/ 与 core/ 原来不在扫描范围 —— 主进程模块和能力层同样是"会被提交的源码"，
+  //   盘符硬编码/真实会话 id/eval/新增文件 ≤800 行 这些红线必须同样适用（否则新增层天然免检）。
+  walk('外壳/main')
+  walk('外壳/core')
   for (const e of fs.readdirSync(path.join(APP, '外壳'), { withFileTypes: true })) {
     if (e.isFile() && /\.(js|mjs)$/i.test(e.name)) out.add('外壳/' + e.name)
   }
@@ -165,6 +169,14 @@ function main() {
     const text = fs.readFileSync(path.join(APP, rel), 'utf8')
     for (const h of findRealSessions(text)) reds.push(`${rel}:${h.line} ← 真实会话 id：${maskSession(h.id)}`)
     if (EVAL_RE.test(text)) reds.push(`${rel} ← 使用了 eval（禁止）`)
+    // 2026-11-08（P1）：UTF-8 → ANSI 乱码哨兵。本环境 PowerShell 读写中文会把 UTF-8 写成乱码，
+    //   子代理已踩两次（P0 的 agent-gateway/workbench-mcp、P1 又各一次）。这类文件往往还能过 --check 之外的静态闸，
+    //   所以必须在这里拦。判定：同一文件出现 ≥2 个哨兵字符（单个可能是正常字形，误报可忽略）。
+    //   ⚠ 哨兵表必须用 \u 转义写：直接写这些字面量会让本文件自己被判红（自检时踩过）。
+    const MOJI = ['\u951b', '\u9225', '\u9286', '\u7035', '\u9359', '\u93c2', '\u5a67', '\u5bf0', '\u74ba', '\u935b',
+      '\u7eef', '\u7efe', '\u6d93', '\u95ab', '\u9354', '\u93c4', '\u6769', '\u9428', '\u935c', '\u93b4']
+    const mojiHits = MOJI.filter((s) => text.includes(s))
+    if (mojiHits.length >= 2) reds.push(`${rel} ← 疑似 UTF-8 乱码（命中 ${mojiHits.length} 个哨兵）`)
   }
 
   const regSrc = fs.existsSync(path.join(APP, '外壳/renderer/renderers.js'))

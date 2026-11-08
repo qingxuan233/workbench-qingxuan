@@ -2690,7 +2690,19 @@ ipcMain.handle('webai:state', function () {
 });
 let agentGateway = null;
 try { agentGateway = require('./main/agent-gateway.js'); } catch (e) { }
+// MCP Streamable HTTP face（2026-11-08 P1）：单端点 POST /mcp。它是 ESM ⇒ 主进程这侧用动态 import；
+// 加载失败只影响 /mcp，不影响 /v1 与 /webai（日志里能看见原因）。
+let mcpHttpFace = null;
+try {
+  const { pathToFileURL } = require('url');
+  import(pathToFileURL(path.join(__dirname, 'scripts', 'mcp-http.mjs')).href)
+    .then(function (m) { mcpHttpFace = m; log('[mcp] Streamable HTTP face 已就绪（POST /mcp）'); })
+    .catch(function (e) { log('[mcp] face 加载失败（已忽略，不影响其它端点）：' + (e && e.message ? e.message : String(e))); });
+} catch (e) {
+  log('[mcp] face 装载异常（已忽略）：' + (e && e.message ? e.message : String(e)));
+}
 const webAiServer = http.createServer(function (req, res) {
+  if (mcpHttpFace && mcpHttpFace.handle(req, res)) return;
   if (agentGateway && agentGateway.handle(req, res)) return;
   const json = function (code, obj) {
     res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
