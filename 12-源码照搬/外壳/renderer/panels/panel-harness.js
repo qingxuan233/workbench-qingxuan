@@ -8,47 +8,7 @@ APP['harness'] = (body, meta, head) => {
 
   // 标题栏（标题行）加「重新加载」按钮 + 精简模式状态
   let wv = null;
-  let hostTimer = null;   // 加载后 30s 注入兜底窗口
-  let pinTimer = null;    // 常驻钉住重注入（5s）
   let disposed = false;   // 场景切换后停止一切注入
-  const reloadBtn = el('button', 'file-refresh', '🔄 重新加载');
-  reloadBtn.title = '重新加载对话窗口';
-  reloadBtn.addEventListener('click', () => {
-    if (wv) wv.setAttribute('src', wv.getAttribute('src') || '');
-    else load();
-  });
-  const diag = el('span', 'harness-diag', '精简模式：注入中…');
-  // 状态小字可点击 = 人工兜底（2026-11-07 分成两档）：
-  //   ① 普通点击 = **重新加载**，并按场景里的绑定再钉一次 —— 用于「存储已指向 / 画面没跟上（欢迎页）」这种
-  //      最常见的情形（以前这里只会清绑定，等于把本来对的绑定也扔了）。
-  //   ② Shift + 点击 = 忘掉本面板记住的会话标题，重新按会话名匹配 —— 用于"绑错了会话 / 会话改名"。
-  // 不用改代码、不用重启 GUI。（悬停有完整说明，见 injectFix 里的 diag.title）
-  diag.style.cursor = 'pointer';
-  diag.addEventListener('click', (ev) => {
-    try {
-      if (!wv || !wv.executeJavaScript) return;
-      if (!(ev && ev.shiftKey)) {
-        // 清掉软刷新/直达通道的计数，让重载后还能再试几次（否则额度用光就永远不重载了）
-        const soft = "try{sessionStorage.removeItem('app_pin_soft_reloads');sessionStorage.removeItem('app_pin_reloads');}catch(e){}; 'ok'";
-        wv.executeJavaScript(soft).then(() => { try { wv.reload(); } catch (e) { /* ignore */ } }).catch(() => { try { wv.reload(); } catch (e) { /* ignore */ } });
-        return;
-      }
-      // 只清本面板的绑定（键名带面板 id），别把其它 AI 面板的记忆一起清掉
-      const js = "try{localStorage.removeItem('app_pin_bind_v2:" + PANEL_KEY + "')}catch(e){}; 'ok'";
-      wv.executeJavaScript(js)
-        .then(() => { try { wv.reload(); } catch (e) { /* ignore */ } })
-        .catch(() => { /* ignore */ });
-    } catch (e) { /* ignore */ }
-  });
-  if (head) {
-    head.classList.add('file-head');
-    const acts = el('div', 'file-head-acts ai-head-acts');
-    // 顺序：按钮在左、状态小字在右。窄面板（如 Blender 的 1 列宽 AI 面板）下，
-    // 长状态文字不再把按钮挤到换行/裁切；小字自身用省略号收尾（CSS .harness-diag）。
-    acts.appendChild(reloadBtn);
-    acts.appendChild(diag);
-    head.appendChild(acts);
-  }
 
   const msg = el('div', 'harness-loading', '正在加载对话窗口…');
   body.appendChild(msg);
@@ -57,7 +17,6 @@ APP['harness'] = (body, meta, head) => {
   // 主策略 = CSS 优先（不依赖 JS）：应用框架带内联 grid-template-columns 且含 minmax(0,1fr) 中列，
   // 用 !important 强制成 0 / 1fr / 0；标题栏 data-phase>header、拖条 data-width-handle、手柄 data-side 稳定属性。
   // 兜底 = JS 常驻（MutationObserver + 定时器）纠正 React 重渲染。
-  const HARNESS_CHAT_CSS = (ENGINE_ADAPTER && ENGINE_ADAPTER.chatCss) ? ENGINE_ADAPTER.chatCss({ centerColFix: false }).join('\n') : '';   // P2：单一实现（main 侧 centerColFix:true）
   // 钉住脚本（幂等：已装则不再重复装定时器；webview 内部重载后 window 重置，可重新注入）
   // pinTarget 支持「会话名」或「会话名数组」：多候选按顺序匹配——① 标题完全相等 ② 包含匹配，
   // **匹配时忽略大小写与空格**（兼容「oa系统运维」↔「<客户>oa系统运维」↔「<客户> OA 系统运维」）。
@@ -630,114 +589,22 @@ APP['harness'] = (body, meta, head) => {
       }, { passive: true });
     })();
   })();`;
-  const HARNESS_FIX_JS = (ENGINE_ADAPTER && ENGINE_ADAPTER.fixJs) ? ENGINE_ADAPTER.fixJs({ profile: 'renderer', pinJs: HARNESS_PIN_JS }) : '';   // P2：布局修复 + 极简 JSON 诊断 + 嵌钉会话（单一实现）
 
-  const injectFix = async () => {
-    try { await wv.insertCSS(HARNESS_CHAT_CSS); } catch (e) { /* ignore */ }
-    // 拖文件进对话窗口（幂等脚本，装上监听后重复执行只返回）
-    try { await wv.executeJavaScript(HARNESS_DROP_JS); } catch (e) { /* ignore */ }
-    let simplify = '';
-    let wideTxt = '';
-    try {
-      const r = await wv.executeJavaScript(HARNESS_FIX_JS);
-      let info = null;
-      try { info = JSON.parse(r); } catch (e) { /* ignore */ }
-      if (info && info.found) {
-        simplify = '精简 ✓';
-        // 路线A（2026-11-08）：注入后**读回布局**，不达标要响：console.warn + 一次性写 外壳/data/inject-warnings.log
-        const sb = info.sidebar || null;
-        const drawerVis = (info.drawer || []).filter((d) => d && d.vis && d.disp !== 'none' && Number(d.op || 1) > 0).length;
-        const badSide = !!sb && (sb.w > 2 || sb.vis === true) && !(Number(sb.x) < 0);
-        const badDrawer = drawerVis > 0;
-        const badChat = Number(info.chatW || 0) < Math.max(0, Number(info.chatAvailW || info.winW || 0) - 32);
-        if (badSide || badDrawer || badChat) {
-          const key = 'sidebar=' + (sb ? (sb.w + 'px/' + (sb.vis ? 'visible' : 'hidden') + ' x=' + sb.x) : 'none')
-            + ' · drawerVis=' + drawerVis + '/' + (info.drawer || []).length
-            + ' · chat=' + (info.chatW || 0) + '/' + (info.winW || 0) + 'px';
-          try { console.warn('[wv:inject] ✗ 精简失败 ' + key); } catch (e) { /* ignore */ }
-          if (!window.__kunInjectWarned) {
-            window.__kunInjectWarned = 1;   // 只写一次，不刷屏
-            try {
-              const PP = (window.app && window.app.paths) || {};
-              const dir = String(PP.dataDir || '').replace(/\\/g, '/');
-              if (dir && window.app && window.app.file && window.app.file.write) {
-                window.app.file.write(dir + '/inject-warnings.log',
-                  new Date().toISOString() + ' [wv:inject] ✗ 精简失败 ' + key + '\n');
-              }
-            } catch (e) { /* ignore */ }
-          }
-        }
-      } else if (info) simplify = '等界面…';
-      // 铺满实测（例 `铺满 1列 1576/1592px`）：两者只差十几像素（我们留的那 16px）就是铺开了；
-      // 还差几百像素说明页面里没有 [data-chat-flow]（引擎换版了）——见文件上方「会话列铺满」。
-      if (info && info.wide) { simplify += (simplify ? ' · ' : '') + '铺满 ' + info.wide; wideTxt = info.wide; }
-    } catch (e) { /* ignore */ }
-    // 钉会话诊断：HARNESS_PIN_JS 每次注入都会刷新 window.__pinDiag，这里读回来显示在面板标题行
-    let pinTxt = '钉会话: 检测中…';
-    try {
-      const d = await wv.executeJavaScript('window.__pinDiag || null');
-      if (d && d.targets) {
-        const want = [String(d.sessionTitle || '')].filter(Boolean).concat(d.targets || []).join(' / ');
-        const nz = (s) => String(s == null ? '' : s).toLowerCase().replace(/\s+/g, ' ').trim();   // ⚠ 保留空格：别把 'DSH 改造' 和 'DSH改造' 混成一个（同名孪生会话）
-        // 面板当前显示的会话名（取自侧栏高亮行标题，权威）作为最终判据
-        const live = String(d.title || '');
-        const liveN = nz(live);
-        const okName = (!!d.sessionTitle && liveN === nz(d.sessionTitle)) ||
-          (d.targets || []).some(t => { const tn = nz(t); return tn && liveN.indexOf(tn) >= 0; });
-        const boundOk = !!(d.bound && d.bound.title && liveN === nz(d.bound.title));
-        const ok = boundOk || okName;
-        // 侧栏行一条都读不到时（面板窄/分组折叠/应用还没渲染列表），标题证据必然失效 ——
-        // 这时如果引擎自己记的当前会话 id 就等于指定 id，**只把状态小字**改说"按存储核对"，
-        // 钉会话的动作照旧（下面 clickItem 仍然每轮尝试），不动"画面才是唯一判据"那条铁律。
-        const storeOk = !!(d.sessionId && d.stored && String(d.stored) === String(d.sessionId));
-        const unbound = !d.sessionId && !d.sessionTitle && !(d.targets || []).length && !(d.bound && d.bound.title);
-        // ★2026-11-07★ 状态小字必须如实：存储一致 ≠ 画面已切过去。
-        //   旧文案在 storeOk 时直接报「✓ 已切到（存储核对）」，而画面可能还停在欢迎页/上一条会话
-        //   （用户实见：状态 ✓、面板是「探索未至之境」）⇒ 现在把三种情形分开写。
-        pinTxt = unbound ? '○ 未绑定 · 面板自由选会话'
-          : (boundOk ? '✓ 已钉绑定'
-            : (ok ? '✓ 已钉'
-              : (storeOk
-                ? (d.welcome ? '⚠ 存储已指向 · 画面还是欢迎页（点此刷新）' : '⚠ 存储已指向 · 画面未切（点此刷新）')
-                : ('未切到 · ' + (live || (d.welcome ? '欢迎页' : '读不到当前会话'))))));
-        if (unbound) diag.title = '该面板未绑定任何会话（场景 json 里没写 sessionTitle / sessionId / pinTarget）\n' +
-          '面板停在它当前显示的会话上，不会被自动切换，也不再去找侧栏。\n' +
-          '要重新绑定：给该面板补 sessionTitle + sessionId，再切一次场景即可（改了就会立刻生效）。';
-        else diag.title = '该面板应对应的会话：' + want +
-          '\n指定会话 id：' + (d.sessionId || '（未指定 · 靠标题匹配）') +
-          '\n应用存储里的当前会话：' + (d.stored || '（空）') + (String(d.stored) === String(d.sessionId) && d.sessionId ? ' ✓ 一致' : '') +
-          (d.reloads ? ('\n直达通道重载计数 ' + d.reloads + ' 次（上限 ' + (d.reloadMax || 5) + '）') : '') +
-          (d.softReloads ? ('\n"键对了画面没跟上"的软刷新计数 ' + d.softReloads + ' 次（上限 2）') : '') +
-          (d.welcome ? '\n画面状态：**欢迎页 / 选择工作区页**（引擎还没打开任何会话）' : '') +
-          '\n面板当前显示的会话：' + (live || '（读不到）') + (d.titleSrc ? ('（来源：' + d.titleSrc + '）') : '') +
-          (d.bound && d.bound.title ? ('\n已记住的会话标题：' + d.bound.title) : '\n已记住的会话标题：（无 · 首次按名字找）') +
-          '\n界面可识别会话行/选中行数：' + (d.rows == null ? '未知' : d.rows) +
-          (d.matched ? ('\n已定位到会话行：' + d.matched + '（' + d.by + '）') : '\n未定位到目标会话行（分组折叠或列表未渲染）') +
-          (d.cands && d.cands.length ? ('\n界面里能看到的会话/行：' + d.cands.join(' ｜ ')) : '\n界面里能看到的会话/行：（读不到）') +
-          (storeOk && !ok ? ('\n↑ 「应用存储」里的当前会话已经等于指定 id，但画面没落在该会话上（' +
-            (d.welcome ? '停在欢迎页' : '标题还没变成目标会话') + '）。\n'
-            + '  面板会在写入后自动重载一次；仍不行就点这里刷新（点击 = 重新加载并按当前绑定再钉一次）。') : '') +
-          (wideTxt ? ('\n会话列铺满：' + wideTxt + '（列宽 / 可用宽；只差十几像素＝已铺满，差几百＝没铺上，多半引擎换版了）') : '') +
-          '\n\n点击此处 = 重新加载并按当前绑定再钉一次；Shift + 点击 = 忘掉记住的标题、重新按会话名匹配';
-      }
-    } catch (e) { /* ignore */ }
-    diag.textContent = (simplify ? simplify + ' · ' : '') + pinTxt;
-  };
-  // 主进程通道注入（更可靠）：轮询 webview 的 webContentsId，让 main 直接注入并写日志
-  // ⚠ 注意：main.js 注入脚本里**旧版**还带一套"扫全文档模糊匹配后点击"的钉会话循环
-  //   （每 4s 点一次），它会和渲染层的新逻辑打架 —— 渲染层刚钉对，它又把面板点到
-  //   聊天记录里含同名字样的随便一个元素上，于是"切场景后会话错乱/切不过去"。
-  //   这里固定传一个**绝不可能匹配到任何元素**的哨兵目标（NUL 字符不会出现在任何 textContent 里），
-  //   于是 main 侧只保留"注入布局修复 + 截图 + 日志"，点击权完全交给本文件的 HARNESS_PIN_JS。
-  const mainInject = () => {
-    try {
-      if (!wv || !wv.getWebContentsId) return;
-      const id = wv.getWebContentsId();
-      if (id === -1 || typeof window.app.injectHarnessPanel !== 'function') return;
-      window.app.injectHarnessPanel(id, '\u0000no-pin\u0000');
-    } catch (e) { /* ignore */ }
-  };
-
+  // P2 预算拆分：精简注入套件（注入/诊断/告警/定时器）已外置到 panels/harness-inject.js（工厂 ctx 只传 wv 现取值/回调）
+  const INJ = makeHarnessInject({
+    getWv: () => wv, panelKey: PANEL_KEY, isDisposed: () => disposed,
+    onReload: () => { if (wv) wv.setAttribute('src', wv.getAttribute('src') || ''); else load(); },
+    pinJs: HARNESS_PIN_JS, dropJs: HARNESS_DROP_JS
+  });
+  const reloadBtn = INJ.reloadBtn, diag = INJ.diag;
+  if (head) {
+    head.classList.add('file-head');
+    const acts = el('div', 'file-head-acts ai-head-acts');
+    // 顺序：按钮在左、状态小字在右。窄面板下长状态文字不再把按钮挤到换行/裁切；小字自身用省略号收尾（CSS .harness-diag）。
+    acts.appendChild(reloadBtn);
+    acts.appendChild(diag);
+    head.appendChild(acts);
+  }
   const load = async () => {
     if (disposed) return;
     try {
@@ -762,22 +629,9 @@ APP['harness'] = (body, meta, head) => {
       //   没带 sessionId 的面板仍然退回 soloHarnessPartition()（主窗口 = persist:harness，与主标签同分区）。
       wv.setAttribute('partition', panelPartition(meta));
       wv.setAttribute('allowpopups', '');
-      wv.addEventListener('dom-ready', injectFix);
-      wv.addEventListener('did-finish-load', injectFix);
-      // 主进程通道 + 宿主定时兜底：加载后前 30 秒每 1.5 秒重注入
-      hostTimer = setInterval(() => {
-        if (disposed) return;
-        if (!wv || !wv.getWebContentsId) return;
-        if (wv.getWebContentsId() === -1) return;
-        mainInject();
-        injectFix();
-      }, 1500);
-      setTimeout(() => { if (hostTimer) clearInterval(hostTimer); }, 30000);
-      // 常驻钉住：每 5 秒轻量重注入一次（webview 内部重载后钉住仍生效；脚本自身幂等）
-      pinTimer = setInterval(() => {
-        if (disposed) return;
-        try { if (wv && wv.executeJavaScript) wv.executeJavaScript(HARNESS_PIN_JS + '\n' + HARNESS_DROP_JS).catch(function () { }); } catch (e) { /* ignore */ }
-      }, 5000);
+      wv.addEventListener('dom-ready', INJ.injectFix);
+      wv.addEventListener('did-finish-load', INJ.injectFix);
+      INJ.startTimers();   // 30s 主进程兜底 + 5s 钉住重注入（工厂管理；cleanup 时 INJ.stop()）
       wv.setAttribute('src', url);
       body.appendChild(wv);
     } catch (e) {
@@ -788,7 +642,6 @@ APP['harness'] = (body, meta, head) => {
   // 场景切换清理：停止注入定时器（webview DOM 由 loadScenario 统一移除）
   return () => {
     disposed = true;
-    if (hostTimer) clearInterval(hostTimer);
-    if (pinTimer) clearInterval(pinTimer);
+    INJ.stop();   // 停注入定时器（webview DOM 由 loadScenario 统一移除）
   };
 };
