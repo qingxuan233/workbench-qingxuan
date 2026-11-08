@@ -54,7 +54,7 @@ head('1. JS 语法');
 // 必需文件（缺 = 壳跑不起来）与公开版剔除的业务模块（缺 = 设计如此）。
 // 业务模块只有在 index.html 仍引用它时才必须存在 —— 那才是真的会加载失败。
 const REQUIRED_JS = ['main.js', 'preload.js', 'renderer/renderer.js', 'renderer/renderers.js', 'renderer/theme-sync.js'];
-const OPTIONAL_JS = ['stock-store.js', 'oa-store.js', 'oa-ssh.js', 'renderer/ui/preload-ui.js', 'renderer/ui/ui-core.js', 'renderer/ui/ui-panels.js', 'renderer/ui/ui-command.js', 'renderer/ui/ui-shell.js', 'renderer/ui/ui-a11y.js', 'renderer/ui/ui-credential.js', 'renderer/ui/ui-empty.js', 'renderer/panels/panel-pc-drives.js', 'renderer/panels/panel-pc-ledger.js', 'renderer/panels/panel-review-files.js', 'renderer/panels/panel-view.js', 'renderer/panels/view-media.js', 'renderer/panels/embed-host.js', 'renderer/panels/panel-embed.js', 'renderer/panels/panel-review-doc.js', 'renderer/chrome.js', 'renderer/lib/embed-utils.js', 'renderer/boot-glue.js'];
+const OPTIONAL_JS = ['stock-store.js', 'oa-store.js', 'oa-ssh.js', 'renderer/ui/preload-ui.js', 'renderer/ui/ui-core.js', 'renderer/ui/ui-panels.js', 'renderer/ui/ui-command.js', 'renderer/ui/ui-shell.js', 'renderer/ui/ui-a11y.js', 'renderer/ui/ui-credential.js', 'renderer/ui/ui-empty.js', 'renderer/panels/panel-pc-drives.js', 'renderer/panels/panel-pc-ledger.js', 'renderer/panels/panel-review-files.js', 'renderer/panels/panel-view.js', 'renderer/panels/view-media.js', 'renderer/panels/embed-host.js', 'renderer/panels/panel-embed.js', 'renderer/panels/panel-review-doc.js', 'renderer/panels/harness-utils.js', 'renderer/panels/panel-harness.js', 'renderer/panels/neuron-core.js', 'renderer/panels/panel-neuron.js', 'renderer/chrome.js', 'renderer/lib/embed-utils.js', 'renderer/boot-glue.js'];
 const _indexHtml = read('renderer/index.html');
 const isReferenced = (f) => new RegExp('["\'][^"\']*' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '["\']').test(_indexHtml);
 for (const f of REQUIRED_JS.concat(OPTIONAL_JS)) {
@@ -152,6 +152,21 @@ for (const { file, src: fileSrc } of renderersSrcs) {
   }
 }
 if (!timerBad) ok('所有含 setInterval 的渲染器都返回了 cleanup');
+
+// 4b) neuron-core 用 `with (S)` 把原闭包变量双向映射（**仅非严格模式可用**，2026-11-08 P2 拆域方案）：
+//   ⚠ 这是刻意选择的 B-lite 手段（1,260 行单闭包，逐处改引用要 460+ 行改动）。必须钉死两条：
+//   ① 文件里不许出现 'use strict' 指令（否则 `with` 直接语法错误，且难以定位）；
+//   ② `with (S)` 桥本身不许消失（消失 ⇒ 面板取不到 W/H/ry 等闭包量，canvas 画不出来）。
+const ncRel = 'renderer/panels/neuron-core.js';
+if (exists(ncRel)) {
+  const nc = read(ncRel);
+  // 只认"指令式" use strict（行首/带分号的字符串字面量），注释里提到不算
+  const strictDirective = /^\s*(?:'|")use strict(?:'|")\s*;/m.test(nc);
+  if (strictDirective) bad(ncRel + ' 不许有 use strict 指令（with(S) 会变成语法错误）');
+  else ok(ncRel + ' 未启用严格模式（with(S) 可用）');
+  if (/\bwith\s*\(\s*S\s*\)\s*\{/.test(nc)) ok(ncRel + ' 的 with(S) 桥在位（拆域后闭包量仍可读写）');
+  else bad(ncRel + ' 的 with(S) 桥不见了：面板会取不到 W/H/ry 等闭包量');
+}
 
 // P2-D 阶段2b：chrome.js 不是渲染器（无注册块），但含"场景发光 / 标签栏重试"定时器 ——
 // 不能成为免检区：要求①没有**顶层裸** setInterval（必须在函数体内）；②定时器都挂 window 级守卫，

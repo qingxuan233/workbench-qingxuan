@@ -129,6 +129,11 @@
   <script src="panels/embed-host.js"></script>
   <script src="panels/panel-embed.js"></script>
   <script src="panels/panel-review-doc.js"></script>
+  <!-- P2 收尾 3e：harness / neuron 拆出（utils/core 先加载，panel 用；全部在 chrome.js 之前） -->
+  <script src="panels/harness-utils.js"></script>
+  <script src="panels/panel-harness.js"></script>
+  <script src="panels/neuron-core.js"></script>
+  <script src="panels/panel-neuron.js"></script>
   <!-- 外壳 chrome / HARNESS 接线（P2-D 阶段2b）：必须在 renderers.js 之前（HARNESS 别名加载期读 adapter） -->
   <script src="chrome.js"></script>
   <script id="renderers-script" src="renderers.js"></script>
