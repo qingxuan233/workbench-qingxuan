@@ -142,14 +142,21 @@ export function resolveScene(to) {
 }
 
 // ── 引擎端点与鉴权材料 ────────────────────────────────────────────────
+// 2026-11-08：endpoint 必须**先校验 pid 存活**再采用（否则崩遗的死 pid 会让 CLI 派单用旧 token，
+//   表现为"任务入账了但唤醒失败"）。core 侧走带校验的 rpc 注入；这里给 CLI 直连路径补同一道闸。
+function endpointUsable() {
+  try {
+    if (!fs.existsSync(ENDPOINT)) return null;
+    const j = JSON.parse(fs.readFileSync(ENDPOINT, 'utf8').replace(/^\uFEFF/, ''));
+    const pid = Number(j && j.pid);
+    if (pid > 0) { try { process.kill(pid, 0); } catch (e) { return null; } }   // 死 pid ⇒ 不采用
+    return j && j.baseUrl ? j : null;
+  } catch (e) { return null; }
+}
 function engineBase() {
   if (process.env.DSH_GUI_BASE) return String(process.env.DSH_GUI_BASE);
-  try {
-    if (fs.existsSync(ENDPOINT)) {
-      const j = JSON.parse(fs.readFileSync(ENDPOINT, 'utf8'));
-      if (j && j.baseUrl) return String(j.baseUrl);
-    }
-  } catch (e) { }
+  const ep = endpointUsable();
+  if (ep && ep.baseUrl) return String(ep.baseUrl);
   try {
     if (fs.existsSync(CONFIG)) {
       const j = JSON.parse(fs.readFileSync(CONFIG, 'utf8').replace(/^\uFEFF/, ''));
@@ -160,12 +167,8 @@ function engineBase() {
 }
 function engineToken() {
   if (process.env.DSH_TOKEN) return String(process.env.DSH_TOKEN);
-  try {
-    if (fs.existsSync(ENDPOINT)) {
-      const j = JSON.parse(fs.readFileSync(ENDPOINT, 'utf8'));
-      if (j && j.token) return String(j.token);
-    }
-  } catch (e) { }
+  const ep = endpointUsable();
+  if (ep && ep.token) return String(ep.token);
   // 兜底：扫 server.log（ADR-11：这是降级路径，不是主路径）
   try {
     const log = path.join(APP, '外壳', 'server.log');

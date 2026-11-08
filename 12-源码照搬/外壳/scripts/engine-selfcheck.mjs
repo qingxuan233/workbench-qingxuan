@@ -22,7 +22,10 @@ const SHELL = path.resolve(HERE, '..');
 const APP = path.resolve(SHELL, '..');
 const DATA = path.join(SHELL, 'data');
 const ENDPOINT = path.join(DATA, 'harness-endpoint.json');
-const SERVER_LOG = path.join(DATA, 'server.log');
+// 2026-11-08 修：日志在 **外壳根**（`外壳/server.log`），不在 `外壳/data/` —— 原来写成 data 下 ⇒ 永远抓不到 token
+//   （用户实跑证据：`server.log 不存在或没抓到 token`，而外壳根那份有 `[out] dsh web: http://127.0.0.1:3083/?token=…`）。
+const SERVER_LOG = path.join(SHELL, 'server.log');
+const SERVER_LOG_PREV = path.join(SHELL, 'server.log.prev');
 const WORKBENCH_JSON = path.join(APP, '工作台.json');
 const CONTRACT = path.join(SHELL, 'engine-adapter', 'contract.js');
 const requireCjs = createRequire(import.meta.url);
@@ -65,6 +68,7 @@ async function engineProbe() {
   const end = { reachable: false, token: '', tokenSource: 'none', base: '', port: 0, authProblem: false };
   let ep = null;
   try { ep = JSON.parse(readText(ENDPOINT) || 'null'); } catch (e) { notes.push('harness-endpoint.json 不是合法 JSON（按缺失处理）'); }
+  const epExists = readText(ENDPOINT) !== '';
   if (ep && ep.token) {
     const pid = Number(ep.pid || 0), port = Number(ep.port || 0);
     let pidOk = false;
@@ -73,12 +77,21 @@ async function engineProbe() {
     else if (!(await tcpAlive(port))) notes.push('harness-endpoint.json 端口 ' + port + ' 不可连（死残留）⇒ 不采用其 token');
     else cands.push({ token: String(ep.token), source: 'harness-endpoint.json', port, base: String(ep.baseUrl || ('http://127.0.0.1:' + port)) });
   } else if (ep) notes.push('harness-endpoint.json 存在但没有 token 字段');
-  const hist = readText(SERVER_LOG);
-  if (!cands.length && hist) {
-    const m = [...hist.matchAll(/token=([A-Za-z0-9_\-]+)/g)].pop();
-    const p = [...hist.matchAll(/http:\/\/127\.0\.0\.1:(\d+)\/\?token=/g)].pop();
-    if (m) cands.push({ token: m[1], source: 'server.log', port: Number(p && p[1] || 0), base: '' });
-  } else if (!cands.length) notes.push('server.log 不存在或没抓到 token（日志轮转/非本壳拉起都会这样）');
+  if (!cands.length && epExists) notes.push('提示：harness-endpoint.json 残留但不可用（工作台退出时清理失败/崩溃遗留）');
+  // 日志兜底：先看当前日志，再看重命名后的 `server.log.prev`（壳重启会轮转，token 可能只在 prev 里）
+  const logPaths = [SERVER_LOG, SERVER_LOG_PREV].filter((p) => readText(p));
+  if (!cands.length && logPaths.length) {
+    // 取「最后一份日志里最后一条 token」——最新的在后；prev 更旧，所以按 [当前, prev] 顺序找、取第一个命中
+    for (const lp of logPaths) {
+      const hist = readText(lp);
+      const m = [...hist.matchAll(/token=([A-Za-z0-9_\-]+)/g)].pop();
+      if (!m) continue;
+      const p = [...hist.matchAll(/http:\/\/127\.0\.0\.1:(\d+)\/\?token=/g)].pop();
+      cands.push({ token: m[1], source: path.basename(lp), port: Number(p && p[1] || 0), base: '' });
+      break;
+    }
+  }
+  if (!cands.length) notes.push('server.log/server.log.prev 不存在或没抓到 token（日志轮转/非本壳拉起都会这样）');
   if (!cands.length && process.env.DSH_TOKEN) cands.push({ token: String(process.env.DSH_TOKEN), source: 'DSH_TOKEN', port: Number(process.env.DSH_PORT || 0), base: '' });
   const ports = [PORT_ARG, Number(process.env.DSH_PORT || 0), ...cands.map((c) => c.port), (() => { try { return Number(JSON.parse(readText(WORKBENCH_JSON)).dshPort || 0); } catch (e) { return 0; } })(), 3083].filter((p) => p > 0);
   for (const p of ports) { if (await tcpAlive(p)) { end.reachable = true; end.port = p; end.base = 'http://127.0.0.1:' + p; break; } }

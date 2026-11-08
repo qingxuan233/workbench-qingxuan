@@ -327,6 +327,24 @@ function clearEngineEndpoint() {
     }
   } catch (e) { /* 清理失败不影响退出 */ }
 }
+// 启动清理（2026-11-08 追加）：上一次如果是**崩溃/被强杀**退出，endpoint 会留下死 pid 残留。
+// 用户实跑证据：selfcheck 报 "harness-endpoint.json 是死 pid 残留（pid=26512 不存活）" ⇒ 每次启动先扫一遍，
+// 只删 pid 已死的，活着的（并存的另一个实例）不动。
+function clearStaleEndpointOnBoot() {
+  try {
+    if (!fs.existsSync(ENDPOINT_FILE)) return;
+    const j = JSON.parse(fs.readFileSync(ENDPOINT_FILE, 'utf8').replace(/^\uFEFF/, ''));
+    const pid = Number(j && j.pid);
+    if (!pid) return;
+    let alive = false;
+    try { process.kill(pid, 0); alive = true; } catch (e) { alive = false; }
+    if (!alive) {
+      fs.unlinkSync(ENDPOINT_FILE);
+      log('[endpoint] 启动清理：删掉死 pid 残留（pid=' + pid + '）');
+    }
+  } catch (e) { log('[endpoint] 启动清理失败（已忽略）：' + ((e && e.message) || e)); }
+}
+try { clearStaleEndpointOnBoot(); } catch (e) { /* ignore */ }
 
 // ---- 启动进度（渲染层加载页用）----
 let lastBoot = { stage: 'init', pct: 0, text: '准备中…', detail: '', ts: Date.now() };
