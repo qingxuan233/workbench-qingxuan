@@ -283,7 +283,7 @@
 
   // ---------------- 扫描调度 ----------------
   function scan() {
-    if (window.__WB_UI_MODE === 'classic' || window.__WB_UI_SOLO) return;
+    if (window.__WB_UI_SOLO) return;
     var view = document.getElementById('scenario-view');
     // AI 面板的主标签（场景 0）不走这里的 chip（没有会话绑定语义）
     if (view && view.classList.contains('active')) {
@@ -304,7 +304,7 @@
   }
 
   WB.ready(function () {
-    if (window.__WB_UI_MODE === 'classic' || window.__WB_UI_SOLO) return;
+    if (window.__WB_UI_SOLO) return;
     scan();
     // 场景渲染完成后重扫（ui-shell 会 emit scene:changed；面板渲染用 MutationObserver 兜住）
     WB.bus.on('scene:changed', function () { scanSoon(); });

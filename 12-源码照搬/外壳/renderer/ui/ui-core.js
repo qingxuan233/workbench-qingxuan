@@ -181,7 +181,8 @@
   };
 
   WB.flags = {
-    uiV2: function () { return document.documentElement.getAttribute('data-wb-ui') !== 'classic'; }
+    // 2026-11-08 起仅保留 UI 2.0（经典界面已删除）⇒ 恒为真；保留接口名是为了不破坏既有调用点。
+    uiV2: function () { return true; }
   };
 
   WB.ready = function (fn) {

@@ -1,7 +1,7 @@
 @charset "UTF-8";
 /* ui/ui-theme.css —— 工作台 UI 2.0 的令牌 / 主题 / 全局交互态 / 骨架（2026-11-08 P3-2 拆预算）
  *
- * 从 ui.css 拆出（原 795/800 预算见底）。只作用于 body.wb-v2；经典模式完全不受影响。
+ * 从 ui.css 拆出（原 795/800 预算见底）。只作用于 body.wb-v2（2026-11-08 起仅保留 UI 2.0）。
  * 加载顺序：必须在 ui.css **之前**（token 先定义，组件规则再消费）。
  * ⚠ 作用域纪律：每条规则第一段必须是 `body.wb-v2` 或 `html[data-theme="light"] body.wb-v2`。
  * 体量由 ui-check.mjs 第 5/6 项一起校验（花括号平衡 + 作用域 + ≤800 行）。
@@ -86,7 +86,7 @@ html[data-theme="light"] body.wb-v2 { --wb-ring: rgba(37, 99, 235, .68); }
  * 改动前的事实（静态走查）：ui.css 里只有 1 处 :focus-visible（.wb-scene），其余可点控件的键盘焦点
  * 只靠 styles.css 那条全局 `:focus-visible` 兜底，而它没配 `:focus:not(:focus-visible){outline:none}`
  * ⇒ 鼠标点完也会留一圈蓝环。下面把「键盘才显示、鼠标不显示」补全，并给 disabled / loading 态。
- * 选择器一律以 body.wb-v2 打头 ⇒ 经典界面的聚焦行为一个字都不变。 */
+ * 选择器一律以 body.wb-v2 打头 ⇒ 不会污染样式表作用域之外的内容。 */
 /* ① 焦点环：键盘可见 · 鼠标点击不残留（行控件贴边画，输入框用自己的边框） */
 body.wb-v2 *:focus { outline: none; }
 body.wb-v2 *:focus-visible { outline: var(--wb-focus-w) solid var(--wb-ring); outline-offset: 2px; border-radius: var(--wb-r-md); }
@@ -106,8 +106,7 @@ body.wb-v2 .wb-pop-item:disabled,
 body.wb-v2 .wb-foot-btn:disabled,
 body.wb-v2 .titlebar-controls .tb-btn:disabled,
 body.wb-v2 .titlebar-controls .tbs-pill:disabled,
-body.wb-v2 .titlebar-controls #wb-more-btn:disabled,
-body.wb-v2 .titlebar-controls #wb-v2-switch:disabled { opacity: .38; cursor: default; pointer-events: none; }
+body.wb-v2 .titlebar-controls #wb-more-btn:disabled { opacity: .38; cursor: default; pointer-events: none; }
 /* ③ 加载态：webai 站点按钮本来就会挂 .busy / .loading，以前一个样式都没有 ⇒ 点了像"没反应"。
  *    用静态底条而不是动画（prefers-reduced-motion 下也看得见）。 */
 body.wb-v2 .wb-webai .webai-btn { position: relative; }

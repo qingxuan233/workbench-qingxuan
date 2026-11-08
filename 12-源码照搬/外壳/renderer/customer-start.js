@@ -33,7 +33,7 @@
     return st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) === 0;
   }
   function boot() {
-    // 等经典动画播完再切场景（最多等 20 秒）
+    // 等开场动画播完再切场景（最多等 20 秒）
     var waited = 0;
     var wait = setInterval(function () {
       waited += 500;

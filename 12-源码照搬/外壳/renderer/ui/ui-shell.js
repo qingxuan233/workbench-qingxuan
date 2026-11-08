@@ -7,7 +7,7 @@
  *   ④ 工作区   #grid（原样保留）
  *
  * 关键原则：只“投影”旧 DOM，不改业务。场景切换仍点 #scenario-tabs 里的原始标签，
- * 工具仍点原来的 #btn-*，AI 面板仍由 renderers.js 渲染 ⇒ 出问题可一键回经典界面。
+ * 工具仍点原来的 #btn-*，AI 面板仍由 renderers.js 渲染 ⇒ 单场景窗口仍可单独开。
  */
 (function () {
   'use strict';
@@ -28,7 +28,7 @@
 
   // ---------------------------------------------------------------- 左栏 → ui-rail.js
 
-  // （工具箱 / 网页版 AI 挂载 / 经典回切按钮 / 收起展开 均已随左栏拆到 ui-rail.js）
+  // （工具箱 / 网页版 AI 挂载 / 收起展开 均已随左栏拆到 ui-rail.js）
 
   // ---------------------------------------------------------------- 场景导航 / 面板导航 → ui-rail.js
 
@@ -197,7 +197,6 @@
     var root = rootDir();
     var items = [
       ['界面', null],
-      ['2.0', '切换 2.0 / 经典界面', function () { switchMode(document.documentElement.getAttribute('data-wb-ui') === 'classic' ? 'v2' : 'classic'); }],
       ['◐', '切换外观（深色 / 浅色 / 跟随系统）', cycleTheme],
       ['▤', '收起 / 展开左侧栏', toggleRail],
       ['⌨', '键盘快捷键', showShortcuts],
@@ -315,17 +314,10 @@
   function showShortcuts() { if (shortcutPop) { shortcutPop.hidden = false; } else { buildShortcuts(); shortcutPop.hidden = false; } }
   function closeShortcuts() { if (shortcutPop) shortcutPop.hidden = true; }
 
-  // ---------------------------------------------------------------- 模式 / 全局键
-  function switchMode(mode) {
-    WB.store.set('mode', mode);
-    try {
-      var u = new URL(location.href);
-      u.searchParams.set('ui', mode);
-      location.href = u.toString();
-    } catch (e) { location.reload(); }
-  }
+  // ---------------------------------------------------------------- 全局键
+  // 2026-11-08：UI 1.0（经典界面）已删除 ⇒ 模式切换入口一并移除（仅保留 UI 2.0）。
 
-  // 主题：renderer.js 的 applyTheme() 是经典脚本里的顶层函数（挂在 window 上）
+  // 主题：renderer.js 的 applyTheme() 是普通脚本里的顶层函数（挂在 window 上）
   function cycleTheme() {
     var cur = 'dark';
     try { cur = localStorage.getItem('guiTheme') || 'dark'; } catch (e) { /* ignore */ }
@@ -393,7 +385,6 @@
   // ---------------------------------------------------------------- 挂载
   function mount() {
     if (window.__WB_UI_SOLO) return;   // 场景分离窗口保持旧布局（单场景，不需要左栏）
-    if (window.__WB_UI_MODE === 'classic') { if (WB.rail) WB.rail.addClassicSwitch(); return; }
     var titlebar = document.getElementById('titlebar');
     if (!titlebar) return;
     if (WB.rail) WB.rail.build();
@@ -441,7 +432,6 @@
 
   WB.shell = {
     toggleRail: toggleRail,
-    switchMode: switchMode,
     cycleTheme: cycleTheme,
     showShortcuts: showShortcuts,
     closeShortcuts: closeShortcuts,

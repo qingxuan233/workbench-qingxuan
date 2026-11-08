@@ -260,12 +260,6 @@
         icon: WB.dom.h('span', { class: 'wb-cmd-ico-t', text: '⌨' }),
         keywords: 'keyboard shortcut 快捷键',
         run: function () { if (WB.shell) WB.shell.showShortcuts(); }
-      },
-      {
-        group: '操作', title: '切换到经典界面', desc: '保留旧版布局；可随时切回 2.0', id: 'act:classic',
-        icon: WB.dom.h('span', { class: 'wb-cmd-ico-t', text: '↺' }),
-        keywords: 'classic ui 经典 界面 回退',
-        run: function () { if (WB.shell) WB.shell.switchMode('classic'); }
       }
     ];
 
@@ -577,7 +571,6 @@
   WB.command = { open: open, close: close, toggle: toggle };
 
   WB.ready(function () {
-    if (window.__WB_UI_MODE === 'classic') return;   // 经典界面不创建命令面板
     if (window.__WB_UI_SOLO) return;                 // 分离窗口保持旧布局
     build();
     refreshToolCatalog();   // 首屏就把工具清单取回来，别等第一次打开

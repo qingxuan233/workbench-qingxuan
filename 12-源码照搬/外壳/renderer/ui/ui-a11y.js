@@ -175,14 +175,14 @@
   // ---------- roving tabindex：左栏「场景 / 当前场景面板」列表（2026-11-08 P3-2） ----------
   // 目标：Tab 进列表一次；↑↓ / Home / End 移动焦点；Enter / Space 打开当前行（复用行的 click）；
   //   重渲染（ui-rail 清空列表）后把 tabindex 与"最后聚焦项"恢复回去。
-  // 只在 UI 2.0 生效（左栏由 ui-rail.js 渲染；经典界面不注入任何行为）。
+  // 只在单场景分离窗口之外生效（左栏由 ui-rail.js 渲染；分离窗口不建左栏）
   var ROVING_SEL = '#wb-scene-list, #wb-panel-list';
   var ROV = { list: null, index: 0 };
   function rovingItems(list) {
     return Array.prototype.slice.call(list.querySelectorAll('[role="listitem"]'));
   }
   function applyRoving() {
-    if (window.__WB_UI_MODE === 'classic' || window.__WB_UI_SOLO) return 0;
+    if (window.__WB_UI_SOLO) return 0;
     var n = 0;
     WB.dom.qsa(ROVING_SEL).forEach(function (list) {
       var items = rovingItems(list);
@@ -222,7 +222,7 @@
     try { items[next].focus({ preventScroll: true }); } catch (err) { try { items[next].focus(); } catch (_) { /* ignore */ } }
   }
   function watchRoving() {
-    if (window.__WB_UI_MODE === 'classic' || window.__WB_UI_SOLO) return;
+    if (window.__WB_UI_SOLO) return;
     applyRoving();
     if (window.__wbRovingBound) return;        // 监听器只装一次；之后靠观察器/applyRoving 跟上重渲染
     window.__wbRovingBound = 1;
@@ -254,7 +254,7 @@
   }
 
   WB.ready(function () {
-    if (window.__WB_UI_MODE === 'classic' || window.__WB_UI_SOLO) return;
+    if (window.__WB_UI_SOLO) return;
     setTimeout(watchRoving, 0);
     setTimeout(watchRoving, 800);   // 左栏是异步渲染（webai-strip / 面板列表晚到）：再补一次
   });

@@ -1,9 +1,9 @@
 @charset "UTF-8";
 /* ui/ui.css —— 工作台 UI 2.0（2026-11-03）
- * 只作用于 html[data-wb-ui="v2"] body.wb-v2；经典模式完全不受影响。
+ * 只作用于 html[data-wb-ui="v2"] body.wb-v2（2026-11-08 起仅保留 UI 2.0）。
  * 设计取向：低饱和深色底 + 一条细冷光 + 大留白；不做常驻模糊/动画（省 GPU）。
  * ⚠ 作用域纪律（2026-11-07）：每条规则第一段必须是 `body.wb-v2` 或 `html[data-theme="light"] body.wb-v2`
- *   （以前 .wb-cmd-ico-svg 两条漏了，靠类名带 wb- 才没污染经典界面）。
+ *   （以前 .wb-cmd-ico-svg 两条漏了，靠类名带 wb- 才没污染外部页面）。
  */
 
 /* ============================================================ 0. 令牌与骨架 → ui-theme.css（须先于本文件加载；本文件只留组件规则） */
@@ -41,7 +41,7 @@ body.wb-v2 #scenario-view {
 body.wb-v2 #scenario-view { padding: 12px 12px 12px 12px; }
 body.wb-v2 #grid { gap: 12px; }
 
-/* 经典标签栏在 2.0 里保留为“状态源”，但从视觉上移出（点击仍然有效） */
+/* 旧版标签栏在 2.0 里保留为“状态源”，但从视觉上移出（点击仍然有效） */
 body.wb-v2 #scenario-tabs.wb-tabs-hidden {
   position: absolute !important;
   left: -9999px !important;
@@ -104,8 +104,7 @@ body.wb-v2 .wb-status-cluster #balance-chip {
 
 body.wb-v2 .titlebar-controls .tb-btn,
 body.wb-v2 .titlebar-controls .tbs-pill,
-body.wb-v2 .titlebar-controls #wb-more-btn,
-body.wb-v2 .titlebar-controls #wb-v2-switch {
+body.wb-v2 .titlebar-controls #wb-more-btn {
   /* ⚠ 顶栏是 -webkit-app-region: drag，任何真按钮都必须 no-drag，否则点击被当成"拖窗口"
      （styles.css 的 .tbs-wrap 当年踩过同一个坑）。用 0,1,0 的统一规则兜住全部顶栏按钮。 */
   -webkit-app-region: no-drag;
@@ -118,21 +117,16 @@ body.wb-v2 .titlebar-controls #wb-v2-switch {
 }
 body.wb-v2 .titlebar-controls .tb-btn:hover,
 body.wb-v2 .titlebar-controls .tbs-pill:hover,
-body.wb-v2 .titlebar-controls #wb-more-btn:hover,
-body.wb-v2 .titlebar-controls #wb-v2-switch:hover { background: rgba(255, 255, 255, .08); color: var(--text); border-color: transparent; }
+body.wb-v2 .titlebar-controls #wb-more-btn:hover { background: rgba(255, 255, 255, .08); color: var(--text); border-color: transparent; }
 body.wb-v2 .titlebar-controls .tb-btn:active,
 body.wb-v2 .titlebar-controls .tbs-pill:active,
-body.wb-v2 .titlebar-controls #wb-more-btn:active,
-body.wb-v2 .titlebar-controls #wb-v2-switch:active { background: rgba(255, 255, 255, .14); transform: scale(.95); }
+body.wb-v2 .titlebar-controls #wb-more-btn:active { background: rgba(255, 255, 255, .14); transform: scale(.95); }
 html[data-theme="light"] body.wb-v2 .titlebar-controls .tb-btn:hover,
 html[data-theme="light"] body.wb-v2 .titlebar-controls .tbs-pill:hover,
-html[data-theme="light"] body.wb-v2 .titlebar-controls #wb-more-btn:hover,
-html[data-theme="light"] body.wb-v2 .titlebar-controls #wb-v2-switch:hover { background: rgba(15, 23, 42, .06); color: var(--text); border-color: transparent; }
+html[data-theme="light"] body.wb-v2 .titlebar-controls #wb-more-btn:hover { background: rgba(15, 23, 42, .06); color: var(--text); border-color: transparent; }
 body.wb-v2 .titlebar-controls .tb-sep { height: 14px; margin: 0 5px; opacity: .25; }
 body.wb-v2 .titlebar-controls .tb-btn svg,
 body.wb-v2 .titlebar-controls .tbs-pill svg { width: 15px; height: 15px; display: block; flex-shrink: 0; }
-/* 经典回切按钮（addClassicSwitch 建的）只有一行「2.0」文字，字号收小别撑高行高 */
-body.wb-v2 .titlebar-controls #wb-v2-switch { font-size: 11px; letter-spacing: .2px; }
 body.wb-v2 .titlebar-controls .tbs-wrap { height: 100%; display: flex; align-items: center; gap: 2px; padding: 0; margin: 0; }
 body.wb-v2 .titlebar-controls .tbs-pill .tbs-txt { display: none; }
 

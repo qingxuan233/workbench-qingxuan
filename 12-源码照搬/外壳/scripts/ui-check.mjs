@@ -131,5 +131,34 @@ for (const f of UI_FILES.concat(['renderer/ui/ui-theme.css', 'renderer/ui/ui.css
   else ok(f + '（' + n + ' 行）');
 }
 
+// ---------- 7) UI 1.0 已删除：经典模式残留扫描（2026-11-08 task-30 加固） ----------
+// 用户拍板保留 UI 2.0、删除 UI 1.0 ⇒ 源码里不许再留模式开关/经典回退路径（注释也算残留）。
+head('7. UI 1.0 已删除（renderer/** 经典模式残留）');
+const BANNED = [
+  ['__WB_UI_MODE', '旧 UI 模式开关'],
+  ['ui=classic', '旧 URL 切经典参数'],
+  ['switchMode', '旧模式切换入口'],
+  ['wb-v2-switch', '旧“回到 2.0”按钮'],
+  ['回退经典', '旧“回退经典”说明']
+];
+const scanFiles = [];
+(function walk(rel) {
+  for (const e of fs.readdirSync(path.join(ROOT, rel), { withFileTypes: true })) {
+    if (e.name === 'data' || e.name === 'node_modules') continue;   // 运行产物，不算源码
+    const r = rel + '/' + e.name;
+    if (e.isDirectory()) { walk(r); continue; }
+    if (/\.(js|html|css)$/i.test(e.name)) scanFiles.push(r);
+  }
+})('renderer');
+const legacy = [];
+for (const f of scanFiles) {
+  const lines = read(f).split(/\r?\n/);
+  for (const pair of BANNED) {
+    lines.forEach((line, i) => { if (line.includes(pair[0])) legacy.push(f + ':' + (i + 1) + ' ← ' + pair[1] + '「' + pair[0] + '」'); });
+  }
+}
+if (legacy.length) bad('仍有 UI 1.0 残留（' + legacy.length + ' 处）：\n    ' + legacy.slice(0, 12).join('\n    '));
+else ok('renderer/** 无 UI 1.0 残留（扫描 ' + scanFiles.length + ' 个源码文件）');
+
 console.log('\n' + (fails ? '✗ UI 自检失败：' + fails + ' 项' : '✓ UI 自检全部通过'));
 process.exit(fails ? 1 : 0);

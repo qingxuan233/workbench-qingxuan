@@ -171,7 +171,7 @@
   //   ③ 面板绑定（数各 AI 面板标题行 .harness-diag 的 ✓，已有 DOM 判据）。
   // ⚠ 网关（31239）**不展示**：preload 里没有它的健康 IPC，而页面是 file://，fetch 127.0.0.1:31239 会被 CORS 挡；
   //   按任务纪律「不新开 IPC」⇒ 如实退化为三项（原因见实施记录）。
-  // 只在 UI 2.0 里创建（经典界面不加任何新控件）。
+  // 只在 UI 2.0 里创建（2026-11-08 起仅保留 UI 2.0）。
   var strip = el('div', 'wb-status-strip');
   strip.id = 'wb-status-strip';
   strip.setAttribute('role', 'status');
@@ -204,7 +204,6 @@
   }
   function mountStrip() {
     if (!strip || strip.parentNode) return;
-    if (document.documentElement.getAttribute('data-wb-ui') === 'classic') return;   // 经典界面零新增
     var controls = document.querySelector('#titlebar .titlebar-controls');
     if (!controls) return;
     var before = document.getElementById('tbs-wrap') || document.getElementById('btn-min');

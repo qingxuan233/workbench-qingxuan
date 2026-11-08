@@ -156,7 +156,7 @@
   }
 
   function scan() {
-    if (window.__WB_UI_MODE === 'classic') return;
+    if (window.__WB_UI_SOLO) return;
     if (window.__WB_UI_SOLO) return;
     WB.dom.qsa('#grid > .panel').forEach(injectButton);
   }
@@ -167,7 +167,7 @@
 
   // 面板渲染完成后注入按钮；MutationObserver 兜住所有非标准渲染路径
   WB.ready(function () {
-    if (window.__WB_UI_MODE === 'classic') return;   // 经典界面不注入任何按钮/监听
+    if (window.__WB_UI_SOLO) return;   // 分离窗口不注入按钮/监听
     if (window.__WB_UI_SOLO) return;                 // 分离窗口保持旧布局
     WB.bus.on('scene:changed', function () { exit(); setTimeout(scan, 0); });
     var grid = document.getElementById('grid');

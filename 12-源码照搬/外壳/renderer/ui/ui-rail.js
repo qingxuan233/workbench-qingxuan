@@ -5,8 +5,8 @@
  * 壳层编排（顶栏、语境栏、更多菜单、快捷键、全局键、观察器、挂载顺序）仍留在 ui-shell.js。
  *
  * 共享一律走 window.WB（ui-core 提供）：
- *   WB.dom / WB.util / WB.store / WB.bus / WB.panels / WB.host / WB.shell（toast/switchMode 运行时回调）
- * 对外：WB.rail = { build, buildToolbox, moveWebai, addClassicSwitch, toggleRail, renderScenes, renderPanels,
+ *   WB.dom / WB.util / WB.store / WB.bus / WB.panels / WB.host / WB.shell（toast 运行时回调）
+ * 对外：WB.rail = { build, buildToolbox, moveWebai, toggleRail, renderScenes, renderPanels,
  *                   setSceneMeta, refreshBadge, paintBadge, pendingCount }
  */
 (function () {
@@ -206,22 +206,7 @@
     if (strip.parentNode !== host) host.appendChild(strip);
   }
 
-  // 经典界面里留一个“回到 2.0”的入口，避免切过去之后只能手改 URL 回来
-  function addClassicSwitch() {
-    try {
-      var controls = document.querySelector('#titlebar .titlebar-controls');
-      if (!controls || document.getElementById('wb-v2-switch')) return;
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.id = 'wb-v2-switch';
-      b.className = 'tb-btn';
-      b.title = '切换到界面 2.0（左栏 + 命令面板）';
-      b.textContent = '2.0';
-      b.style.fontSize = '11px';
-      b.addEventListener('click', function () { if (WB.shell) WB.shell.switchMode('v2'); });
-      controls.insertBefore(b, document.getElementById('btn-min'));
-    } catch (e) { /* ignore */ }
-  }
+  // 2026-11-08：UI 1.0（经典界面）已删除 ⇒ 原「回到 2.0」回切按钮 addClassicSwitch() 一并移除。
 
   function toggleRail() {
     var collapsed = !document.body.classList.contains('wb-rail-collapsed');
@@ -396,7 +381,6 @@
     build: buildRail,
     buildToolbox: buildToolbox,
     moveWebai: moveWebai,
-    addClassicSwitch: addClassicSwitch,
     toggleRail: toggleRail,
     renderScenes: renderScenes,
     renderPanels: renderPanels,
