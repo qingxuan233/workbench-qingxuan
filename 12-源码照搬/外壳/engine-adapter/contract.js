@@ -70,6 +70,9 @@
   var RULE_CENTER_CLS = PREFIX_1 + ' > [class*="centerCol"] { grid-column: 1 / -1 !important; grid-row: 1 !important; }';
   var RULE_PHASE_HEADER = PREFIX_1 + ' [data-phase] > header { display: none !important; }';
   var RULE_WIDTH_HANDLE = PREFIX_1 + ' [data-width-handle] { display: none !important; }';
+  // 路线A（2026-11-08）：引擎在窄面板会切响应式抽屉（drawerMask 盖住整块 + leadingSeat + bottomRow）。
+  //   只压“纯装饰/抽屉件”；**不动 sidebarCol 的显隐**——钉会话仍要靠侧栏找会话行。
+  var RULE_DRAWER = '[class*="drawerMask"], [class*="leadingSeat"], [class*="bottomRow"] { display: none !important; pointer-events: none !important; }';
 
   /**
    * 原 HARNESS_CHAT_CSS。
@@ -83,6 +86,7 @@
     if (o.centerColFix) { rules.push(RULE_CENTER_HAS); rules.push(RULE_CENTER_CLS); }
     rules.push(RULE_PHASE_HEADER);
     rules.push(RULE_WIDTH_HANDLE);
+    rules.push(RULE_DRAWER);   // 路线A：窄面板抽屉件裁切（追加；不改老规则）
     return rules.concat(wideCss());
   }
 
@@ -231,6 +235,12 @@
     L.push('  const vals = [];');
     L.push('  for (let i = 0; i < all.length && i < 5; i++) vals.push(all[i].style.gridTemplateColumns);');
     L.push("  const rootEl = document.getElementById('root') || document.body;");
+    // 路线A：注入后的布局断言原料（selfcheck/面板标题行/失败告警共用同一口径）
+    L.push("  const sidebarEl = document.querySelector('[class*=\"sidebarCol\"]');");
+    L.push('  const sidebarInfo = sidebarEl ? (function () { const r = sidebarEl.getBoundingClientRect(); return { x: Math.round(r.x), w: Math.round(r.width), vis: sidebarEl.offsetParent !== null }; })() : null;');
+    L.push("  const drawerInfo = (function () { const sels = ['drawerMask', 'leadingSeat', 'bottomRow']; const out = []; for (let si = 0; si < sels.length; si++) { const e = document.querySelector('[class*=\"' + sels[si] + '\"]'); if (!e) continue; let disp = '', op = ''; try { const cs = getComputedStyle(e); disp = cs.display; op = cs.opacity; } catch (x) { /* ignore */ } const r = e.getBoundingClientRect(); out.push({ k: sels[si], vis: e.offsetParent !== null, disp: disp, op: op, w: Math.round(r.width) }); } return out; })();");
+    L.push("  const chatEl = document.querySelector('[data-chat-flow]'); const chatW = chatEl ? Math.round(chatEl.getBoundingClientRect().width) : 0;");
+    L.push("  const chatAvailW = (function () { const e = document.querySelector('[data-chat-flow]'); if (!e || !e.parentElement) return 0; const p = e.parentElement; let pl = 0, pr = 0; try { const cs = getComputedStyle(p); pl = parseFloat(cs.paddingLeft) || 0; pr = parseFloat(cs.paddingRight) || 0; } catch (x) { /* ignore */ } return Math.round(p.clientWidth - pl - pr); })();");
     if (profile === 'main') {
       L.push('  let rect = null;');
       L.push('  if (f2) { const r = f2.getBoundingClientRect(); rect = { x: r.x, y: r.y, w: r.width, h: r.height }; }');
@@ -264,6 +274,10 @@
       L.push('    winH: window.innerHeight,');
       L.push('    title: document.title,');
       L.push('    url: location.href,');
+      L.push('    sidebar: sidebarInfo,');
+      L.push('    drawer: drawerInfo,');
+      L.push('    chatW: chatW,');
+      L.push('    winW: window.innerWidth,');
       L.push('    pinDiag: (() => {');
       L.push("      const T = 'oa系统运维';");
       L.push('      const hits = [];');
@@ -279,6 +293,8 @@
       L.push("      return { total: hits.length, top3: hits.slice(0, 3), selected: !!document.querySelector('[aria-selected=\"true\"]') };");
       L.push('    })()');
       L.push('  });');
+      // 路线A：主进程注入必须返回一行摘要（修复前 `js 结果: undefined`，见用户 server.log 证据）
+      L.push("  return (f2 ? 'fix 1列 ' : 'fix 缺框架 ') + (window.__wideTxt || '') + ' · sidebar=' + (sidebarInfo ? (sidebarInfo.w + 'px/' + (sidebarInfo.vis ? 'visible' : 'hidden')) : 'none') + ' · drawer=' + drawerInfo.length + '/' + drawerInfo.filter(function (d) { return d.vis; }).length + ' · chat=' + chatW + '/' + window.innerWidth + 'px';");
     } else {
       L.push('  return JSON.stringify({');
       L.push('    found: !!f2,');
@@ -291,7 +307,12 @@
       L.push('    wide: WIDE,   // 铺满实测（宿主把它显示在面板标题行）');
       L.push('    rootKids: rootEl ? rootEl.children.length : -1,');
       L.push('    title: document.title,');
-      L.push('    url: location.href');
+      L.push('    url: location.href,');
+      L.push('    sidebar: sidebarInfo,');
+      L.push('    drawer: drawerInfo,');
+      L.push('    chatW: chatW,');
+      L.push('    chatAvailW: chatAvailW,');
+      L.push('    winW: window.innerWidth');
       L.push('  });');
     }
     L.push('})();');

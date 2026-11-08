@@ -173,6 +173,7 @@ const fs = require('fs'); const path = require('path');
 const RESULT = process.env.SELFCHECK_RESULT, URL = process.env.SELFCHECK_URL;
 const CSSF = process.env.SELFCHECK_CSS, JSF = process.env.SELFCHECK_JS;
 const SESSION = process.env.SELFCHECK_SESSION || '';
+const WIDTH = Number(process.env.SELFCHECK_WIDTH || 0) || 1280;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 try { app.setPath('userData', path.join(path.dirname(RESULT), 'profile-' + Date.now())); } catch (e) {}
 let done = false;
@@ -180,7 +181,7 @@ function finish(code, obj) { if (done) return; done = true; try { fs.writeFileSy
 setTimeout(() => finish(2, { ok: false, error: 'runner watchdog' }), 24000);
 try { app.disableHardwareAcceleration(); } catch (e) {}
 app.whenReady().then(async () => {
-  const win = new BrowserWindow({ show: false, width: 1280, height: 900, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false } });
+  const win = new BrowserWindow({ show: false, width: WIDTH, height: 900, webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: false } });
   const load = {};
   win.webContents.on('did-fail-load', (e, code, desc, url) => { load.fail = code + ' ' + desc + ' ' + url; });
   try { await win.loadURL(URL); } catch (e) { load.err = String(e && e.message || e); }
@@ -206,7 +207,7 @@ app.whenReady().then(async () => {
   try { const k = await win.webContents.insertCSS(fs.readFileSync(CSSF, 'utf8')); i.cssOk = !!k; } catch (e) { i.cssErr = String(e && e.message || e); }
   try { const r = await win.webContents.executeJavaScript(fs.readFileSync(JSF, 'utf8')); i.jsOk = true; i.jsResult = String(r == null ? '' : r).slice(0, 200); } catch (e) { i.jsErr = String(e && e.message || e); }
   await sleep(900);
-  const M = \`(()=>{const q=(s)=>document.querySelectorAll(s).length;const diag=(()=>{try{return JSON.parse(window.__fixDiag||'null')}catch(e){return null}})();return{chatFlow:q('[data-chat-flow]'),phase:q('[data-phase]'),widthHandle:q('[data-width-handle]'),composerCard:q('[data-composer-card]'),composerInput:q('[data-composer-input]'),centerCol:q('[class*="centerCol"]'),dataSides:Array.from(document.querySelectorAll('[data-side]')).map((e)=>String(e.getAttribute('data-side'))),widthHandleSides:Array.from(document.querySelectorAll('[data-width-handle]')).map((e)=>String(e.getAttribute('data-side')||'')),dataSideInfo:Array.from(document.querySelectorAll('[data-side]')).slice(0,12).map((e)=>({t:e.tagName,c:String(e.className||'').slice(0,40),s:String(e.getAttribute('data-side')),v:e.offsetParent!==null})),fixDiag:diag,title:document.title,bodyText:(document.body&&document.body.textContent||'').slice(0,2000),url:location.href};})()\`;
+  const M = \`(()=>{const q=(s)=>document.querySelectorAll(s).length;const diag=(()=>{try{return JSON.parse(window.__fixDiag||'null')}catch(e){return null}})();return{chatFlow:q('[data-chat-flow]'),phase:q('[data-phase]'),widthHandle:q('[data-width-handle]'),composerCard:q('[data-composer-card]'),composerInput:q('[data-composer-input]'),centerCol:q('[class*="centerCol"]'),dataSides:Array.from(document.querySelectorAll('[data-side]')).map((e)=>String(e.getAttribute('data-side'))),widthHandleSides:Array.from(document.querySelectorAll('[data-width-handle]')).map((e)=>String(e.getAttribute('data-side')||'')),dataSideInfo:Array.from(document.querySelectorAll('[data-side]')).slice(0,12).map((e)=>({t:e.tagName,c:String(e.className||'').slice(0,40),s:String(e.getAttribute('data-side')),v:e.offsetParent!==null})),fixDiag:diag,winW:window.innerWidth,sidebar:(function(){const e=document.querySelector('[class*="sidebarCol"]');if(!e)return null;const r=e.getBoundingClientRect();return{x:Math.round(r.x),w:Math.round(r.width),vis:e.offsetParent!==null};})(),drawer:(function(){const sels=['drawerMask','leadingSeat','bottomRow'];const out=[];for(let i=0;i<sels.length;i++){const e=document.querySelector('[class*="'+sels[i]+'"]');if(!e)continue;let disp='',op='';try{const cs=getComputedStyle(e);disp=cs.display;op=cs.opacity;}catch(x){}const rr=e.getBoundingClientRect();out.push({k:sels[i],vis:e.offsetParent!==null,disp:disp,op:op,w:Math.round(rr.width)});}return out;})(),chatW:(function(){const e=document.querySelector('[data-chat-flow]');return e?Math.round(e.getBoundingClientRect().width):0;})(),chatAvailW:(function(){const e=document.querySelector('[data-chat-flow]');if(!e||!e.parentElement)return 0;const p=e.parentElement;let pl=0,pr=0;try{const cs=getComputedStyle(p);pl=parseFloat(cs.paddingLeft)||0;pr=parseFloat(cs.paddingRight)||0;}catch(x){}return Math.round(p.clientWidth-pl-pr);})(),frameContentW:(function(){const f=document.querySelector('[style*="grid-template-columns"][style*="minmax(0"]');if(!f)return 0;let pl=0,pr=0;try{const cs=getComputedStyle(f);pl=parseFloat(cs.paddingLeft)||0;pr=parseFloat(cs.paddingRight)||0;}catch(x){}return Math.round(f.clientWidth-pl-pr);})(),title:document.title,bodyText:(document.body&&document.body.textContent||'').slice(0,2000),url:location.href};})()\`;
   let meas = {}; try { meas = await win.webContents.executeJavaScript(M); } catch (e) { meas = { error: String(e && e.message || e) }; }
   finish(0, { ok: true, load, selBeforeInject: sel, enter, waitedMs: Date.now() - t0, injected: i, meas });
 }).catch((e) => finish(3, { ok: false, error: String(e && e.message || e) }));
@@ -221,10 +222,10 @@ function findElectron() {
   for (const p of cands) { try { if (fs.statSync(p).isFile()) return p; } catch (e) { /* next */ } }
   return '';
 }
-async function runProbe(probe, inj) {
+async function runProbe(probe, inj, width) {
   const electron = findElectron();
   if (!electron) return { skipped: '找不到 Electron（外壳\\node_modules\\electron\\dist\\electron.exe 不存在）⇒ 无法做运行时实测' };
-  const dir = path.join(DATA, '_临时', 'engine-selfcheck-' + Date.now());
+  const dir = path.join(DATA, '_临时', 'engine-selfcheck-' + width + '-' + Date.now());
   fs.mkdirSync(dir, { recursive: true });
   const runner = path.join(dir, 'runner.cjs'), resultF = path.join(dir, 'result.json');
   fs.writeFileSync(runner, runnerSource());
@@ -237,6 +238,7 @@ async function runProbe(probe, inj) {
   env.SELFCHECK_URL = probe.base + '/?token=' + encodeURIComponent(probe.token);
   env.SELFCHECK_CSS = path.join(dir, 'inject.css'); env.SELFCHECK_JS = path.join(dir, 'inject.js');
   env.SELFCHECK_SESSION = pickSessionId();
+  env.SELFCHECK_WIDTH = String(width);   // 路线A：窄/宽两档分别起窗口实测
   const child = spawn(electron, ['--no-sandbox', '--disable-gpu', runner], { cwd: SHELL, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '';
   child.stderr.on('data', (d) => { stderr += d; if (stderr.length > 4096) stderr = stderr.slice(-4096); });
@@ -253,7 +255,7 @@ async function runProbe(probe, inj) {
   return { probeResult: res };
 }
 // ---------- 判定 ----------
-function judge(meas, selftest) {
+function judge(meas, selftest, tiers) {
   const rows = [];
   for (const e of EXPECTED) {
     const v = e.pick(meas);
@@ -261,6 +263,32 @@ function judge(meas, selftest) {
     else if (e.kind === 'anyMin') rows.push({ id: e.id, label: e.label, expect: '任一 ≥' + e.expect, actual: 'card=' + v[0] + ' input=' + v[1], ok: Math.max(Number(v[0]), Number(v[1])) >= e.expect });
     else if (e.kind === 'eq') rows.push({ id: e.id, label: e.label, expect: '=' + e.expect, actual: v, ok: Number(v) === e.expect });
     else if (e.kind === 'subset') { const bad = (Array.isArray(v) ? v : []).filter((x) => !e.allowed.includes(x)); rows.push({ id: e.id, label: e.label, expect: '只允许 ' + e.allowed.join('/'), actual: '共 ' + v.length + ' 个：' + JSON.stringify(v), ok: bad.length === 0, bad }); }
+  }
+  // 路线A（2026-11-08）：注入后**布局断言**（窄 680 / 宽 900 两档都要过；这是用户"引擎整页透出/双导航"截图的判据）
+  for (const t of (tiers || [])) {
+    const m = t.meas || {}, w = t.width;
+    const sb = m.sidebar || null;
+    rows.push({
+      id: 'layout:sidebar@' + w, label: '[' + w + 'px] sidebar 已收',
+      expect: 'width≤2 且不可见，或 x<0（off-canvas 抽屉）',
+      actual: sb ? ('w=' + sb.w + 'px vis=' + sb.vis + ' x=' + sb.x) : '未找到 [class*="sidebarCol"]',
+      ok: !!sb && ((Number(sb.w) <= 2 && sb.vis !== true) || Number(sb.x) < 0)
+    });
+    const drawer = Array.isArray(m.drawer) ? m.drawer : [];
+    const dv = drawer.filter((d) => d && d.vis && d.disp !== 'none' && Number(d.op == null ? 1 : d.op) > 0);
+    rows.push({
+      id: 'layout:drawer@' + w, label: '[' + w + 'px] 抽屉件隐藏',
+      expect: '可见 drawerMask/leadingSeat/bottomRow = 0',
+      actual: drawer.map((d) => d.k + '{vis=' + d.vis + ',disp=' + d.disp + ',op=' + d.op + '}').join(' ') || '（页面无抽屉组件）',
+      ok: dv.length === 0
+    });
+    const avail = Number(m.chatAvailW || m.frameContentW || m.winW || w);
+    rows.push({
+      id: 'layout:chat@' + w, label: '[' + w + 'px] chatFlow 占满',
+      expect: '≥' + (avail - 32) + 'px（面板可用宽−32）',
+      actual: (Number(m.chatW) || 0) + '/' + avail + 'px',
+      ok: (Number(m.chatW) || 0) >= avail - 32
+    });
   }
   if (selftest) {
     rows.push({ id: 'selftest:bogus', label: '[data-wb-selfcheck-bogus]', expect: '≥1', actual: 0, ok: false });
@@ -280,6 +308,7 @@ function emit(res) {
   if (res.meas.fixDiag) log('修后诊断：hasChatFlow=' + res.meas.fixDiag.hasChatFlow + ' hasPhase=' + res.meas.fixDiag.hasPhase + " wide='" + (res.meas.fixDiag.wide || '') + "'");
   if (res.enter) log('进入会话：' + (res.enter.mode === 'localStorage' ? '写 dsh.sessions.current（' + res.enter.session + '）后重载 → chatFlow=' + res.enter.sel : res.enter.clicked ? '点击会话行「' + res.enter.title + '」（共 ' + res.enter.rows + ' 行）' : '未能进入（没有可点会话行：' + (res.enter.body || res.enter.err || '') + '）'));
   if (res.meas.dataSideInfo) log('data-side 分布：' + res.meas.dataSideInfo.map((x) => x.t + '.' + x.c + '="' + x.s + '"' + (x.v ? '' : '(隐藏)')).join('、'));
+  for (const t of (res.tiers || [])) log('宽 ' + t.width + 'px 实测：sidebar=' + JSON.stringify(t.meas.sidebar) + ' · drawer=' + JSON.stringify(t.meas.drawer) + ' · chat=' + t.meas.chatW + '/' + t.meas.chatAvailW + 'px（面板可用宽；窗口 ' + t.meas.winW + '）');
   log('断言：'); for (const r of res.assertions.rows) log('  ' + (r.ok ? '✓' : '✗') + ' ' + r.label + ' 期望 ' + r.expect + '，实际 ' + r.actual);  log('');
   if (res.status === 'VERIFIED') log('结果：VERIFIED（exit 0）');
   else { log('FAILED：' + res.assertions.diffs.length + ' 项断言不满足（exit 1）'); log('差异集合：'); for (const d of res.assertions.diffs) log('  ✗ ' + d); }
@@ -293,20 +322,29 @@ async function main() {
   if (probe.authProblem) return skip('引擎在跑，但 token 来源全部无效 ⇒ 未验证', { engine: probe, notes: probe.notes });
   let inj;
   try { inj = loadInjection(); } catch (e) { return skip('取不到注入字面量 ⇒ 未验证：' + String(e && e.message || e), { engine: probe, notes: [] }); }
-  const run = await runProbe(probe, inj);
-  if (run.skipped) return skip(run.skipped, { engine: probe, adapter: inj.adapter, notes: (probe.notes || []).concat(inj.notes, [run.skipped]) });
-  const pr = run.probeResult, meas = pr.meas || {};
-  const assertions = judge(meas, SELFTEST);
-  const notes = (probe.notes || []).concat(inj.notes);
-  if (!pr.selBeforeInject && pr.enter) notes.push('注入前仍未进入会话画面（enter=' + JSON.stringify(pr.enter).slice(0, 200) + '）');
+  const TIERS = [680, 900];   // 路线A：窄(≈680)/宽(≈900) 两档都要过
+  const tiers = [], tierSkips = [];
+  for (const w of TIERS) {
+    const run = await runProbe(probe, inj, w);
+    if (run.skipped) { tierSkips.push('宽 ' + w + 'px：' + run.skipped); continue; }
+    tiers.push({ width: w, meas: (run.probeResult && run.probeResult.meas) || {}, run: run.probeResult });
+  }
+  if (!tiers.length) return skip('窄/宽两档探针均未产出结果（未验证）：' + tierSkips.join('；'), { engine: probe, adapter: inj.adapter, notes: (probe.notes || []).concat(inj.notes, tierSkips) });
+  const wide = tiers[tiers.length - 1], pr = wide.run, meas = wide.meas;
+  const assertions = judge(meas, SELFTEST, tiers);
+  const notes = (probe.notes || []).concat(inj.notes, tierSkips);
+  for (const t of tiers) if (!t.run.selBeforeInject && t.run.enter) notes.push('宽 ' + t.width + 'px：注入前仍未进入会话画面（enter=' + JSON.stringify(t.run.enter).slice(0, 160) + '）');
   // 契约漂移提示（不判红）：实测 AppFrame 的列手柄（mP3x-q_handle）也带 data-side="sidebar"，
   // 而契约 §五写的是"data-side 只能是 left/right"。判定只约束壳真正操作的 [data-width-handle]
   // （那里实测只有 left/right）；全局其它值单列出来供 Lead 定夺契约措辞（见实施报告）。
   const extraSides = (meas.dataSides || []).filter((x) => x !== 'left' && x !== 'right');
   if (extraSides.length) notes.push('契约漂移提示：全局 data-side 另有值 ' + JSON.stringify(extraSides) + '（位于 AppFrame 列手柄，不是宽度手柄；契约 §五原文只允许 left/right）');
-  const fails = assertions.diffs.concat((!pr.injected || !pr.injected.cssOk || !pr.injected.jsOk) ? ['注入未成功：CSS=' + (pr.injected && pr.injected.cssOk) + ' FIX_JS=' + (pr.injected && pr.injected.jsOk)] : []);
+  const injFails = [];
+  for (const t of tiers) { const ij = (t.run && t.run.injected) || {}; if (!ij.cssOk) injFails.push('宽 ' + t.width + 'px 注入 CSS 失败：' + (ij.cssErr || '')); if (!ij.jsOk) injFails.push('宽 ' + t.width + 'px 注入 FIX_JS 失败：' + (ij.jsErr || '')); }
+  const fails = assertions.diffs.concat(injFails);
   const status = fails.length ? 'FAILED' : 'VERIFIED';
-  const out = { ...base, status, exitCode: fails.length ? 1 : 0, engine: probe, adapter: inj.adapter, notes, injected: pr.injected, enter: pr.enter, selBeforeInject: pr.selBeforeInject, meas: { ...meas, bodyText: undefined }, pageTitle: meas.title, assertions, durationMs: Date.now() - t0 };
+  const tierOut = tiers.map((t) => ({ width: t.width, injected: t.run.injected, selBeforeInject: t.run.selBeforeInject, enter: t.run.enter, meas: { sidebar: t.meas.sidebar, drawer: t.meas.drawer, chatW: t.meas.chatW, chatAvailW: t.meas.chatAvailW, winW: t.meas.winW, frameContentW: t.meas.frameContentW, chatFlow: t.meas.chatFlow, phase: t.meas.phase } }));
+  const out = { ...base, status, exitCode: fails.length ? 1 : 0, engine: probe, adapter: inj.adapter, notes, injected: pr.injected, enter: pr.enter, selBeforeInject: pr.selBeforeInject, tiers: tierOut, meas: { ...meas, bodyText: undefined }, pageTitle: meas.title, assertions, durationMs: Date.now() - t0 };
   emit(out);
   process.exit(out.exitCode);
 }

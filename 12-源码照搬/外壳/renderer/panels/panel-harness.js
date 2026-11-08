@@ -642,8 +642,32 @@ APP['harness'] = (body, meta, head) => {
       const r = await wv.executeJavaScript(HARNESS_FIX_JS);
       let info = null;
       try { info = JSON.parse(r); } catch (e) { /* ignore */ }
-      if (info && info.found) simplify = '精简 ✓';
-      else if (info) simplify = '等界面…';
+      if (info && info.found) {
+        simplify = '精简 ✓';
+        // 路线A（2026-11-08）：注入后**读回布局**，不达标要响：console.warn + 一次性写 外壳/data/inject-warnings.log
+        const sb = info.sidebar || null;
+        const drawerVis = (info.drawer || []).filter((d) => d && d.vis && d.disp !== 'none' && Number(d.op || 1) > 0).length;
+        const badSide = !!sb && (sb.w > 2 || sb.vis === true) && !(Number(sb.x) < 0);
+        const badDrawer = drawerVis > 0;
+        const badChat = Number(info.chatW || 0) < Math.max(0, Number(info.chatAvailW || info.winW || 0) - 32);
+        if (badSide || badDrawer || badChat) {
+          const key = 'sidebar=' + (sb ? (sb.w + 'px/' + (sb.vis ? 'visible' : 'hidden') + ' x=' + sb.x) : 'none')
+            + ' · drawerVis=' + drawerVis + '/' + (info.drawer || []).length
+            + ' · chat=' + (info.chatW || 0) + '/' + (info.winW || 0) + 'px';
+          try { console.warn('[wv:inject] ✗ 精简失败 ' + key); } catch (e) { /* ignore */ }
+          if (!window.__kunInjectWarned) {
+            window.__kunInjectWarned = 1;   // 只写一次，不刷屏
+            try {
+              const PP = (window.app && window.app.paths) || {};
+              const dir = String(PP.dataDir || '').replace(/\\/g, '/');
+              if (dir && window.app && window.app.file && window.app.file.write) {
+                window.app.file.write(dir + '/inject-warnings.log',
+                  new Date().toISOString() + ' [wv:inject] ✗ 精简失败 ' + key + '\n');
+              }
+            } catch (e) { /* ignore */ }
+          }
+        }
+      } else if (info) simplify = '等界面…';
       // 铺满实测（例 `铺满 1列 1576/1592px`）：两者只差十几像素（我们留的那 16px）就是铺开了；
       // 还差几百像素说明页面里没有 [data-chat-flow]（引擎换版了）——见文件上方「会话列铺满」。
       if (info && info.wide) { simplify += (simplify ? ' · ' : '') + '铺满 ' + info.wide; wideTxt = info.wide; }
