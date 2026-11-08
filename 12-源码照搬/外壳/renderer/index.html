@@ -116,6 +116,8 @@
   <script src="panels/panel-registry.js"></script>
   <!-- 引擎适配层（P2 收口）：必须在 chrome.js / renderers.js 之前（HARNESS 别名与渲染层都从 window.__WB_ENGINE_ADAPTER 取契约） -->
   <script src="../engine-adapter/contract.js"></script>
+  <!-- P2-D 阶段3a：embed 支持区（resolveEmbedUA/startBiliTrack/startBiliProbe + 2 个自包含 IIFE） -->
+  <script src="lib/embed-utils.js"></script>
   <!-- P2-D 拆域：面板渲染器（它们先建/复用 window.APP_RENDERERS 共享对象） -->
   <script src="panels/panel-pc-drives.js"></script>
   <script src="panels/panel-pc-ledger.js"></script>
