@@ -122,6 +122,9 @@
   <script src="panels/panel-pc-drives.js"></script>
   <script src="panels/panel-pc-ledger.js"></script>
   <script src="panels/panel-review-files.js"></script>
+  <!-- P2-D 阶段3b：view 面板拆成「媒体/目录 helper（先加载）+ view 本体」，view-media 必须在 panel-view 之前 -->
+  <script src="panels/view-media.js"></script>
+  <script src="panels/panel-view.js"></script>
   <!-- 外壳 chrome / HARNESS 接线（P2-D 阶段2b）：必须在 renderers.js 之前（HARNESS 别名加载期读 adapter） -->
   <script src="chrome.js"></script>
   <script id="renderers-script" src="renderers.js"></script>

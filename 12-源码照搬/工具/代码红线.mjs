@@ -41,7 +41,7 @@ const BASELINE_DATE = '2026-11-08'
 /** 存量 >800 行文件的行数基线：只允许变短，不允许变长
  *  2026-11-08 死区清理后重定：仅 renderers.js 按删除后实测值重定，其余项保持现值 */
 const BASELINE_LINES = {
-  '外壳/renderer/renderers.js': 5803,        // 2026-11-08 P2-D 阶段3a：embed 支持区 510 行抽到 renderer/lib/embed-utils.js（实测 5802 行 +1 尾部空行；基线只许更小）
+  '外壳/renderer/renderers.js': 4904,        // 2026-11-08 P2-D 阶段3b：view 本体 899 行拆到 panels/panel-view.js + view-media.js（实测 4903 行 +1 尾部空行；基线只许更小）
   '外壳/main.js': 5130,
   '外壳/renderer/renderer.js': 1355,
   '外壳/renderer/topbar-status.js': 1733,
