@@ -313,6 +313,18 @@ function publishEngineEndpoint() {
     try { fs.chmodSync(ENDPOINT_FILE, 0o600); } catch (e) { }
   } catch (e) { log('[endpoint] 写 harness-endpoint.json 失败（已忽略）：' + ((e && e.message) || e)); }
 }
+// 退出清理（2026-11-08 P1）：只删"本进程写的"那一份（pid 校验），避免误删另一个实例的 endpoint。
+// 为什么必须清：旧 token 残留会让脚本以为引擎还在（读时校验虽能兜底，但文件本身不该留着误导人）。
+function clearEngineEndpoint() {
+  try {
+    if (!fs.existsSync(ENDPOINT_FILE)) return;
+    const j = JSON.parse(fs.readFileSync(ENDPOINT_FILE, 'utf8').replace(/^\uFEFF/, ''));
+    if (Number(j && j.pid) === process.pid) {
+      fs.unlinkSync(ENDPOINT_FILE);
+      log('[endpoint] 退出清理：已删除本进程写的 harness-endpoint.json');
+    }
+  } catch (e) { /* 清理失败不影响退出 */ }
+}
 
 // ---- 启动进度（渲染层加载页用）----
 let lastBoot = { stage: 'init', pct: 0, text: '准备中…', detail: '', ts: Date.now() };
@@ -2536,6 +2548,8 @@ if (!gotLock) {
     // 2026-10-24：正常退出 ⇒ 给保险哨子盖章（下次启动不会误判成"升级中途被关掉"）
     try { writeGuard({ clean: true, at: Date.now(), pid: process.pid }); } catch (e) { /* ignore */ }
     try { saveWinLayout(); } catch (e) { /* ignore */ }
+    // 2026-11-08 P1：私有 token 通道的退出清理（只删本进程写的，pid 校验）
+    try { clearEngineEndpoint(); } catch (e) { /* ignore */ }
     releaseBlenderEmbedSync();
     killServer();
     stopBlenderCapture();
@@ -2739,7 +2753,24 @@ const webAiServer = http.createServer(function (req, res) {
     });
     return;
   }
-  json(404, { ok: false, err: '没有这个端点', endpoints: ['GET /webai/keys', 'GET /webai/state', 'GET /webai/who', 'POST /webai/ask {key,text,timeoutMs}'] });
+  // 站点健康探针（2026-11-08 P1「probe 常态化」）：只看不派（桥的 `[[peek]]` 分支不往页面打字），
+  //   返回该站 webview 的真实现状（浅 DOM/shadow DOM/iframe 字数、输入框候选、当前地址）。
+  //   用途：出站失败时先跑它，5 秒内分清"页面卡死 / 没登录 / 站点改版 / 输入框不在"，不用靠猜。
+  if (u === '/webai/probe') {
+    if (req.method !== 'POST') { json(405, { ok: false, err: '这个端点要用 POST' }); return; }
+    let body = '';
+    req.on('data', function (c) { body += c; if (body.length > 2e5) req.destroy(); });
+    req.on('end', async function () {
+      let p = null;
+      try { p = JSON.parse(body || '{}'); } catch (e) { json(400, { ok: false, err: '请求体不是 JSON' }); return; }
+      const key = String((p && p.key) || '').trim();
+      if (!key) { json(400, { ok: false, err: '缺少 key（' + WEB_AI_KEYS.map(function (s) { return s.key; }).join('/') + '）' }); return; }
+      const r = await webAiAsk(key, '[[peek]]', { timeoutMs: 20000, peek: true });
+      json(r.ok ? 200 : 502, r);
+    });
+    return;
+  }
+  json(404, { ok: false, err: '没有这个端点', endpoints: ['GET /webai/keys', 'GET /webai/state', 'GET /webai/who', 'POST /webai/ask {key,text,timeoutMs}', 'POST /webai/probe {key}'] });
 });
 webAiServer.on('error', function (e) { log('[webai] 桥服务起不来（端口 ' + WEB_AI_PORT + '）：' + e.message); });
 // ===== 自动更新挂载（官方 apps/desktop 能力搬迁 ② · 2026-09-26）=====

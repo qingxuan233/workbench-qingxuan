@@ -1481,9 +1481,11 @@ var __WB_ROOT = (function () {
     }
   };
 
-  // 并发通道池（Per-Site Promise Map）与熔断器（Circuit Breaker）
-  var siteChains = new Map(), siteBusy = new Map(), siteFailures = new Map();
+  var siteChains = new Map(), siteBusy = new Map(), siteFailures = new Map();   // Per-Site 通道池 + 熔断状态
   var MELT_THRESHOLD = 2, MELT_DURATION_MS = 300000;
+  // ★P1★ 熔断持久化（⟳ 重建闭包不清零）：sessionStorage 按 partition 隔离，不落盘不外发
+  try { var _melt0 = JSON.parse(sessionStorage.getItem('webai.melt') || '{}'); for (var _mk in _melt0) if (_melt0[_mk].meltUntil > Date.now()) siteFailures.set(_mk, _melt0[_mk]); } catch (e) { }
+  function saveMelt() { try { var o = {}; siteFailures.forEach(function (v, k) { if (v.meltUntil > Date.now()) o[k] = v; }); sessionStorage.setItem('webai.melt', JSON.stringify(o)); } catch (e) { } }
 
   S.accept = function (task) {
     if (!task || !task.id) return Promise.resolve();
@@ -1522,13 +1524,14 @@ var __WB_ROOT = (function () {
       siteBusy.set(key, false);
       S.busy = Array.from(siteBusy.values()).some(Boolean);
 
-      if (out && out.ok) { siteFailures.delete(key); }
+      if (out && out.ok) { siteFailures.delete(key); saveMelt(); }
       else {
         var pf = (siteFailures.get(key) && siteFailures.get(key).count) || 0;
         if (pf + 1 >= MELT_THRESHOLD) {
           siteFailures.set(key, { count: pf + 1, meltUntil: Date.now() + MELT_DURATION_MS });
           say('⚠ 站点 [' + key + '] 连续 ' + (pf + 1) + ' 次异常，已触发熔断保护 5 分钟');
         } else { siteFailures.set(key, { count: pf + 1, meltUntil: 0 }); }
+        saveMelt();
       }
       trace('done ' + task.id + ' ok=' + (out && out.ok));
       try { await K.webai.done(task.id, out); } catch (e) { }
@@ -1551,10 +1554,7 @@ var __WB_ROOT = (function () {
     K.file.write((__WB_ROOT + '\\外壳\\data\\webai-bridge-beacon.txt'),
       'v' + S.ver + ' loaded ' + new Date().toLocaleString() + '\n');
   } catch (e) { }
-  // ★申报版本（v3.17）★：多窗口时主进程只把活派给"版本相等"的窗口。
-  // 分屏/分离窗口里那份桥只在它自己那次加载/⟳ 时才更新，常常是旧代码 —— 旧桥的判正文逻辑是老的，
-  // 抢到活就把正文切错（菜单墙/页脚/上一轮内容），现象像"刚改的判据坏了"，实测白查一整轮。
-  // 有了申报，旧桥窗口根本不会被派活，而不是靠"抢单时才发现"。
+  // ★申报版本★：多窗口时主进程只派给"版本相等"的桥；旧桥会把正文切错、现象像"判据坏了"（实测白查一轮）。
   try {
     K.webai.bridge(S.ver).then(function (r) {
       if (r && r.ok === false) {
