@@ -91,3 +91,14 @@ ADAPTER.fixJs({profile, pinJs})       // → string（profile:'main'|'renderer'�
 | 13 | `session_projcache` / 插件插槽 `conversation.chat.flow` | 会话投影缓存名 / 插件接线点 |
 
 > 完整锚点清单与实测命中数：`_本机产物/优化报告/DSH内核兼容.md`、`engine-after.mjs` 的 `ANCHORS`。
+
+## 运行时自检口径（`scripts/engine-selfcheck.mjs`，2026-11-08 P2）
+
+`node 外壳\scripts\engine-selfcheck.mjs` 三态：`exit 0` VERIFIED / `exit 3` SKIPPED（**未验证，不是通过**）/ `exit 1` FAILED（打印期望 vs 实际差异集合）。
+只检测不拉起引擎（引擎没在跑就 exit 3）；支持 `--port` / `--json` / `--timeout=` / `--selftest` / `--force-fallback`。
+
+**`data-side` 的判定口径（实测修正，2026-11-08）**：上表第 4 条的"取值只有 `left`/`right`"**只适用于壳操作的宽度手柄** `[data-width-handle]`。
+实测引擎 0.2.2-rc.1 的页面里还有 `DIV.mp3x-q_handle[data-side="sidebar"]`（AppFrame 的**列手柄**，不是宽度手柄）——
+若按"全局只允许 left/right"字面判定会永远 FAILED。所以自检按「宽度手柄的 data-side ∈ {left,right}」判红；
+全局出现其它值只作**契约漂移提示**（不判红），提示里会写明它挂在哪类元素上。
+

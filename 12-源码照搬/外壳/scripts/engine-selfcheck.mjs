@@ -17,7 +17,6 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SHELL = path.resolve(HERE, '..');
 const APP = path.resolve(SHELL, '..');
@@ -142,7 +141,8 @@ function loadInjection() {
   if (fs.existsSync(CONTRACT)) { try { A = requireCjs(CONTRACT); } catch (e) { A = null; } }
   if (!FORCE_FALLBACK && A && typeof A.chatCss === 'function' && typeof A.fixJs === 'function') {
     try {
-      const css = (A.chatCss() || []).join('\n'), fix = A.fixJs({});
+      // 与 main.js 生产注入同一档：chatCss({centerColFix:true}) + fixJs({profile:'main'})
+      const css = (A.chatCss({ centerColFix: true }) || []).join('\n'), fix = A.fixJs({ profile: 'main' });
       if (!css || !fix) throw new Error('chatCss()/fixJs() 返回空');
       new Function(fix);
       return { adapter: 'contract', css, fix, notes: ['adapter 已就绪：' + CONTRACT + '（VERSION=' + (A.VERSION || '?') + '）'] };
@@ -222,8 +222,7 @@ async function runProbe(probe, inj) {
   delete env.ELECTRON_RUN_AS_NODE;   // ⚠ 本机可能有它：留着 Electron 会跑成纯 Node（无 GUI）
   env.SELFCHECK_RESULT = resultF;
   env.SELFCHECK_URL = probe.base + '/?token=' + encodeURIComponent(probe.token);
-  env.SELFCHECK_CSS = path.join(dir, 'inject.css');
-  env.SELFCHECK_JS = path.join(dir, 'inject.js');
+  env.SELFCHECK_CSS = path.join(dir, 'inject.css'); env.SELFCHECK_JS = path.join(dir, 'inject.js');
   env.SELFCHECK_SESSION = pickSessionId();
   const child = spawn(electron, ['--no-sandbox', '--disable-gpu', runner], { cwd: SHELL, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = '';
@@ -256,7 +255,6 @@ function judge(meas, selftest) {
   }
   return { rows, diffs: rows.filter((r) => !r.ok).map((r) => r.label + '：期望 ' + r.expect + '，实际 ' + r.actual + (r.bad && r.bad.length ? '（非法值 ' + r.bad.join('/') + '）' : '')) };
 }
-
 // ---------- 输出与主流程 ----------
 function emit(res) {
   if (TEXT_JSON) { console.log(JSON.stringify(res, null, 2)); return; }
