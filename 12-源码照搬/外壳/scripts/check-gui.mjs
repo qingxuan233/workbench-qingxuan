@@ -54,7 +54,7 @@ head('1. JS 语法');
 // 必需文件（缺 = 壳跑不起来）与公开版剔除的业务模块（缺 = 设计如此）。
 // 业务模块只有在 index.html 仍引用它时才必须存在 —— 那才是真的会加载失败。
 const REQUIRED_JS = ['main.js', 'preload.js', 'renderer/renderer.js', 'renderer/renderers.js', 'renderer/theme-sync.js'];
-const OPTIONAL_JS = ['stock-store.js', 'oa-store.js', 'oa-ssh.js', 'renderer/ui/preload-ui.js', 'renderer/ui/ui-core.js', 'renderer/ui/ui-panels.js', 'renderer/ui/ui-command.js', 'renderer/ui/ui-shell.js', 'renderer/ui/ui-a11y.js', 'renderer/ui/ui-credential.js', 'renderer/ui/ui-empty.js', 'renderer/panels/panel-pc-drives.js'];
+const OPTIONAL_JS = ['stock-store.js', 'oa-store.js', 'oa-ssh.js', 'renderer/ui/preload-ui.js', 'renderer/ui/ui-core.js', 'renderer/ui/ui-panels.js', 'renderer/ui/ui-command.js', 'renderer/ui/ui-shell.js', 'renderer/ui/ui-a11y.js', 'renderer/ui/ui-credential.js', 'renderer/ui/ui-empty.js', 'renderer/panels/panel-pc-drives.js', 'renderer/panels/panel-pc-ledger.js', 'renderer/panels/panel-review-files.js', 'renderer/chrome.js'];
 const _indexHtml = read('renderer/index.html');
 const isReferenced = (f) => new RegExp('["\'][^"\']*' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '["\']').test(_indexHtml);
 for (const f of REQUIRED_JS.concat(OPTIONAL_JS)) {
@@ -96,8 +96,8 @@ else ok('main → preload 无悬空');
 
 // ---------- 3) 场景面板类型覆盖 ----------
 head('3. 场景面板类型覆盖');
-// P2-D 拆域：注册源 = renderers.js + renderer/panels/*.js（多文件注册；三种注册形态都认）
-const rendererSrcFiles = ['renderer/renderers.js'].concat(
+// P2-D 拆域：注册源 = renderers.js + renderer/chrome.js + renderer/panels/*.js（多文件注册；三种注册形态都认）
+const rendererSrcFiles = ['renderer/renderers.js', 'renderer/chrome.js'].concat(
   fs.existsSync(path.join(ROOT, 'renderer', 'panels'))
     ? fs.readdirSync(path.join(ROOT, 'renderer', 'panels')).filter((f) => f.endsWith('.js')).sort().map((f) => 'renderer/panels/' + f)
     : []
@@ -152,6 +152,20 @@ for (const { file, src: fileSrc } of renderersSrcs) {
   }
 }
 if (!timerBad) ok('所有含 setInterval 的渲染器都返回了 cleanup');
+
+// P2-D 阶段2b：chrome.js 不是渲染器（无注册块），但含"场景发光 / 标签栏重试"定时器 ——
+// 不能成为免检区：要求①没有**顶层裸** setInterval（必须在函数体内）；②定时器都挂 window 级守卫，
+// 避免 ⟳ 热更新重复执行脚本时攒出多个定时器（历史真踩过）。
+{
+  const chromeSrc = exists('renderer/chrome.js') ? read('renderer/chrome.js') : '';
+  if (!chromeSrc) bad('renderer/chrome.js 缺失（外壳 chrome/HARNESS 接线的唯一落点）');
+  else {
+    const bareTop = chromeSrc.split(/\r?\n/).filter((l) => /^setInterval\(/.test(l)).length;
+    const guarded = /window\.__dshSceneGlow/.test(chromeSrc) && /window\.__kunTabBarRetry/.test(chromeSrc);
+    if (bareTop === 0 && guarded) ok('chrome.js 定时器都在函数体内且挂 window 级守卫（⟳ 重载不攒定时器）');
+    else bad(`chrome.js 定时器防护不足（顶层裸 setInterval=${bareTop}，window 守卫=${guarded ? '有' : '缺'}）`);
+  }
+}
 
 // ---------- 5) 场景图标 ----------
 head('5. 场景图标（ICONS）');

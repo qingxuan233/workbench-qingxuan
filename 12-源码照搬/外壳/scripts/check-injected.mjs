@@ -59,8 +59,10 @@ function check(label, raw, subs) {
 }
 
 const rPath = path.join(root, 'renderer', 'renderers.js');
+const chromePath = path.join(root, 'renderer', 'chrome.js');   // P2-D 阶段2b：chrome/HARNESS 接线已搬到这里
 const mPath = path.join(root, 'main.js');
-const r = fs.readFileSync(rPath, 'utf8');
+const r = fs.readFileSync(rPath, 'utf8') + '\n' +
+  (fs.existsSync(chromePath) ? fs.readFileSync(chromePath, 'utf8') : '');
 const m = fs.readFileSync(mPath, 'utf8');
 
 // renderers.js：每个 AI 面板注入的两段（外层 HARNESS_FIX_JS 里嵌了 ${HARNESS_PIN_JS}）
