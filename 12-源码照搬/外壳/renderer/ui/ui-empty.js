@@ -269,6 +269,18 @@
     }));
   }
 
+  // ---------------- ④ 面板加载态：骨架屏（2026-11-08 P3-2 · WB.skeleton） ----------------
+  // 只替换"加载中的面板 body"里的占位：renderers.js 加载完会整个清空 body，骨架自然消失。
+  function ensureHarnessSkeleton(panel) {
+    var loading = panel.querySelector('.harness-loading');
+    if (!loading || panel.querySelector('.harness-wv')) return;
+    if (loading.querySelector('.wb-harness-skel')) return;
+    var box = document.createElement('div');
+    box.className = 'wb-harness-skel';
+    if (WB.skeleton) WB.skeleton(box, 3); else box.textContent = '加载中…';
+    loading.appendChild(box);
+  }
+
   // ---------------- 扫描调度 ----------------
   function scan() {
     if (window.__WB_UI_MODE === 'classic' || window.__WB_UI_SOLO) return;
@@ -278,6 +290,7 @@
       WB.dom.qsa('#grid > .panel').forEach(function (panel) {
         var id = (panel.dataset.panelId || '').toLowerCase();
         if (panel.querySelector('.harness-diag')) ensureHarnessChip(panel);
+        if (panel.querySelector('.harness-loading')) ensureHarnessSkeleton(panel);
         if (id.indexOf('pc') === 0) ensurePcGuide(panel);
         if (id.indexOf('webai') === 0) ensureWebaiGuide(panel);
       });

@@ -34,6 +34,9 @@ const UI_FILES = [
   'renderer/ui/ui-panels.js',
   'renderer/ui/ui-command.js',
   'renderer/ui/ui-shell.js',
+  // GUI 优化 P3-2（2026-11-08）：左栏从 ui-shell 拆出（ui-shell 797→≤600）；新文件同样必须进检查，
+  // 否则"过了闸"只是因为它压根没被看（自欺，不是通过）。
+  'renderer/ui/ui-rail.js',
   // GUI 优化 P0/P1（2026-11-08）：3 个自举模块也必须进语法/体量/静态 id 检查，
   // 否则"新增文件过了闸"只是因为它压根没被看（自欺，不是通过）。
   'renderer/ui/ui-a11y.js',
@@ -59,7 +62,7 @@ for (const f of UI_FILES) {
 // ---------- 2) index.html 加载顺序 ----------
 head('2. index.html 加载顺序');
 const html = read('renderer/index.html');
-const order = ['ui/preload-ui.js', 'styles.css', 'ui/ui.css', 'ui/ui-core.js', 'ui/ui-panels.js', 'ui/ui-command.js', 'ui/ui-shell.js', 'ui/ui-a11y.js', 'ui/ui-credential.js', 'ui/ui-empty.js'];
+const order = ['ui/preload-ui.js', 'styles.css', 'ui/ui-theme.css', 'ui/ui.css', 'ui/ui-core.js', 'ui/ui-panels.js', 'ui/ui-command.js', 'ui/ui-shell.js', 'ui/ui-rail.js', 'ui/ui-a11y.js', 'ui/ui-credential.js', 'ui/ui-empty.js'];
 let last = -1;
 let orderOk = true;
 for (const token of order) {
@@ -104,22 +107,25 @@ missing = [...new Set(missing)];
 if (missing.length) bad('引用了不存在的 id：' + missing.join('；'));
 else ok('静态 id 引用全部存在');
 
-// ---------- 5) CSS 花括号 ----------
-head('5. ui.css 结构');
-const css = read('renderer/ui/ui.css');
-let depth = 0, broken = false;
-for (const ch of css.replace(/\/\*[\s\S]*?\*\//g, '')) {
-  if (ch === '{') depth++;
-  else if (ch === '}') { depth--; if (depth < 0) { broken = true; break; } }
+// ---------- 5) CSS 花括号 + 作用域（2026-11-08 P3-2：ui.css 拆出 ui-theme.css，两份都要校验） ----------
+head('5. CSS 结构（ui-theme.css + ui.css）');
+const CSS_FILES = ['renderer/ui/ui-theme.css', 'renderer/ui/ui.css'];
+for (const f of CSS_FILES) {
+  const css = read(f);
+  let depth = 0, broken = false;
+  for (const ch of css.replace(/\/\*[\s\S]*?\*\//g, '')) {
+    if (ch === '{') depth++;
+    else if (ch === '}') { depth--; if (depth < 0) { broken = true; break; } }
+  }
+  if (broken || depth !== 0) bad(f + ' 花括号不平衡（depth=' + depth + '）');
+  else ok(f + ' 花括号平衡');
+  if (!css.includes('body.wb-v2')) bad(f + ' 没有 body.wb-v2 作用域，可能污染经典界面');
+  else ok(f + ' 已限定 body.wb-v2 作用域');
 }
-if (broken || depth !== 0) bad('ui.css 花括号不平衡（depth=' + depth + '）');
-else ok('ui.css 花括号平衡');
-if (!css.includes('body.wb-v2')) bad('ui.css 没有 body.wb-v2 作用域，可能污染经典界面');
-else ok('ui.css 已限定 body.wb-v2 作用域');
 
 // ---------- 6) 体量红线 ----------
 head('6. 体量红线（新增文件 ≤ 800 行）');
-for (const f of UI_FILES.concat(['renderer/ui/ui.css'])) {
+for (const f of UI_FILES.concat(['renderer/ui/ui-theme.css', 'renderer/ui/ui.css'])) {
   const n = read(f).split(/\r?\n/).length;
   if (n > 800) bad(f + ' 有 ' + n + ' 行，超过 800 行红线');
   else ok(f + '（' + n + ' 行）');

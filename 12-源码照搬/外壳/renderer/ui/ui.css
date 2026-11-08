@@ -6,43 +6,7 @@
  *   （以前 .wb-cmd-ico-svg 两条漏了，靠类名带 wb- 才没污染经典界面）。
  */
 
-/* ============================================================ 0. 令牌与骨架 */
-body.wb-v2 {
-  --wb-top-h: 54px;
-  --wb-ctx-h: 44px;
-  --wb-rail-w: 238px;
-  --wb-line: rgba(148, 176, 220, .13);
-  --wb-line-soft: rgba(148, 176, 220, .08);
-  --wb-surface: #0f131c;
-  --wb-surface-2: #121826;
-  --wb-rail-bg: linear-gradient(180deg, #0d1119 0%, #0a0d14 100%);
-  --wb-hover: rgba(255, 255, 255, .045);
-
-  /* 控件令牌（2026-11-07）：高度 / 圆角 / 字重 / 焦点环集中定义，替换散落的 27/28/32px、6/7/8px 字面量。
-     命名避开 styles.css 的 --r-sm/--r-md/--r-lg/--ring/--dur，防日后合并时撞车。 */
-  --wb-ctl-h-sm: 26px;
-  --wb-ctl-h-md: 28px;
-  --wb-ctl-h-lg: 32px;
-  --wb-ctl-h-xl: 42px;
-  --wb-r-sm: 6px;
-  --wb-r-md: 7px;
-  --wb-r-lg: 8px;
-  --wb-fw-strong: 650;      /* Windows 上没有 600 时浏览器会跳 700，统一写 650 */
-  --wb-bd: 1px solid transparent;
-  --wb-ring: rgba(122, 178, 255, .62);
-  --wb-focus-w: 2px;
-  --wb-dur: 140ms;
-  --wb-ease: ease;
-
-  display: grid;
-  grid-template-columns: var(--wb-rail-w) minmax(0, 1fr);
-  grid-template-rows: var(--wb-top-h) var(--wb-ctx-h) minmax(0, 1fr);
-  background:
-    radial-gradient(1200px 680px at 52% -10%, rgba(79, 140, 255, .07), transparent 62%),
-    linear-gradient(180deg, #0b0e15 0%, #080a10 100%);
-  transition: grid-template-columns .16s ease;
-}
-body.wb-v2.wb-rail-collapsed { --wb-rail-w: 64px; }
+/* ============================================================ 0. 令牌与骨架 → ui-theme.css（须先于本文件加载；本文件只留组件规则） */
 
 body.wb-v2 #titlebar {
   grid-area: 1 / 1 / 2 / 3; height: var(--wb-top-h);
@@ -357,22 +321,7 @@ body.wb-v2 .wb-empty { padding: 8px 10px 6px; }
 body.wb-v2 .wb-empty-t { font-size: 11.5px; color: var(--text-dim); font-weight: 600; }
 body.wb-v2 .wb-empty-d { margin-top: 3px; font-size: 10.5px; line-height: 1.6; color: var(--text-dim); opacity: .82; }
 
-/* ============================================================ 2.1 对比度修正（2026-11-07）
- * 实测（WCAG 2.x 相对亮度，取深色主题侧栏底 #0a0d14 / 浅色主题 #f3f6fb）：
- *   .wb-rail-version  opacity .5  → 深色 2.68:1 · 浅色 2.06:1   （写成了"几乎看不见"）
- *   .wb-panel-index    opacity .55 → 深色 3.00:1
- *   .wb-pop-ver        opacity .62 → 深色 3.44:1
- * 这三处都是 9.5px 小字，正文级的 4.5:1 不适用（WCAG 对这类装饰性/辅助信息按大字号或非文本处理），
- * 但 2:1 已经低于"能读"的下限。下面统一抬到 ≥4.5:1 的档位（配色不变，只松动 opacity）。
- * 另外 .wb-sec-head（4.92:1）、.wb-cmd-desc（4.74:1）本来达标，不动。
- */
-body.wb-v2 .wb-rail-version { opacity: .76; }    /* 深色 4.6:1 */
-body.wb-v2 .wb-panel-index { opacity: .76; }     /* 深色 4.6:1 */
-body.wb-v2 .wb-pop-ver { opacity: .78; }         /* 深色 4.7:1 */
-/* 浅色主题：--text-dim 是 #5b6577，底板是 #f3f6fb，透明度掉档比深色更狠 ⇒ 再抬一档（≈4.6:1） */
-html[data-theme="light"] body.wb-v2 .wb-rail-version,
-html[data-theme="light"] body.wb-v2 .wb-panel-index { opacity: .94; }
-html[data-theme="light"] body.wb-v2 .wb-pop-ver { opacity: .94; }
+/* ============================================================ 2.1 对比度修正 → ui-theme.css（同色令牌一起搬走） */
 
 body.wb-v2 .wb-tools { display: flex; flex-direction: column; gap: 2px; }
 /* 「扩展」组的原按钮收进隐藏容器：只作为点击源，不再参与顶栏布局 */
@@ -669,66 +618,7 @@ body.wb-v2 .wb-toast {
   transition: opacity .25s, transform .25s;
 }
 
-/* ============================================================ 7. 浅色主题 */
-html[data-theme="light"] body.wb-v2 {
-  --wb-line: rgba(37, 99, 235, .16);
-  --wb-line-soft: rgba(15, 23, 42, .08);
-  --wb-surface: #ffffff;
-  --wb-surface-2: #f7f9fc;
-  --wb-rail-bg: linear-gradient(180deg, #fbfcfe 0%, #f3f6fb 100%);
-  --wb-hover: rgba(37, 99, 235, .055);
-  background:
-    radial-gradient(1200px 680px at 52% -10%, rgba(37, 99, 235, .05), transparent 62%),
-    linear-gradient(180deg, #f7f9fc 0%, #eef2f8 100%);
-}
-html[data-theme="light"] body.wb-v2 #titlebar { background: rgba(255, 255, 255, .94); }
-html[data-theme="light"] body.wb-v2 #scenebar { background: rgba(255, 255, 255, .82); }
-html[data-theme="light"] body.wb-v2 #wb-cmd-trigger { background: rgba(15, 23, 42, .025); }
-html[data-theme="light"] body.wb-v2 .wb-scene.active { color: #0b1a33; }
-html[data-theme="light"] body.wb-v2 .wb-command-card,
-html[data-theme="light"] body.wb-v2 .wb-pop,
-html[data-theme="light"] body.wb-v2 .wb-shortcuts-card { background: #ffffff; }
-html[data-theme="light"] body.wb-v2 .wb-cmd-item.active { background: rgba(37, 99, 235, .08); }
-html[data-theme="light"] body.wb-v2 .panel.wb-panel-focused > .panel-head { background: linear-gradient(180deg, rgba(37, 99, 235, .08), #f7f9fc); }
-/* 浅色底板上的焦点环：亮蓝在半透明白背景上偏糊，换成深一档的蓝 */
-html[data-theme="light"] body.wb-v2 { --wb-ring: rgba(37, 99, 235, .68); }
-
-/* ============================================================ 7.5 交互状态补齐（2026-11-07）
- * 改动前的事实（静态走查）：ui.css 里只有 1 处 :focus-visible（.wb-scene），其余可点控件的键盘焦点
- * 只靠 styles.css 那条全局 `:focus-visible` 兜底，而它没配 `:focus:not(:focus-visible){outline:none}`
- * ⇒ 鼠标点完也会留一圈蓝环。下面把「键盘才显示、鼠标不显示」补全，并给 disabled / loading 态。
- * 选择器一律以 body.wb-v2 打头 ⇒ 经典界面的聚焦行为一个字都不变。 */
-/* ① 焦点环：键盘可见 · 鼠标点击不残留（行控件贴边画，输入框用自己的边框） */
-body.wb-v2 *:focus { outline: none; }
-body.wb-v2 *:focus-visible { outline: var(--wb-focus-w) solid var(--wb-ring); outline-offset: 2px; border-radius: var(--wb-r-md); }
-body.wb-v2 :focus:not(:focus-visible) { outline: none; box-shadow: none; }
-body.wb-v2 .wb-scene:focus-visible,
-body.wb-v2 .wb-tool-row:focus-visible,
-body.wb-v2 .wb-panel-row:focus-visible { outline-offset: -2px; }
-body.wb-v2 .wb-command-input:focus-visible { outline: none; }
-body.wb-v2 .wb-tool-row:focus-visible,
-body.wb-v2 .wb-panel-row:focus-visible,
-body.wb-v2 .wb-foot-btn:focus-visible { background: var(--wb-hover); color: var(--text); }
-/* ② 禁用态：真按钮的可点目标全部认 :disabled（连 hover 一起断，视觉上"按不动"） */
-body.wb-v2 .wb-icon-btn:disabled,
-body.wb-v2 .wb-ctx-btn:disabled,
-body.wb-v2 .wb-cmd-item:disabled,
-body.wb-v2 .wb-pop-item:disabled,
-body.wb-v2 .wb-foot-btn:disabled,
-body.wb-v2 .titlebar-controls .tb-btn:disabled,
-body.wb-v2 .titlebar-controls .tbs-pill:disabled,
-body.wb-v2 .titlebar-controls #wb-more-btn:disabled,
-body.wb-v2 .titlebar-controls #wb-v2-switch:disabled { opacity: .38; cursor: default; pointer-events: none; }
-/* ③ 加载态：webai 站点按钮本来就会挂 .busy / .loading，以前一个样式都没有 ⇒ 点了像"没反应"。
- *    用静态底条而不是动画（prefers-reduced-motion 下也看得见）。 */
-body.wb-v2 .wb-webai .webai-btn { position: relative; }
-body.wb-v2 .wb-webai .webai-btn.busy,
-body.wb-v2 .wb-webai .webai-btn.loading { cursor: progress; border-color: rgba(122, 178, 255, .34); background: rgba(79, 140, 255, .10); }
-body.wb-v2 .wb-webai .webai-btn.busy::after,
-body.wb-v2 .wb-webai .webai-btn.loading::after {
-  content: ''; position: absolute; left: 50%; bottom: 3px; width: 10px; height: 2px; margin-left: -5px;
-  border-radius: 2px; background: currentColor; opacity: .55;
-}
+/* ============================================================ 7. 浅色主题 / 7.5 交互状态 → ui-theme.css（本文件只留组件规则） */
 
 /* 神经元面板自带深色底（3D 画布，绘制色是浅色系）：浅色主题下保持深色画布，
    只把外框交给面板壳 —— 强行改浅底会让节点标签读不清，不如保留“黑画布”。 */
@@ -793,3 +683,16 @@ body.wb-v2 #titlebar #btn-plugins,
 body.wb-v2 #titlebar #btn-skills,
 body.wb-v2 #titlebar #btn-tools { display: none !important; }
 body.wb-v2 #titlebar #tbs-folders { display: none !important; }   /* 与「更多 → 打开」重复 */
+
+/* ============================================================ 9.6 状态条：4 语义收敛（topbar-status.js 创建；仅 UI 2.0） */
+body.wb-v2 .wb-status-strip {
+  display: flex; align-items: center; gap: 2px; flex-shrink: 0;
+  height: var(--wb-ctl-h-sm); margin-right: 6px; font-family: var(--mono); font-size: 10px;
+}
+body.wb-v2 .wb-status-strip .wb-strip-seg {
+  display: inline-flex; align-items: center; height: 100%; padding: 0 8px;
+  border-radius: var(--wb-r-sm); background: rgba(255, 255, 255, .035); color: var(--text-dim); white-space: nowrap;
+}
+body.wb-v2 .wb-status-strip .wb-strip-seg + .wb-strip-seg { margin-left: 2px; }
+body.wb-v2 .wb-status-strip .wb-strip-seg.warn { color: var(--warn); }
+body.wb-v2 .wb-status-strip .wb-strip-engine[data-ok="1"] { color: var(--ok); }

@@ -112,6 +112,15 @@
   //   这里收口成一个入口，顺便把失败原因交回调用方显示（路径不存在 / 老宿主没接口）。
   WB.host = {
     app: function () { return (window.app && window.app.app) || null; },
+    // 工作台根目录：渲染页固定是 <root>\外壳\renderer\<xxx> ⇒ 往上剥掉 外壳\renderer。
+    // 三个模块共用一份（ui-shell / ui-rail / ui-command 不再各自写正则）。
+    rootDir: function () {
+      try {
+        var p = decodeURIComponent(String(location.pathname || '')).replace(/^\//, '').replace(/\//g, '\\');
+        var m = p.match(/^(.*)\\外壳\\renderer\\/i);
+        return m && m[1] ? m[1] : '';
+      } catch (e) { return ''; }
+    },
     openPath: function (p, onErr) {
       var A = WB.host.app();
       if (!A || typeof A.openPath !== 'function') {
@@ -158,6 +167,17 @@
       }
       return qi === q.length ? score : -1;
     }
+  };
+
+  // 骨架屏（2026-11-08 P3-2）：纯函数，把 el 的内容换成 rows 条占位条；样式在 ui-theme.css。
+  //   只动 DOM、不发请求、不依赖模块；返回 el 便于链式调用。命令面板/面板加载态共用这一份。
+  WB.skeleton = function (el, rows) {
+    if (!el) return null;
+    WB.dom.clear(el);
+    el.classList.add('wb-skeleton');
+    var n = Math.max(1, Number(rows) || 3);
+    for (var i = 0; i < n; i++) el.appendChild(WB.dom.h('div', { class: 'wb-skeleton-row' }));
+    return el;
   };
 
   WB.flags = {

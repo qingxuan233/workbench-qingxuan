@@ -172,5 +172,94 @@
     document.addEventListener('keydown', onKey, true);
   });
 
+  // ---------- roving tabindex：左栏「场景 / 当前场景面板」列表（2026-11-08 P3-2） ----------
+  // 目标：Tab 进列表一次；↑↓ / Home / End 移动焦点；Enter / Space 打开当前行（复用行的 click）；
+  //   重渲染（ui-rail 清空列表）后把 tabindex 与"最后聚焦项"恢复回去。
+  // 只在 UI 2.0 生效（左栏由 ui-rail.js 渲染；经典界面不注入任何行为）。
+  var ROVING_SEL = '#wb-scene-list, #wb-panel-list';
+  var ROV = { list: null, index: 0 };
+  function rovingItems(list) {
+    return Array.prototype.slice.call(list.querySelectorAll('[role="listitem"]'));
+  }
+  function applyRoving() {
+    if (window.__WB_UI_MODE === 'classic' || window.__WB_UI_SOLO) return 0;
+    var n = 0;
+    WB.dom.qsa(ROVING_SEL).forEach(function (list) {
+      var items = rovingItems(list);
+      if (!items.length) return;
+      n++;
+      list.setAttribute('data-wb-roving', '1');
+      items.forEach(function (it, i) {
+        var want = (ROV.list === list && ROV.index === i) ? 0 : (i === 0 ? 0 : -1);
+        it.tabIndex = want;
+      });
+    });
+    return n;
+  }
+  function onRovingKey(e) {
+    var list = e.target && e.target.closest ? e.target.closest('[data-wb-roving]') : null;
+    if (!list) return;
+    var items = rovingItems(list);
+    var cur = -1;
+    for (var i = 0; i < items.length; i++) if (items[i] === document.activeElement) { cur = i; break; }
+    if (cur < 0) cur = 0;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();          // 行自己也有 Enter 监听 ⇒ 只走这一条，避免双触发
+      if (items[cur]) items[cur].click();
+      return;
+    }
+    var next = -1;
+    if (e.key === 'ArrowDown') next = Math.min(items.length - 1, cur + 1);
+    else if (e.key === 'ArrowUp') next = Math.max(0, cur - 1);
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = items.length - 1;
+    else return;
+    if (next < 0 || !items[next]) return;
+    e.preventDefault();
+    ROV = { list: list, index: next };
+    items.forEach(function (it, idx) { it.tabIndex = idx === next ? 0 : -1; });
+    try { items[next].focus({ preventScroll: true }); } catch (err) { try { items[next].focus(); } catch (_) { /* ignore */ } }
+  }
+  function watchRoving() {
+    if (window.__WB_UI_MODE === 'classic' || window.__WB_UI_SOLO) return;
+    applyRoving();
+    if (window.__wbRovingBound) return;        // 监听器只装一次；之后靠观察器/applyRoving 跟上重渲染
+    window.__wbRovingBound = 1;
+    document.addEventListener('keydown', onRovingKey, true);
+    document.addEventListener('focusin', function (e) {
+      var list = e.target && e.target.closest ? e.target.closest('[data-wb-roving]') : null;
+      if (!list) return;
+      var items = rovingItems(list);
+      for (var i = 0; i < items.length; i++) if (items[i] === e.target) { ROV = { list: list, index: i }; break; }
+    });
+    var rail = document.getElementById('wb-rail');
+    if (rail && window.MutationObserver) {
+      var late = 0;
+      new MutationObserver(function () {
+        clearTimeout(late);
+        late = setTimeout(function () {
+          var hadFocusInRail = document.activeElement === document.body && ROV.list && ROV.list.isConnected;
+          applyRoving();
+          // 列表被 ui-rail 重绘后焦点会掉到 body：还给同索引项（best-effort）
+          if (hadFocusInRail && ROV.list) {
+            var items = rovingItems(ROV.list);
+            var it = items[Math.min(ROV.index, items.length - 1)];
+            if (it) { try { it.focus({ preventScroll: true }); } catch (err) { /* ignore */ } }
+          }
+        }, 60);
+      }).observe(rail, { childList: true, subtree: true });
+    }
+    try { if (WB.bus) { WB.bus.on('scene:changed', function () { setTimeout(applyRoving, 0); }); WB.bus.on('nav:panels', function () { setTimeout(applyRoving, 0); }); } } catch (e) { /* ignore */ }
+  }
+
+  WB.ready(function () {
+    if (window.__WB_UI_MODE === 'classic' || window.__WB_UI_SOLO) return;
+    setTimeout(watchRoving, 0);
+    setTimeout(watchRoving, 800);   // 左栏是异步渲染（webai-strip / 面板列表晚到）：再补一次
+  });
+
+  WB.a11y = { roving: applyRoving, rovingCount: function () { return WB.dom.qsa(ROVING_SEL).length; } };
+
   WB.dialog = { open: open, close: close, isOpen: isOpen };
 })();

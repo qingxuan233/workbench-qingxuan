@@ -499,7 +499,16 @@
     input.value = '';
     if (input) input.setAttribute('aria-expanded', 'true');
     refreshToolCatalog();   // 每次打开顺手对一次工具清单（异步；拿到了下一帧 render 就会补进来）
-    render();
+    if (!TOOL_ITEMS.length && window.app && typeof window.app.toolsCatalog === 'function' && WB.skeleton) {
+      // 2026-11-08 P3-2：工具清单还在路上（首次打开常见）⇒ 先给骨架占位。
+      // refreshToolCatalog 成功后会自己 render；700ms 兜底防止清单接口异常时永远停在骨架。
+      WB.skeleton(listEl, 4);
+      emptyEl.hidden = true;
+      if (countEl) countEl.textContent = '加载中…';
+      setTimeout(function () { if (isOpen) render(); }, 700);
+    } else {
+      render();
+    }
     setTimeout(function () { try { input.focus(); } catch (e) { /* ignore */ } }, 10);
   }
 

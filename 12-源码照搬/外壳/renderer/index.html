@@ -12,6 +12,8 @@
   <!-- UI 2.0：先决定版本（classic / v2），再加载样式，避免首帧闪跳 -->
   <script src="ui/preload-ui.js"></script>
   <link rel="stylesheet" href="styles.css" />
+  <!-- UI 2.0 主题层（2026-11-08 P3-2 拆预算）：token / 深浅主题 / 交互状态 / 骨架，必须先于 ui.css 加载 -->
+  <link rel="stylesheet" href="ui/ui-theme.css" />
   <!-- UI 2.0 壳层样式：只命中 body.wb-v2，经典模式不受影响 -->
   <link rel="stylesheet" href="ui/ui.css" />
 </head>
@@ -151,6 +153,8 @@
   <script src="ui/ui-panels.js"></script>
   <script src="ui/ui-command.js"></script>
   <script src="ui/ui-shell.js"></script>
+  <!-- GUI 优化 P3-2：左栏从 ui-shell 拆出（自包含：场景/面板导航、工具箱、网页版 AI、待办角标） -->
+  <script src="ui/ui-rail.js"></script>
   <!-- GUI 优化 P0（2026-11-08）：共用弹窗键盘可达性 / 模型与凭据入口（修 F1）/ 空态引导。
        三个都是自举模块，只追加 DOM 与监听，不改旧脚本任何一行。 -->
   <script src="ui/ui-a11y.js"></script>

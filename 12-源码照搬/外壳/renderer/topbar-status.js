@@ -163,6 +163,85 @@
     if (controls && minBtn) controls.insertBefore(wrap, minBtn);      // ← 贴在 ─ □ ✕ 左边 = 最右边
     else if (controls) controls.appendChild(wrap);
     else { var bar = document.getElementById('titlebar'); if (bar) bar.appendChild(wrap); }
+    mountStrip();
+  }
+
+  // ============================================================ 0. 状态条：4 语义收敛到一处（2026-11-08 P3-2）
+  // 展示三项：① 引擎就绪（app.isHarnessReady，已有 IPC）② 待办数（复用本文件 PEN 数据，不重算）
+  //   ③ 面板绑定（数各 AI 面板标题行 .harness-diag 的 ✓，已有 DOM 判据）。
+  // ⚠ 网关（31239）**不展示**：preload 里没有它的健康 IPC，而页面是 file://，fetch 127.0.0.1:31239 会被 CORS 挡；
+  //   按任务纪律「不新开 IPC」⇒ 如实退化为三项（原因见实施记录）。
+  // 只在 UI 2.0 里创建（经典界面不加任何新控件）。
+  var strip = el('div', 'wb-status-strip');
+  strip.id = 'wb-status-strip';
+  strip.setAttribute('role', 'status');
+  strip.setAttribute('aria-live', 'polite');
+  var segEngine = el('span', 'wb-strip-seg', '引擎 —');
+  var segPending = el('span', 'wb-strip-seg', '待办 —');
+  var segBind = el('span', 'wb-strip-seg', '绑定 —');
+  strip.appendChild(segEngine); strip.appendChild(segPending); strip.appendChild(segBind);
+  var ENGINE_STATE = '';
+  function paintEngine() {
+    segEngine.textContent = ENGINE_STATE === 'ok' ? '引擎 就绪' : (ENGINE_STATE === 'wait' ? '引擎 启动中' : '引擎 未知');
+    segEngine.className = 'wb-strip-seg' + (ENGINE_STATE === 'wait' ? ' warn' : '');
+    segEngine.dataset.ok = ENGINE_STATE === 'ok' ? '1' : '0';
+  }
+  function paintStrip() {
+    segPending.textContent = '待办 ' + (PEN.items ? PEN.items.filter(needYou).length : 0);
+    var ds = document.querySelectorAll('#grid .harness-diag');
+    var total = ds.length, okN = 0;
+    for (var i = 0; i < total; i++) if (/✓/.test(ds[i].textContent || '')) okN++;
+    segBind.textContent = total ? ('绑定 ' + okN + '/' + total) : '绑定 —';
+    segBind.title = total ? '各 AI 面板的会话绑定状态（✓=已钉绑定）' : '当前没有 AI 面板';
+    paintEngine();
+  }
+  function refreshEngineState() {
+    var A = window.app;
+    if (!A || typeof A.isHarnessReady !== 'function') { ENGINE_STATE = 'unknown'; paintEngine(); return; }
+    Promise.resolve().then(function () { return A.isHarnessReady(); }).then(function (v) {
+      ENGINE_STATE = v ? 'ok' : 'wait'; paintEngine();
+    }).catch(function () { ENGINE_STATE = 'unknown'; paintEngine(); });
+  }
+  function mountStrip() {
+    if (!strip || strip.parentNode) return;
+    if (document.documentElement.getAttribute('data-wb-ui') === 'classic') return;   // 经典界面零新增
+    var controls = document.querySelector('#titlebar .titlebar-controls');
+    if (!controls) return;
+    var before = document.getElementById('tbs-wrap') || document.getElementById('btn-min');
+    try { controls.insertBefore(strip, before); } catch (e) { controls.appendChild(strip); }
+    paintStrip();
+    refreshEngineState();
+    refreshPending();   // 状态条要显示待办数 ⇒ 首屏就拉一次（复用本文件现有通道，不新开数据源）
+    setInterval(function () { if (!document.hidden) paintStrip(); }, 6000);   // 后台不刷，省资源
+    if (window.MutationObserver) {
+      var grid = document.getElementById('grid');
+      if (grid) new MutationObserver(function () { paintStrip(); }).observe(grid, { childList: true, subtree: true, characterData: true });
+    }
+    try { if (window.WB && WB.bus) WB.bus.on('scene:changed', function () { paintStrip(); }); } catch (e) { /* ignore */ }
+  }
+
+  // ============================================================ 0.1 余额 chip 条件显示（2026-11-08 P3-2）
+  // 规则：只有「已配置凭据」或「已拿到真实余额」才显示；拿不到判据就隐藏（别让新用户看到 ¥ … 困惑）。
+  // 凭据判据来自 app.settings.list()（main/inventory.js readSettings → files.credentials，值已脱敏成 ••••）；
+  //   拿到该字段且出现打码标记 ⇒ 视为已配置；拿不到字段/文件 ⇒ 退化为「有余额数据才显示」。
+  function gateBalanceChip() {
+    var chips = document.querySelectorAll('.balance-chip');
+    if (!chips.length) return;
+    var show = false;
+    var apply = function () { for (var i = 0; i < chips.length; i++) chips[i].style.display = show ? '' : 'none'; };
+    apply();   // 先隐藏：判据是异步的
+    var A = window.app || {};
+    var S = A.settings;
+    var settingsP = (S && typeof S.list === 'function') ? Promise.resolve().then(function () { return S.list(); }) : Promise.resolve(null);
+    settingsP.then(function (r) {
+      var cred = (r && r.files && typeof r.files.credentials === 'string') ? r.files.credentials : '';
+      if (cred && /••••/.test(cred)) { show = true; apply(); return; }
+      var B = A.balance;
+      if (!B || typeof B.get !== 'function') return;
+      Promise.resolve().then(function () { return B.get(); }).then(function (v) {
+        if (v && v.ok && v.balance != null) { show = true; apply(); }
+      }).catch(function () { /* 没数据就保持隐藏 */ });
+    }).catch(function () { /* 读不到判据就保持隐藏 */ });
   }
 
   // ============================================================ ① 快照 / 回滚
@@ -346,6 +425,7 @@
       mPill.title = '更多：待办 / 磁盘余量 / 今天体检 / 搜文件脚本 / 打开常用文件夹'
         + (mine ? ('　·　⚠ ' + mine + ' 件要你拍板') : (PEN.items.length ? ('　·　' + PEN.items.length + ' 件知悉即可') : ''));
     }
+    paintStrip();   // 状态条复用同一份 PEN 数据（不再重算待办）
   }
   function refreshPending() {
     return Promise.resolve().then(function () { return TB.pending(); }).then(function (r) {
@@ -1011,6 +1091,7 @@
   } catch (e) { /* ignore */ }
 
   mount();
+  gateBalanceChip();   // 2026-11-08 P3-2：无凭据/无余额数据时隐藏 ¥ …（见 §0.1）
   // 2026-10-19 宿主：快照移进 ⋯ 菜单（胶囊不撤代码，想按回来一行即可）
   // wrap.appendChild(sPill);
   // 2026-10-23 宿主：「这个会话压力不需要了删掉这个功能」⇒ 胶囊 + ⋯ 菜单条目 + 明细面板**整段删除**
