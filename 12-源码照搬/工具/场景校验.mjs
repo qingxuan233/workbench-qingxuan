@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url'
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const APP = path.resolve(HERE, '..')
 const SCEN_DIR = path.join(APP, '外壳', 'scenarios')
+const LOCAL_SUB = '_local'   // P3-1：实例场景子目录（不入库）
 const REG_FILE = path.join(APP, '外壳', 'renderer', 'renderers.js')
 const MAIN_FILE = path.join(APP, '外壳', 'main.js')
 const AGENTS_FILE = path.resolve(APP, '..', 'AGENTS.md')
@@ -74,16 +75,25 @@ export function validateScenes(items, opts) {
   const idOwners = new Map()
   const panelOwners = new Map()
 
-  for (const { file, json } of items) {
+  for (const { file, json, kind, baseDir } of items) {
+    const isInstance = kind === 'instance'
     if (!json || typeof json !== 'object') { addErr(file, '不是合法 JSON 对象'); continue }
     const id = json.id
     const base = path.basename(file).replace(/\.json$/i, '')
 
     if (base !== id) addErr(file, `文件名与 id 不一致：文件名「${base}」，id「${String(id)}」`)
     if (typeof id !== 'string' || !id) addErr(file, 'id 缺失或不是字符串')
-    else if (!/^[a-z0-9][a-z0-9-]*$/.test(id)) addErr(file, `id 形态非法：「${id}」（只允许小写字母、数字、连字符）`)
-    else if (idOwners.has(id)) addErr(file, `场景 id 重复：与 ${idOwners.get(id)} 撞车`)
-    else idOwners.set(id, file)
+    else if (!((isInstance ? /^[_a-z0-9][_a-z0-9-]*$/ : /^[a-z0-9][a-z0-9-]*$/).test(id))) {
+      addErr(file, `id 形态非法：「${id}」（${isInstance ? '实例场景只允许小写字母/数字/连字符/下划线前缀' : '只允许小写字母、数字、连字符'}）`)
+    } else {
+      const key = (isInstance ? 'i:' : 't:') + id
+      const otherKey = (isInstance ? 't:' : 'i:') + id
+      if (idOwners.has(key)) addErr(file, `场景 id 重复：与 ${idOwners.get(key)} 撞车`)
+      else {
+        if (idOwners.has(otherKey)) addWarn(file, `与另一类场景同 id「${id}」：运行时实例优先（scenarios/${LOCAL_SUB} 覆盖模板）`)
+        idOwners.set(key, file)
+      }
+    }
     if (typeof json.name !== 'string' || !json.name.trim()) addErr(file, 'name 缺失或为空')
 
     if (json.cols != null && !isPosInt(json.cols)) addErr(file, `cols 不是正整数：${JSON.stringify(json.cols)}`)
@@ -94,8 +104,10 @@ export function validateScenes(items, opts) {
       const pid = p && p.id
       const tag = `面板「${String(pid)}」`
       if (typeof pid !== 'string' || !pid) { addErr(file, '面板 id 缺失或不是字符串'); continue }
-      if (panelOwners.has(pid)) addErr(file, `面板 id 重复：${tag} 与 ${panelOwners.get(pid)} 撞车`)
-      else panelOwners.set(pid, file)
+      // 面板 id 唯一性只在同类场景内判（实例覆盖模板时会复用模板的面板 id，不该误报）
+      const pkey = (isInstance ? 'i:' : 't:') + pid
+      if (panelOwners.has(pkey)) addErr(file, `面板 id 重复：${tag} 与 ${panelOwners.get(pkey)} 撞车`)
+      else panelOwners.set(pkey, file)
 
       if (typeof p.type !== 'string' || !p.type) addErr(file, `${tag} 的 type 缺失`)
       else if (!opts.types.has(p.type)) addErr(file, `${tag} 的 type 未注册：「${p.type}」（renderers.js 里没有对应渲染器）`)
@@ -124,17 +136,20 @@ export function validateScenes(items, opts) {
       }
     }
 
-    // 定位卡：文件必须存在，且写明了本场景 id 与面板文件
+    // 定位卡：模板必须存在（实例场景可选——本机实例可能只想放一个 json，不强制定位卡）
+    const ctxBase = baseDir || opts.scenariosDir
     const ctxRel = json.contextFile || `${String(id)}-context.md`
-    const ctxAbs = path.join(opts.scenariosDir, ctxRel)
+    const ctxAbs = path.join(ctxBase, ctxRel)
+    const ctxDisplay = (isInstance ? `scenarios\\${LOCAL_SUB}\\` : 'scenarios\\') + ctxRel
     if (!fs.existsSync(ctxAbs)) {
-      addErr(file, `定位卡不存在：scenarios\\${ctxRel}`)
+      if (isInstance) addWarn(file, `定位卡不存在（实例场景允许省略）：${ctxDisplay}`)
+      else addErr(file, `定位卡不存在：${ctxDisplay}`)
     } else {
       const ctx = readText(ctxAbs) || ''
-      if (!ctx.includes(String(id))) addErr(file, `定位卡 scenarios\\${ctxRel} 里没写本场景 id「${String(id)}」`)
+      if (!ctx.includes(String(id))) addErr(file, `定位卡 ${ctxDisplay} 里没写本场景 id「${String(id)}」`)
       const panelRef = (json.panels || []).some((p) => p && typeof p.id === 'string' && ctx.includes(p.id))
       if (!panelRef && !ctx.includes(`${String(id)}.json`)) {
-        addErr(file, `定位卡 scenarios\\${ctxRel} 既没引用面板文件 ${String(id)}.json，也没写面板 id`)
+        addErr(file, `定位卡 ${ctxDisplay} 既没引用面板文件 ${String(id)}.json，也没写面板 id`)
       }
     }
   }
@@ -229,12 +244,24 @@ export function upsertFactBlock(text, facts) {
   return next.join('\n')
 }
 
-/** 读取磁盘上的场景集合；跳过非 .json 与下划线开头的说明文件 */
+/** 读取磁盘上的模板场景集合；跳过非 .json 与下划线开头的说明文件 */
 export function loadScenes(dir) {
   const items = []
   for (const f of fs.readdirSync(dir).filter((x) => x.toLowerCase().endsWith('.json') && !x.startsWith('_')).sort()) {
     const abs = path.join(dir, f)
-    items.push({ file: `外壳/scenarios/${f}`, abs, json: readJson(abs) })
+    items.push({ file: `外壳/scenarios/${f}`, abs, json: readJson(abs), kind: 'template', baseDir: dir })
+  }
+  return items
+}
+
+/** P3-1：实例场景（scenarios/_local/*.json）。文件名允许下划线前缀（如 __demo-selftest.json 自检名） */
+export function loadInstanceScenes(dir) {
+  const localDir = path.join(dir, LOCAL_SUB)
+  const items = []
+  if (!fs.existsSync(localDir)) return items
+  for (const f of fs.readdirSync(localDir).filter((x) => x.toLowerCase().endsWith('.json')).sort()) {
+    const abs = path.join(localDir, f)
+    items.push({ file: `外壳/scenarios/${LOCAL_SUB}/${f}`, abs, json: readJson(abs), kind: 'instance', baseDir: localDir })
   }
   return items
 }
@@ -243,7 +270,10 @@ function collect(opts = {}) {
   const scenDir = opts.scenariosDir || SCEN_DIR
   const regFile = opts.regFile || REG_FILE
   const mainFile = opts.mainFile || MAIN_FILE
-  const items = loadScenes(scenDir)
+  // P3-1：模板 scenes/*.json + 实例 scenes/_local/*.json 都读；事实表只用 templates
+  const templates = loadScenes(scenDir)
+  const instances = loadInstanceScenes(scenDir)
+  const items = templates.concat(instances)
   // P2-D：注册源 = renderers.js + renderer/panels/*.js（多文件注册；只扩解析范围，断言不变）
   const regText = (() => {
     let t = readText(regFile) || ''
@@ -259,7 +289,7 @@ function collect(opts = {}) {
   })()
   const types = registryFromSource(regText)
   const ports = portsFromMain(readText(mainFile) || '')
-  return { items, types, ports, result: validateScenes(items, { types, scenariosDir: scenDir }) }
+  return { items, templates, instances, types, ports, result: validateScenes(items, { types, scenariosDir: scenDir }) }
 }
 
 function printIssues(result) {
@@ -268,15 +298,15 @@ function printIssues(result) {
 }
 
 function runCheck() {
-  const { items, types, ports, result } = collect()
+  const { items, templates, instances, types, ports, result } = collect()
   console.log(`场景目录：${SCEN_DIR}`)
-  console.log(`已注册面板类型 ${types.size} 个；场景 ${items.length} 个；端口：引擎 ${ports.engine || '?'} / 站点 ${ports.site || '?'} / 网页版 AI 桥 ${ports.webai || '?'}`)
+  console.log(`已注册面板类型 ${types.size} 个；场景 ${items.length} 个（模板 ${templates.length} / 实例 ${instances.length}）；端口：引擎 ${ports.engine || '?'} / 站点 ${ports.site || '?'} / 网页版 AI 桥 ${ports.webai || '?'}`)
 
   const agents = readText(AGENTS_FILE)
   if (agents == null) {
     result.errors.push({ file: 'AGENTS.md', msg: '读不到 AGENTS.md（事实段无处比对）' })
   } else {
-    const facts = sceneFacts(items, ports)
+    const facts = sceneFacts(templates, ports)
     const cmp = factBlockMatches(agents, facts)
     if (cmp.reason === 'missing') {
       result.errors.push({ file: 'AGENTS.md', msg: '缺少场景事实表区块（先运行 工具\\场景校验.mjs --stamp）' })
@@ -297,12 +327,12 @@ function runCheck() {
     console.log(`✗ 场景校验失败：${result.errors.length} 个错误 · ${result.warnings.length} 个警告`)
     process.exit(1)
   }
-  console.log(`✓ 场景校验通过：${items.length} 个场景 · ${sceneFacts(items, ports).panels} 个面板 · 事实表一致${result.warnings.length ? ` · ${result.warnings.length} 个警告` : ''}`)
+  console.log(`✓ 场景校验通过：模板 ${templates.length} 场景 · 实例 ${instances.length} · ${sceneFacts(templates, ports).panels} 个面板 · 事实表一致${result.warnings.length ? ` · ${result.warnings.length} 个警告` : ''}`)
   process.exit(0)
 }
 
 function runStamp() {
-  const { items, ports, result } = collect()
+  const { templates, instances, ports, result } = collect()
   if (result.errors.length) {
     printIssues(result)
     console.log('\n✗ 结构未通过，拒绝盖章（先修上面的错误）')
@@ -319,12 +349,12 @@ function runStamp() {
 
   const agents = readText(AGENTS_FILE)
   if (agents == null) { console.log('✗ 读不到 ' + AGENTS_FILE); process.exit(1) }
-  const facts = sceneFacts(items, ports)
+  const facts = sceneFacts(templates, ports)
   const next = upsertFactBlock(agents, facts)
   if (next === agents) console.log('✓ AGENTS 事实段已是最新（未改写）')
   else {
     fs.writeFileSync(AGENTS_FILE, next, 'utf8')
-    console.log(`✓ 已重写 AGENTS 事实段：${facts.count} 个场景 · ${facts.panels} 个面板（区块外内容原样保留）`)
+    console.log(`✓ 已重写 AGENTS 事实段：${facts.count} 个场景 · ${facts.panels} 个面板（仅模板；实例 ${instances.length} 个不计入）`)
   }
   process.exit(0)
 }

@@ -140,6 +140,12 @@ node 外壳\scripts\sessions.mjs --check
 - **面板绑的是 sessionId + 标题**：标题对不上 ⇒ 「未切到」；cwd 不是本机路径 ⇒ 体检 A5 红；
 - 所以顺序永远是：先 `建会话`，再 `实例化 --apply`，最后 `sessions.mjs --check` 验证。
 
+> **本机业务场景放哪（P3-1 起）**：模板场景 = `外壳/scenarios/*.json`（入库，§0 事实表只统计这 5 个）；
+> **本机要加的业务场景放 `外壳/scenarios/_local/`**——该目录被 `.gitignore` 挡、**不入库**，
+> `listScenarios()` 会在模板之后追加它们（同 id 时**实例优先**并告警），`场景校验 --stamp` 的 §0 事实表**不受影响**。
+> 加实例场景的步骤与模板一模一样（建 json → 建会话 → `实例化 --apply`），只是文件放 `_local/`；
+> 详见 `12-源码照搬/说明/使用说明.md` §七。
+
 ---
 
 ## §4 验收判据（期望输出片段）
@@ -165,7 +171,7 @@ node 外壳\scripts\sessions.mjs --check
 |---|---|
 | `node 工具\验收.mjs` | `✓ 验收通过：6 步全绿，可以提交` |
 | `node 工具\代码红线.mjs --check` | `✓ 代码红线通过：0 处红 · 0 处存量黄（未增长）` |
-| `node 工具\场景校验.mjs --check` | `✓ 场景校验通过：5 个场景 · 15 个面板 · 事实表一致` |
+| `node 工具\场景校验.mjs --check` | `✓ 场景校验通过：模板 5 场景 · 实例 0 · 15 个面板 · 事实表一致` |
 | `node 工具\结构校验.mjs --check` | `✓ 结构与链接全部通过`（根白名单 / 文档索引 / 归档横幅 / 链接可解析） |
 | `node 工具\发布前检查.mjs`（日常/不打包） | `✓ 红线检查通过（0 命中）`。⚠ 直接跑它时若因 `.credentials.yaml` 报**密钥红线**，见 §5-11 —— 那不是模板泄漏；出包请走 `验收.mjs` 的第 4 步（template 模式 + 已跟踪清单） |
 
@@ -486,7 +492,7 @@ repo: https://github.com/qingxuan233/workbench-qingxuan.git
 branch: main
 app_root: 12-源码照搬
 entry: 12-源码照搬/启动.bat
-scenes: {command: 命令, bilibili: B站, self-review: 自我复盘, pc-cleanup: 本地电脑, webai: 网页AI}
+scenes: {command: 命令, bilibili: B站, self-review: 自我复盘, pc-cleanup: 本地电脑, webai: 网页AI}   # 模板场景；本机业务场景放 外壳/scenarios/_local/（不入库）
 ports: {engine: 3083, site: 31238, webai_bridge: 31239}
 env_overrides: {engine_port: DSH_PORT, webai_port: WEB_AI_PORT, engine_cli: DSH_CMD}
 steps:

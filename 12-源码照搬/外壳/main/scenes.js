@@ -25,6 +25,8 @@ function init(cfg) {
   CFG = {
     root: cfg && cfg.root ? cfg.root : '',
     scenariosDir: cfg && cfg.scenariosDir ? cfg.scenariosDir : '',
+    // P3-1：实例场景目录（不入库）。可由调用方显式给；缺省 = <scenariosDir>/_local
+    localScenariosDir: (cfg && cfg.localScenariosDir) || ((cfg && cfg.scenariosDir) ? path.join(cfg.scenariosDir, '_local') : ''),
     orderFile: cfg && cfg.orderFile ? cfg.orderFile : '',
     log: (cfg && typeof cfg.log === 'function') ? cfg.log : function () {},
   };
@@ -89,14 +91,34 @@ function applySceneTabOrder(list) {
 function listScenarios() {
   const cfg = ready();
   const out = [];
-  if (!cfg.scenariosDir || !fs.existsSync(cfg.scenariosDir)) return out;
-  for (const f of fs.readdirSync(cfg.scenariosDir).sort()) {
-    if (f.startsWith('_')) continue;   // 客户版：_模板-*.json 不参与场景列表
-    if (!f.endsWith('.json')) continue;
-    try {
-      const s = JSON.parse(fs.readFileSync(path.join(cfg.scenariosDir, f), 'utf8'));
-      if (s && s.id) out.push({ id: s.id, name: s.name, description: s.description || '', first: !!s.first });
-    } catch (e) { /* skip bad json */ }
+  const push = (s, instance) => { out.push({ id: s.id, name: s.name, description: s.description || '', first: !!s.first, instance: !!instance }); };
+  // ① 模板场景（顶层 scenarios/*.json；下划线开头的是说明/模板文件，不参与）
+  if (cfg.scenariosDir && fs.existsSync(cfg.scenariosDir)) {
+    for (const f of fs.readdirSync(cfg.scenariosDir).sort()) {
+      if (f.startsWith('_')) continue;   // 客户版：_模板-*.json 不参与场景列表
+      if (!f.endsWith('.json')) continue;
+      try {
+        const s = JSON.parse(fs.readFileSync(path.join(cfg.scenariosDir, f), 'utf8'));
+        if (s && s.id) push(s, false);
+      } catch (e) { /* skip bad json */ }
+    }
+  }
+  // ② 实例场景（scenarios/_local/*.json）；同 id 冲突 ⇒ 实例优先（运行时以本机实例为准），并告警
+  if (cfg.localScenariosDir && fs.existsSync(cfg.localScenariosDir)) {
+    for (const f of fs.readdirSync(cfg.localScenariosDir).sort()) {
+      if (!f.endsWith('.json')) continue;
+      try {
+        const s = JSON.parse(fs.readFileSync(path.join(cfg.localScenariosDir, f), 'utf8'));
+        if (!s || !s.id) continue;
+        const hit = out.findIndex((x) => x.id === s.id);
+        if (hit >= 0) {
+          cfg.log('[scenes] 实例场景与模板同 id 冲突：' + s.id + ' ⇒ 以 scenarios/_local 为准');
+          out[hit] = { id: s.id, name: s.name, description: s.description || '', first: !!s.first, instance: true };
+        } else {
+          push(s, true);
+        }
+      } catch (e) { /* skip bad json */ }
+    }
   }
   // 在这里就排好 ⇒ 任何消费方（主窗口标签栏 / 独立场景窗口 / 以后的新界面）拿到的顺序天然一致
   return applySceneTabOrder(out);
@@ -105,7 +127,10 @@ function listScenarios() {
 function getScenario(id) {
   const cfg = ready();
   if (!cfg.scenariosDir) return null;
-  const f = path.join(cfg.scenariosDir, id + '.json');
+  // P3-1：实例优先（同 id 冲突时 local 覆盖模板）
+  const f = (cfg.localScenariosDir && fs.existsSync(path.join(cfg.localScenariosDir, id + '.json')))
+    ? path.join(cfg.localScenariosDir, id + '.json')
+    : path.join(cfg.scenariosDir, id + '.json');
   if (!fs.existsSync(f)) return null;
   try { return applySceneInstance(JSON.parse(fs.readFileSync(f, 'utf8')), readManifest()); }
   catch (e) { return null; }

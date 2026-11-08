@@ -197,12 +197,20 @@ function main() {
   })()
   const types = registryFromSource(regSrc)
   const scenDir = path.join(APP, '外壳/scenarios')
-  for (const f of fs.readdirSync(scenDir).filter((x) => x.endsWith('.json') && !x.startsWith('_')).sort()) {
-    let j = null
-    try { j = JSON.parse(fs.readFileSync(path.join(scenDir, f), 'utf8')) } catch { reds.push(`外壳/scenarios/${f} ← 不是合法 JSON`); continue }
-    for (const p of (j.panels || [])) {
-      if (!p || !p.id || !p.type) { reds.push(`外壳/scenarios/${f} ← 面板缺少 id/type`); continue }
-      if (!types.has(p.type)) reds.push(`外壳/scenarios/${f} ← 面板 ${p.id} 的 type「${p.type}」未在注册源（renderers.js / panels*.js）登记`)
+  const scenDirs = [scenDir]   // P3-1：实例场景也要核对 type（_local 不入库，但可能存在于本机）
+  try {
+    const localDir = path.join(scenDir, '_local')
+    if (fs.existsSync(localDir)) scenDirs.push(localDir)
+  } catch { /* ignore */ }
+  for (const dir of scenDirs) {
+    const rel = dir === scenDir ? '外壳/scenarios' : '外壳/scenarios/_local'
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.json') && (dir !== scenDir || !x.startsWith('_'))).sort()) {
+      let j = null
+      try { j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) } catch { reds.push(`${rel}/${f} ← 不是合法 JSON`); continue }
+      for (const p of (j.panels || [])) {
+        if (!p || !p.id || !p.type) { reds.push(`${rel}/${f} ← 面板缺少 id/type`); continue }
+        if (!types.has(p.type)) reds.push(`${rel}/${f} ← 面板 ${p.id} 的 type「${p.type}」未在注册源（renderers.js / panels*.js）登记`)
+      }
     }
   }
 

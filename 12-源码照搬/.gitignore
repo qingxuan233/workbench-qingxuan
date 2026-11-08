@@ -26,6 +26,9 @@ _临时/
 引擎数据/.dsh/.credentials.yaml
 引擎数据/.dsh/.anonymous-user-id
 
+# 本机实例场景（P3-1：scenarios/_local，含本机业务场景 / 会话绑定真值；模板 scenes/*.json 不入此列）
+外壳/scenarios/_local/
+
 # 本机实例清单（含真实会话 id / 本机路径，绝不出包）
 工作台.json
 

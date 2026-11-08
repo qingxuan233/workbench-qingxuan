@@ -21,30 +21,45 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(HERE, '..');
 const SCEN = path.join(APP, '外壳', 'scenarios');
+const LOCAL = path.join(SCEN, '_local');   // P3-1：实例场景（不入库）
 const IDX = path.join(SCEN, '_场景身份索引.md');
 
 const argv = process.argv.slice(2);
 const has = (k) => argv.includes(k);
 const readJson = (p, d = null) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')) } catch { return d } };
 
-/** 从场景 json 推导一行 */
+/** 从场景 json（模板 + 实例）推导一行；同 id 实例覆盖模板（与运行时 local 优先一致） */
 function rows() {
   const out = [];
-  for (const f of fs.readdirSync(SCEN).filter((x) => x.endsWith('.json')).sort()) {
-    const j = readJson(path.join(SCEN, f));
-    if (!j || !j.id) continue;
+  const seen = new Map();   // id -> out 下标
+  const one = (j, isInstance) => {
     const panel = (j.panels || []).find((p) => p && p.type === 'harness') || {};
     const cell = (s) => '`' + String(s == null ? '' : s) + '`';
-    out.push([
+    const ctxDir = isInstance ? 'scenarios\\_local\\' : 'scenarios\\';
+    const row = [
       cell(j.id),
       cell(panel.id || ''),
       panel.title || '',
       j.sessionTitle || panel.sessionTitle || j.name || '',
       cell(j.sessionId || panel.sessionId || ''),
-      cell('scenarios\\' + (j.contextFile || j.id + '-context.md')),
+      cell(ctxDir + (j.contextFile || j.id + '-context.md')),
       cell(j.skill || (Array.isArray(j.skills) ? j.skills[0] : '') || j.id)
-    ]);
-  }
+    ];
+    if (seen.has(j.id)) out[seen.get(j.id)] = row;   // 实例覆盖模板
+    else { seen.set(j.id, out.length); out.push(row); }
+  };
+  const readDir = (dir, isInstance) => {
+    const items = [];
+    let files = [];
+    try { files = fs.readdirSync(dir).filter((x) => x.endsWith('.json') && (isInstance || !x.startsWith('_'))).sort(); } catch { return items; }
+    for (const f of files.sort()) {
+      const j = readJson(path.join(dir, f));
+      if (j && j.id) items.push(j);
+    }
+    return items;
+  };
+  for (const j of readDir(SCEN, false)) one(j, false);      // 模板
+  for (const j of readDir(LOCAL, true)) one(j, true);       // 实例（覆盖同 id 模板行）
   return out;
 }
 
@@ -91,7 +106,7 @@ if (!same) {
     console.log('  索引 ← ' + (now[i] || '（缺行）'));
   }
 } else {
-  console.log('✓ 身份索引与场景 json 一致（' + (rows().length) + ' 个场景）');
+  console.log('✓ 身份索引与场景 json 一致（' + (rows().length) + ' 个场景；模板 + 实例 ' + (fs.existsSync(LOCAL) ? '已含 _local' : '无 _local') + '）');
 }
 
 if (has('--check')) process.exit(same ? 0 : 1);

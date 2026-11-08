@@ -103,31 +103,6 @@
       });
       ACTIVE_INSTANCES.clear();
       SCENE_INSTANCES.clear();
-    },
-
-    loadOnDemand: function (type) {
-      if (APP_RENDERERS[type]) return Promise.resolve(APP_RENDERERS[type]);
-      var fileMap = {
-        'harness': 'panels/panel-harness.js',
-        'neuron': 'panels/panel-neuron.js',
-        'embed': 'panels/panel-embed.js',
-        'view': 'panels/panel-embed.js',
-        'pc-drives': 'panels/panel-pc.js',
-        'pc-toplarge': 'panels/panel-pc.js',
-        'pc-junk': 'panels/panel-pc.js',
-        'pc-ledger': 'panels/panel-pc.js',
-        'review-files': 'panels/panel-review.js',
-        'review-doc': 'panels/panel-review.js',
-      };
-      var target = fileMap[type];
-      if (!target) return Promise.resolve(null);
-      return new Promise(function (resolve) {
-        var s = document.createElement('script');
-        s.src = target + '?t=' + Date.now();
-        s.onload = function () { resolve(APP_RENDERERS[type]); };
-        s.onerror = function () { resolve(null); };
-        document.head.appendChild(s);
-      });
     }
   };
 

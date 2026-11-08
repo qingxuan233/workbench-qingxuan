@@ -119,19 +119,28 @@ export function sceneRegistry() {
   try { if (fs.existsSync(CONFIG)) cfg = JSON.parse(fs.readFileSync(CONFIG, 'utf8').replace(/^\uFEFF/, '')); } catch (e) { }
   const scenes = (cfg && cfg.scenes) || {};
   const dir = path.join(APP, '外壳', 'scenarios');
-  let files = [];
-  try { files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.json')) : []; } catch (e) { }
-  for (const f of files) {
+  const localDir = path.join(dir, '_local');   // P3-1：实例场景（不入库；同 id 覆盖模板）
+  const one = (f, base) => {
     let s = null;
-    try { s = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8').replace(/^\uFEFF/, '')); } catch (e) { continue; }
-    if (!s || !s.id) continue;
+    try { s = JSON.parse(fs.readFileSync(path.join(base, f), 'utf8').replace(/^\uFEFF/, '')); } catch (e) { return; }
+    if (!s || !s.id) return;
     const inst = scenes[s.id] || {};
     const sid = String(inst.sessionId || '');
-    reg.push({
+    const row = {
       id: s.id, title: s.name || s.id,
       sessionId: sid, bound: !!sid && !sid.startsWith('__'),
-    });
-  }
+      instance: base === localDir,
+    };
+    const hit = reg.findIndex((r) => r.id === s.id);
+    if (hit >= 0) { if (row.instance) reg[hit] = row; }   // 实例覆盖模板
+    else reg.push(row);
+  };
+  let files = [];
+  try { files = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.json') && !f.startsWith('_')) : []; } catch (e) { }
+  for (const f of files.sort()) one(f, dir);
+  let localFiles = [];
+  try { localFiles = fs.existsSync(localDir) ? fs.readdirSync(localDir).filter((f) => f.endsWith('.json')) : []; } catch (e) { }
+  for (const f of localFiles.sort()) one(f, localDir);
   return reg;
 }
 export function resolveScene(to) {

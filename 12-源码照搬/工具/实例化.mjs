@@ -24,6 +24,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP = path.resolve(HERE, '..');                       // 12-源码照搬
 const DSH = path.join(APP, '引擎数据', '.dsh');
 const SCEN = path.join(APP, '外壳', 'scenarios');
+const LOCAL = path.join(SCEN, '_local');   // P3-1：实例场景（不入库；同 id 覆盖模板）
 const MANIFEST = path.join(APP, '工作台.json');
 const EXAMPLE = path.join(APP, '工作台.example.json');
 const CACHE = path.join(DSH, 'storages', 'session_projcache', 'sessions');
@@ -57,15 +58,23 @@ function discover() {
   return out.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
 }
 
-/** 场景配置：id / name / 该场景首个 harness 面板 */
+/** 场景配置：id / name / 该场景首个 harness 面板（模板 + 实例；同 id 实例优先） */
 function scenarios() {
   const out = [];
-  for (const f of listFiles(SCEN, /\.json$/)) {
-    const j = readJson(path.join(SCEN, f));
-    if (!j || !j.id) continue;
-    const panel = (j.panels || []).find((p) => p && p.type === 'harness');
-    out.push({ file: f, path: path.join(SCEN, f), id: j.id, name: j.name, sessionTitle: j.sessionTitle, panel, raw: j });
-  }
+  const addDir = (dir, isInstance) => {
+    for (const f of listFiles(dir, /\.json$/)) {
+      const j = readJson(path.join(dir, f));
+      if (!j || !j.id) continue;
+      const panel = (j.panels || []).find((p) => p && p.type === 'harness');
+      const row = { file: f, path: path.join(dir, f), id: j.id, name: j.name, sessionTitle: j.sessionTitle, panel, raw: j, instance: !!isInstance };
+      const hit = out.findIndex((x) => x.id === j.id);
+      if (hit >= 0) {
+        if (isInstance) out[hit] = row;       // 实例覆盖模板
+      } else out.push(row);
+    }
+  };
+  addDir(SCEN, false);
+  addDir(LOCAL, true);
   return out;
 }
 
@@ -94,6 +103,11 @@ const want = {};
 const notes = [];
 for (const sc of scens) {
   const title = String(sc.sessionTitle || sc.name || '');
+  // P3-1：实例场景允许没有 AI 面板（例如只有 view 面板的实例场景）⇒ 不需要会话绑定
+  if (!sc.panel) {
+    notes.push(`${sc.id}：没有 harness(AI) 面板，无需会话绑定（${sc.instance ? '实例场景' : '模板场景'}）`);
+    continue;
+  }
   const mine = rows.filter((r) => (r.title || '') === title && r.cwdOk !== false);
   const current = sc.panel ? String(sc.panel.sessionId || '') : '';
   const pick = mine.length ? mine[mine.length - 1] : null;
@@ -130,6 +144,7 @@ if (has('--check')) {
   }
   else {
     for (const sc of scens) {
+      if (!sc.panel) continue;   // 非 AI 面板的实例场景不需要绑定
       const m = (manifest.scenes || {})[sc.id];
       const wantId = m && String(m.sessionId || '').trim();
       const cur = sc.panel ? String(sc.panel.sessionId || '').trim() : '';
@@ -169,7 +184,7 @@ if (!has('--apply')) {
 // 写 工作台.json
 // fresh 只在「还有面板没绑上」时为 true（装好未绑 ⇒ 体检把未绑定算待办）。
 // 一旦全部绑上就置 false，A10 立刻恢复硬判：以后再有面板掉绑定就是错，不是待办。
-const allBound = scens.every((sc) => {
+const allBound = scens.filter((sc) => sc.panel).every((sc) => {
   const id = (nextManifest.scenes[sc.id] || {}).sessionId;
   return id && id !== '__待填__';
 });
