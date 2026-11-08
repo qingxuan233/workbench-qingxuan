@@ -957,9 +957,10 @@ function detachedCard(sc) {
 }
 
 async function loadScenario(id) {
+  // P2-C：先让**旧场景**实例 pause（此刻实例还在 SCENE_INSTANCES 里；若先 unmount 再 pause，Set 已空 ⇒ 空转）。
+  try { if (window.APP_PANEL_REGISTRY) window.APP_PANEL_REGISTRY.pauseScene(activeScenarioId); } catch (e) {}
   activeCleanups.forEach(fn => { try { fn(); } catch (e) { /* ignore */ } });
   activeCleanups = [];
-  try { if (window.APP_PANEL_REGISTRY) window.APP_PANEL_REGISTRY.pauseScene(activeScenarioId); } catch (e) {}
   const sc = await window.app.getScenario(id);
   if (!sc) return;
   // 场景可自定网格列数（`cols`，默认 4 = styles.css 里 #grid 的列数）。放在前面算，是因为下面"独立窗口占位卡"
@@ -997,15 +998,17 @@ async function loadScenario(id) {
     const p = sc.panels[i];
     p.scenario = sc.id;   // 场景隔离：面板知道自己属于哪个场景（数据按场景分区）
     const { wrap, body, head } = mkPanel(p, i);
-    const fn = renderers[p.type];
-    if (fn) {
-      try {
-        const cleanup = fn(body, p, head);
-        if (typeof cleanup === 'function') activeCleanups.push(cleanup);
-      } catch (err) { body.appendChild(mkEl('div', 'stat-sub', '面板渲染失败: ' + err.message)); }
+    const fn = renderers[p.type];                 // 旧路径兜底（无注册中心/类型未登记时按原逻辑）
+    const reg = window.APP_PANEL_REGISTRY;
+    let cleanup = null;
+    if (reg && typeof reg.has === 'function' && typeof reg.mount === 'function' && reg.has(p.type)) {
+      cleanup = reg.mount(p.type, body, p, head);   // P2-C：走注册中心 ⇒ pause/unmount/resume 真正被调用
+    } else if (typeof fn === 'function') {
+      try { cleanup = fn(body, p, head); } catch (err) { body.appendChild(mkEl('div', 'stat-sub', '面板渲染失败: ' + err.message)); }
     } else {
       body.appendChild(mkEl('div', 'stat-sub', '未知面板类型: ' + p.type));
     }
+    if (typeof cleanup === 'function') activeCleanups.push(cleanup);
     grid.appendChild(wrap);
   }
   // 纯自动流场景（json 里一个 col/row 都没写，如 oa-ops）：渲染完自己排格 + 拉伸补洞 ——

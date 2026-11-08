@@ -7367,3 +7367,25 @@ renderers.neuron = (body, meta, head) => {
   };
 };
 
+// ==================== P2-C：面板生命周期接线（只登记，不搬实现）====================
+// 把已有的 renderers[type] 包进 APP_PANEL_REGISTRY（index.html 已先加载 panels/panel-registry.js）：
+// renderer.js 切场景时会真正调用 pauseScene / resumeScene（此前它们作用在空 Set）；unmount = 原 cleanup。
+// 不改变 `renderers[type] = ...` 的注册形态（renderer-audit / check-gui 按该形态切片解析）。
+(function () {
+  var REG = window.APP_PANEL_REGISTRY;
+  if (!REG || typeof REG.register !== 'function') return;   // 老宿主没有注册中心：静默跳过
+  Object.keys(renderers).forEach(function (type) {
+    if (typeof renderers[type] !== 'function') return;
+    REG.register(type, {
+      mount: function (body, meta, head) {
+        var cleanup = renderers[type](body, meta, head);
+        return {
+          unmount: function () { try { if (typeof cleanup === 'function') cleanup(); } catch (e) { /* ignore */ } },
+          pause: function () { try { body.dataset.panelPaused = '1'; } catch (e) { /* ignore */ } },
+          resume: function () { try { delete body.dataset.panelPaused; } catch (e) { /* ignore */ } }
+        };
+      }
+    });
+  });
+})();
+
