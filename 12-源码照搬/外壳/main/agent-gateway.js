@@ -11,9 +11,10 @@
  * 端点：
  *   GET  /v1/health            匿名：网关 + 引擎健康
  *   GET  /v1/agents            场景状态（sessionHash，不泄露真实 sessionId）
- *   GET  /v1/tasks?limit=n     任务列表
+ *   GET  /v1/tasks?limit=n&status=x  任务列表（可按状态过滤）
  *   GET  /v1/tasks/:id         单任务
- *   POST /v1/dispatch          派单（幂等；立即 202 + taskId）
+ *   POST /v1/tasks/:id/claim   领取任务（claimed）
+ *   POST /v1/dispatch          派单（幂等；立即 202 + taskId；信封字段可选）
  */
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -253,7 +254,22 @@ function handle(req, res) {
   if (pathname === '/v1/tasks' && req.method === 'GET') {
     const q = rawUrl.split('?')[1] || '';
     const limit = Math.max(1, Math.min(200, Number((q.match(/limit=(\d+)/) || [])[1]) || 20));
-    replyCap('task.list', { limit });
+    const status = String((q.match(/status=([A-Za-z]+)/) || [])[1] || '');
+    replyCap('task.list', { limit, status });
+    return true;
+  }
+
+  // 领取：POST /v1/tasks/:id/claim（P4-2）
+  if (pathname.startsWith('/v1/tasks/') && pathname.endsWith('/claim') && req.method === 'POST') {
+    const id = pathname.slice('/v1/tasks/'.length, -'/claim'.length).trim();
+    readBody(req).then((body) => {
+      let p = {};
+      try { p = body ? JSON.parse(body) : {}; } catch (e) { p = {}; }
+      replyCap('task.claim', {
+        taskId: id,
+        agent: String(p.agent || (req.headers && req.headers['x-workbench-agent']) || 'rest-agent'),
+      });
+    });
     return true;
   }
 
@@ -297,6 +313,11 @@ function handle(req, res) {
         callCap('task.dispatch', {
           to: to, title: p.title || '外部 API 派单', content,
           idempotencyKey: idemKey, awaitWake: p.awaitWake === true,
+          // P4 信封（可选；不传即缺省 P2 / 无截止 / 允许写）
+          priority: p.priority,
+          deadlineMs: Number(p.deadlineMs) > 0 ? Number(p.deadlineMs) : undefined,
+          evidenceExpected: Array.isArray(p.evidenceExpected) ? p.evidenceExpected : undefined,
+          mandate: (p.mandate && typeof p.mandate === 'object') ? p.mandate : undefined,
         }).then((r) => {
           if (!r || r.ok !== true) {
             const code = (r && r.code) || 'E_INTERNAL';
@@ -305,6 +326,7 @@ function handle(req, res) {
           }
           finish(r.replayed ? 200 : 202, {
             ok: true, taskId: r.taskId, status: r.status,
+            priority: r.priority || 'P2', deadlineAt: r.deadlineAt || null,
             replayed: !!r.replayed, scene: r.scene || null, traceId,
           });
         }).catch((e) => finish(500, errBody('E_INTERNAL', String((e && e.message) || e))));
@@ -314,7 +336,7 @@ function handle(req, res) {
   }
 
   finish(404, errBody('E_NOTFOUND', '没有这个端点', {
-    endpoints: ['GET /v1/health', 'GET /v1/agents', 'GET /v1/tasks', 'GET /v1/tasks/:id', 'POST /v1/dispatch'],
+    endpoints: ['GET /v1/health', 'GET /v1/agents', 'GET /v1/tasks', 'GET /v1/tasks/:id', 'POST /v1/tasks/:id/claim', 'POST /v1/dispatch'],
   }));
   return true;
 }

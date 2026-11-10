@@ -74,6 +74,10 @@ define({
     idempotencyKey: STR('幂等键：同一键只创建一次任务'),
     timeoutMs: NUM('唤醒超时（毫秒，可选）'),
     awaitWake: BOOL('true=等唤醒结果再返回（默认 false，HTTP/MCP 应保持 false）'),
+    priority: STR('信封优先级 P0|P1|P2|P3（缺省 P2）'),
+    deadlineMs: NUM('信封截止毫秒（0=不设；超时由 --sweep 转 expired）'),
+    evidenceExpected: { type: 'array', items: { type: 'string' }, description: '期望证据清单（给接手方看）' },
+    mandate: { type: 'object', description: '写入边界声明 { allowWrite:boolean, scope:string[] }' },
   }, ['to', 'content']),
   outputSchema: OBJ({ taskId: STR('任务号'), status: STR('pending|dispatched|failed'), replayed: BOOL('是否幂等重放'), scene: STR('目标场景 id') }),
   authz: { scopes: ['task:write'] },
@@ -100,7 +104,7 @@ define({
   version: '1.0.0',
   title: '任务列表',
   description: '最近任务（按创建时间倒序）',
-  inputSchema: OBJ({ limit: NUM('最多返回多少条（1-200，默认 20）') }),
+  inputSchema: OBJ({ limit: NUM('最多返回多少条（1-200，默认 20）'), status: STR('只取某个状态：pending|dispatched|claimed|completed|cancelled|expired') }),
   outputSchema: OBJ({ tasks: { type: 'array' }, count: NUM('条数') }),
   authz: { scopes: ['task:read'] },
   effects: 'none',
@@ -119,6 +123,19 @@ define({
   effects: 'engine',
   timeoutMs: 25000,
   run: (args, ctx) => tasks.cancel(args, ctx),
+});
+
+define({
+  name: 'task.claim',
+  version: '1.0.0',
+  title: '领取任务（claimed）',
+  description: '把任务标记为已被某个 agent 领取；已完成/已取消/已超时的任务不可领',
+  inputSchema: OBJ({ taskId: STR('任务号'), agent: STR('领取方标识（缺省取 ctx.agent）') }, ['taskId']),
+  outputSchema: OBJ({ ok: BOOL('是否成功'), taskId: STR('任务号'), status: STR('claimed'), claimedBy: STR('领取方') }),
+  authz: { scopes: ['task:write'] },
+  effects: 'write',
+  timeoutMs: 10000,
+  run: (args, ctx) => tasks.claim(args, ctx),
 });
 
 define({

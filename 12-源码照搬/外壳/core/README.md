@@ -11,22 +11,23 @@ face 层（协议组）        workbench-mcp.mjs / mcp-http.mjs / agent-gateway.
         │  core.call(name, args, ctx)
         ▼
 utils  core/index.mjs        能力注册 + ctx 工厂 + 别名解析
-        core/registry.mjs    描述符/schema 即真源（9 个能力）
+        core/registry.mjs    描述符/schema 即真源（10 个能力）
         core/middleware.mjs  authz → INJ-01 → rateLimit → executor → CMP-01 → audit（顺序固定）
         core/services/*      领域服务（tasks/memory/review/webai/pc）
         core/adapters/*      engine（token/端点/RPC）· store（JSONL 台账门面）
         core/lib/*           只读文本检索（memory/review 共用）
 ```
 
-## 能力表（9 项；`list()` 实测名：scene.status | task.dispatch | task.get | task.list | task.cancel | webai.council | pc.inspect | memory.search | review.search）
+## 能力表（10 项；`list()` 实测名：scene.status | task.dispatch | task.get | task.list | task.cancel | task.claim | webai.council | pc.inspect | memory.search | review.search）
 
 | name | 入参 | 出参（要点） | 副作用 | timeout |
 |---|---|---|---|---|
 | `scene.status` | `{}` | `{agents:[{id,title,bound,sessionHash}]}`（**不含真实 sessionId**） | 无 | 5s |
-| `task.dispatch` | `{to,title,content,idempotencyKey?,timeoutMs?,awaitWake?}` | `{taskId,status,replayed,scene,engineRoute,engineDiag}` | 唤醒会话 | 25s |
-| `task.get` | `{taskId}` | `{task}` | 无 | 5s |
-| `task.list` | `{limit?}` | `{count,tasks:[]}` | 无 | 5s |
+| `task.dispatch` | `{to,title,content,idempotencyKey?,timeoutMs?,awaitWake?,priority?,deadlineMs?,mandate?,evidenceExpected?}` | `{taskId,status,replayed,scene,priority,deadlineAt,engineRoute,engineDiag}` | 唤醒会话 | 25s |
+| `task.get` | `{taskId}` | `{task,priority,timeoutMs,mandate,evidenceExpected,deadlineAt,evidenceMeta?}` | 无 | 5s |
+| `task.list` | `{limit?,status?}` | `{count,limit,status,tasks:[]}` | 无 | 5s |
 | `task.cancel` | `{taskId}` | `{ok,taskId,status:'cancelled',engine}` | 引擎 `session/cancel` | 25s |
+| `task.claim` | `{taskId,agent?}` | `{ok,taskId,status:'claimed',claimedBy}` | 写台账（claimed） | 10s |
 | `webai.council` | `{question,sites?,timeoutMs?}` | `{ok,question,sites,results:{site:{ok,text,err}},okCount,failedCount}` | 出站网络 | 190s |
 | `pc.inspect` | `{quick?}` | `{status:'cached'|'never-scanned',source,scannedAt,summary,data?}` | 读本机 | 15s |
 | `memory.search` | `{query,limit?}` | `{query,count,scanned,hits:[{file,matches}],root}` | 只读人写区 | 15s |
@@ -162,8 +163,10 @@ const r = await core.call('task.dispatch', args, core.makeCtx('rest', { agent, t
 ## 自检
 
 ```powershell
-# 9 个能力名（P1 判据）
+# 10 个能力名（P1 判据；2026-11-10 P4 增 task.claim）
 node -e "import('./12-源码照搬/外壳/core/index.mjs').then(m=>{console.log(m.list().map(x=>x.name||x).join(' | '))})"
+# 契约回归（路由编码 / 能力表 / 信封字段）
+node 12-源码照搬\外壳\core\core-contract.test.mjs
 # 整套闸门
 node 12-源码照搬\工具\验收.mjs
 ```

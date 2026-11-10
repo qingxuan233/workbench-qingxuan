@@ -35,6 +35,36 @@ const LOCK = LEDGER + '.lock';
 const nowISO = () => new Date().toISOString();
 const safeDir = (p) => { try { fs.mkdirSync(p, { recursive: true }); } catch (e) { } };
 
+// ── 任务信封（P4-1，2026-11-10）：字段全部**可选**，向后兼容老台账 ──────────
+// 只做"记录与展示"，不做强制：mandate 是给接手方看的边界声明，闸门仍在各场景自己手里。
+const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
+const MAX_TIMEOUT_MS = 7 * 24 * 3600 * 1000;   // 上限 7 天，防止手滑写个天文数字
+
+export function normalizeEnvelope(opts = {}) {
+  const wanted = String((opts && opts.priority) || '').toUpperCase();
+  const priority = PRIORITIES.includes(wanted) ? wanted : 'P2';
+  const raw = Number(opts && opts.timeoutMs);
+  const timeoutMs = Number.isFinite(raw) && raw > 0 ? Math.min(Math.floor(raw), MAX_TIMEOUT_MS) : 0;
+  const m = (opts && opts.mandate && typeof opts.mandate === 'object') ? opts.mandate : {};
+  const mandate = {
+    allowWrite: m.allowWrite === false ? false : true,          // 缺省允许写（与旧行为一致）
+    scope: Array.isArray(m.scope) ? m.scope.map(String).slice(0, 20) : [],
+  };
+  const evidenceExpected = Array.isArray(opts && opts.evidenceExpected)
+    ? opts.evidenceExpected.map(String).slice(0, 10) : [];
+  return { priority, timeoutMs, mandate, evidenceExpected };
+}
+
+/** 纯函数：任务是否已超时（completed/cancelled/expired 一律不算） */
+export function isOverdue(task, nowMs = Date.now()) {
+  const t = task || {};
+  if (!t.timeoutMs || !t.createdAt) return false;
+  if (['completed', 'cancelled', 'expired'].includes(String(t.status || ''))) return false;
+  const created = new Date(t.createdAt).getTime();
+  if (!Number.isFinite(created)) return false;
+  return Number(nowMs) > created + Number(t.timeoutMs);
+}
+
 // ── 锁：原子创建 .lock（wx），带超时与陈旧锁回收 ──────────────────────────
 function acquire(ms = 3000) {
   const t0 = Date.now();
@@ -95,12 +125,20 @@ export function readTasks() {
         idemKey: ev.idemKey || prev.idemKey || null,
         status: prev.status || 'pending', createdAt: ev.at, updatedAt: ev.at,
         evidence: prev.evidence || null,
+        // 信封（老台账没有这些字段 ⇒ 用缺省值补齐，读侧永远拿到同一形状）
+        priority: ev.priority || prev.priority || 'P2',
+        timeoutMs: Number(ev.timeoutMs) || Number(prev.timeoutMs) || 0,
+        mandate: ev.mandate || prev.mandate || null,
+        evidenceExpected: ev.evidenceExpected || prev.evidenceExpected || [],
+        deadlineAt: ev.deadlineAt || prev.deadlineAt || null,
       }));
     } else if (ev.type === 'status' && ev.taskId && out.has(ev.taskId)) {
       const t = out.get(ev.taskId);
       t.status = ev.status || t.status;
       t.updatedAt = ev.at;
+      if (ev.claimedBy) t.claimedBy = ev.claimedBy;
       if (ev.evidence) t.evidence = ev.evidence;
+      if (ev.evidenceMeta) t.evidenceMeta = ev.evidenceMeta;
       if (ev.err) t.err = ev.err;
     }
   }
@@ -268,8 +306,14 @@ export async function dispatch(opts = {}) {
   }
 
   const taskId = newTaskId();
+  const env = normalizeEnvelope(opts);
   withLock((release) => appendEvent({
     type: 'task', taskId, from, to: scene.id, title, content, idemKey,
+    priority: env.priority,
+    timeoutMs: env.timeoutMs,
+    mandate: env.mandate,
+    evidenceExpected: env.evidenceExpected,
+    deadlineAt: env.timeoutMs ? new Date(Date.now() + env.timeoutMs).toISOString() : null,
   }, release));
 
   // 写跨场景看板（**只写机写区**；不碰目标场景的 场景私有记忆.md）
@@ -303,7 +347,8 @@ export async function dispatch(opts = {}) {
     return { ok: false, err: msg };
   });
 
-  return { ok: true, taskId, replayed: false, status: 'pending', scene: scene.id, wake: wakePromise };
+  const deadlineAt = env.timeoutMs ? new Date(Date.now() + env.timeoutMs).toISOString() : null;
+  return { ok: true, taskId, replayed: false, status: 'pending', scene: scene.id, priority: env.priority, deadlineAt, wake: wakePromise };
 }
 
 function writeNotice({ taskId, to, title, content, from, scene }) {
@@ -319,17 +364,39 @@ function writeNotice({ taskId, to, title, content, from, scene }) {
   } catch (e) { }
 }
 
-export function complete(taskId, evidence) {
+export function complete(taskId, evidence, meta) {
   const t = getTask(taskId);
   if (!t) return { ok: false, code: 'E_VALIDATE', err: '任务不存在：' + taskId };
+  const m = (meta && typeof meta === 'object') ? meta : null;
   withLock((release) => appendEvent({
     type: 'status', taskId, status: 'completed', evidence: String(evidence || '执行完成'),
+    evidenceMeta: m,
   }, release));
-  return { ok: true, taskId, status: 'completed' };
+  return { ok: true, taskId, status: 'completed', late: t.status === 'expired' };
 }
-export function list(limit = 20) {
-  const all = readTasks().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+export function list(limit = 20, opts = {}) {
+  const wantStatus = String((opts && opts.status) || '').trim();
+  let all = readTasks().sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  if (wantStatus) all = all.filter((t) => String(t.status || '') === wantStatus);
   return all.slice(0, limit);
+}
+
+/**
+ * sweep(opts) —— 超时未回执的任务转 expired（P4-3）。
+ * 幂等：已 expired/completed/cancelled 的不再重复写；返回本次新转的 id 清单。
+ */
+export function sweep(opts = {}) {
+  const now = Number(opts.nowMs) > 0 ? Number(opts.nowMs) : Date.now();
+  const expired = [];
+  for (const t of readTasks()) {
+    if (!isOverdue(t, now)) continue;
+    withLock((release) => appendEvent({
+      type: 'status', taskId: t.taskId, status: 'expired',
+      err: '超时未回执（deadline ' + (t.deadlineAt || '') + '）',
+    }, release));
+    expired.push(t.taskId);
+  }
+  return { ok: true, expired, count: expired.length, checkedAt: new Date(now).toISOString() };
 }
 
 // ── P1 扩展（仅新增导出；上面所有现有导出与行为保持不变）──────────────────
@@ -341,12 +408,16 @@ export function claim(taskId, agent) {
   const id = String(taskId || '').trim();
   const t = getTask(id);
   if (!t) return { ok: false, code: 'E_VALIDATE', err: '任务不存在：' + id };
-  if (t.status === 'completed' || t.status === 'cancelled') {
+  if (t.status === 'completed' || t.status === 'cancelled' || t.status === 'expired') {
     return { ok: false, code: 'E_VALIDATE', err: '任务已结束（' + t.status + '），不能再领取：' + id };
   }
   const by = String(agent || 'agent').slice(0, 80);
   if (t.status === 'claimed' && t.claimedBy === by) {
     return { ok: true, taskId: id, status: 'claimed', claimedBy: by, replayed: true };
+  }
+  // 一单一主：已被别人领走的任务不许抢（2026-11-10 补）
+  if (t.status === 'claimed' && t.claimedBy && t.claimedBy !== by) {
+    return { ok: false, code: 'E_VALIDATE', err: '任务已被「' + t.claimedBy + '」领取，不能再领：' + id, claimedBy: t.claimedBy };
   }
   withLock((release) => appendEvent({
     type: 'status', taskId: id, status: 'claimed', claimedBy: by, evidence: 'claimed by ' + by,

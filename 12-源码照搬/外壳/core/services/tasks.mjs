@@ -53,6 +53,11 @@ export async function dispatch(args = {}, ctx = {}) {
     from: String(ctx.agent || ctx.face || 'core').slice(0, 80),
     idemKey: args.idempotencyKey ? String(args.idempotencyKey).slice(0, 200) : null,
     wakeImpl,
+    // P4 信封（全部可选，未传时由 _派单核心 补缺省）
+    priority: args.priority,
+    timeoutMs: args.deadlineMs,
+    mandate: args.mandate,
+    evidenceExpected: args.evidenceExpected,
   });
   if (!r || r.ok === false) return r || { ok: false, code: 'E_INTERNAL', err: '派单核心返回空结果' };
   const out = {
@@ -61,6 +66,8 @@ export async function dispatch(args = {}, ctx = {}) {
     status: String(r.status || 'pending'),
     replayed: !!r.replayed,
     scene: r.scene || null,
+    priority: r.priority || 'P2',
+    deadlineAt: r.deadlineAt || null,
     engineRoute,
     engineDiag: auth.diag,
   };
@@ -86,11 +93,12 @@ export async function get(args = {}) {
   return { ok: true, task: t };
 }
 
-/** task.list：{ limit? } → { tasks:[] } */
+/** task.list：{ limit?, status? } → { tasks:[] } */
 export async function list(args = {}) {
   const n = Math.max(1, Math.min(200, Number(args.limit) || 20));
-  const tasks = ledger.list(n);
-  return { ok: true, count: tasks.length, limit: n, tasks };
+  const status = String(args.status || '').trim();
+  const tasks = ledger.list(n, { status });
+  return { ok: true, count: tasks.length, limit: n, status: status || 'all', tasks };
 }
 
 /**
