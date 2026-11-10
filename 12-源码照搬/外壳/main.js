@@ -1345,6 +1345,38 @@ ipcMain.handle('review:root', () => {
   return { ok: exists, root: root, label: REVIEW_DIR, exists: exists };
 });
 
+// ---- 任务台账（P4-5）：面板「任务台账」读的就是能力层 task.list（与 REST / MCP 同一口径）----
+// 为什么用动态 import：core 是 ESM、主进程是 CJS —— 与 main/agent-gateway.js 走同一条路。
+// 读时顺扫（services/tasks.list 里做）会把超时未回执的任务转 expired，面板看到的状态是新鲜的。
+let coreModPromise = null;
+function loadCoreModule() {
+  if (!coreModPromise) {
+    const { pathToFileURL } = require('url');
+    coreModPromise = import(pathToFileURL(path.join(__dirname, 'core', 'index.mjs')).href);
+  }
+  return coreModPromise;
+}
+ipcMain.handle('tasks:ledger', async (e, opts) => {
+  try {
+    const core = await loadCoreModule();
+    const r = await core.call('task.list', {
+      limit: Math.max(1, Math.min(50, Number(opts && opts.limit) || 20)),
+      status: (opts && opts.status) || undefined,
+    }, core.makeCtx('ipc', { agent: 'renderer', rateLimit: false }));
+    // 给排障/验收留证据：面板确实打通了 IPC → 能力层（第一次 + 每次顺扫真转了 expired）
+    if (!loadCoreModule.__ledgerLogged) {
+      loadCoreModule.__ledgerLogged = true;
+      log('[tasks] 任务台账面板首次读取：' + ((r && r.count) || 0) + ' 条');
+    }
+    if (r && Array.isArray(r.expiredNow) && r.expiredNow.length) {
+      log('[tasks] 读时顺扫转 expired：' + r.expiredNow.join(','));
+    }
+    return r;
+  } catch (err) {
+    return { ok: false, err: String((err && err.message) || err) };
+  }
+});
+
 // 列目录：目录在前、中文按拼音排；text 标记可预览的文本类（md/txt/json…）
 ipcMain.handle('review:files', (e, rel) => {
   const t = resolveReviewPath(rel);

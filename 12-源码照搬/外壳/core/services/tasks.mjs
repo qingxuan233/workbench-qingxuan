@@ -98,12 +98,13 @@ export async function get(args = {}) {
   return { ok: true, task: t };
 }
 
-/** task.list：{ limit?, status? } → { tasks:[] } */
+/** task.list：{ limit?, status? } → { tasks:[] }（读时顺扫：超时未回执先转 expired，不用等人工 --sweep） */
 export async function list(args = {}) {
   const n = Math.max(1, Math.min(200, Number(args.limit) || 20));
   const status = String(args.status || '').trim();
+  const swept = ledger.sweep();            // 读时顺扫（P4-6）：幂等，且只对"有截止且已过点"的任务生效
   const tasks = ledger.list(n, { status });
-  return { ok: true, count: tasks.length, limit: n, status: status || 'all', tasks };
+  return { ok: true, count: tasks.length, limit: n, status: status || 'all', expiredNow: swept.expired || [], tasks };
 }
 
 /**

@@ -137,6 +137,8 @@
   <script src="panels/panel-harness.js"></script>
   <script src="panels/neuron-core.js"></script>
   <script src="panels/panel-neuron.js"></script>
+  <!-- P4-5：任务台账面板（读 IPC tasks:ledger；必须在 renderers.js 之前，靠该文件的 IIFE 接进注册中心） -->
+  <script src="panels/panel-task-ledger.js"></script>
   <!-- 外壳 chrome / HARNESS 接线（P2-D 阶段2b）：必须在 renderers.js 之前（HARNESS 别名加载期读 adapter） -->
   <script src="chrome.js"></script>
   <script id="renderers-script" src="renderers.js"></script>

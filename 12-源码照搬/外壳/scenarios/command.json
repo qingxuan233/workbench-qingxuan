@@ -29,6 +29,16 @@
       "pinTarget": [
         "命令"
       ]
+    },
+    {
+      "id": "cmd-tasks",
+      "title": "任务台账",
+      "sub": "派单信封 / 状态 / 证据 · 点一行展开（只读）",
+      "type": "task-ledger",
+      "col": 5,
+      "row": 1,
+      "w": 1,
+      "h": 5
     }
   ],
   "first": true

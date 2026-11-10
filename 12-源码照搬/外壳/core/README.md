@@ -52,6 +52,10 @@ utils  core/index.mjs        能力注册 + ctx 工厂 + 别名解析
 与传入值不符 ⇒ `E_VALIDATE`。这是"入账成功 ≠ 真做完"的最后一道机械判据，也给外部 Agent 一条
 **领了能交差**的闭环（CLI 的 `--complete --evidence-file` 与它同一套语义）。
 
+**超时不再等人工（2026-11-10）**：`task.list` 的读路径会先做一次 `sweep()`（幂等），
+把"未结束 + 有截止 + 已过点"的任务转 `expired`，返回里带 `expiredNow`；`工具/派单.mjs --list` 同样读前顺扫。
+⛔ 它仍是"有人读才转"，**不是定时器**——真要无人值守，配一个计划任务跑 `派单.mjs --sweep`。
+
 **两点必须知道的口径（别照契约名去猜）：**
 
 - **`pc.inspect` 是双源回退**：先读 `外壳/data/pc-scan-latest.json`（契约名，当前**没有生成器**）→

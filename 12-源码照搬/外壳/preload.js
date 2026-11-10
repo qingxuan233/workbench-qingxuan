@@ -59,6 +59,11 @@ contextBridge.exposeInMainWorld('app', {
   injectHarnessPanel: (webContentsId, pinTarget) => ipcRenderer.invoke('harness:wv:inject', webContentsId, pinTarget),
   listScenarios: () => ipcRenderer.invoke('scenarios:list'),
   getScenario: (id) => ipcRenderer.invoke('scenario:get', id),
+  // ---- 任务台账（P4-5）：让「任务台账」面板看到派单信封与证据（口径与 REST/MCP 一致）----
+  // 缺这个命名空间 = 主进程还是旧的（2026-11-10 之前启动的），要重启一次 GUI 才有。
+  tasks: {
+    ledger: (o) => ipcRenderer.invoke('tasks:ledger', o)
+  },
   // ---- 设置：读取 / 打开 Harness 配置文件 ----
   settings: {
     list: () => ipcRenderer.invoke('settings:list'),

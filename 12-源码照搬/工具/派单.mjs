@@ -40,7 +40,9 @@ const FLAGS = [
 if (has('--list')) {
   const limit = Math.max(1, Math.min(200, Number(val('--limit', '20')) || 20));
   const status = val('--status', '').trim();
+  const sw = core.sweep();                    // 读时顺扫：超时未回执的先转 expired（P4-6）
   const rows = core.list(limit, { status });
+  if (sw.count) console.log('（读前顺扫：已把 ' + sw.count + ' 条超时任务转为 expired → ' + sw.expired.join(', ') + '）');
   if (!rows.length) {
     console.log('（任务台账为空' + (status ? '：status=' + status : '') + '）');
     process.exit(0);
