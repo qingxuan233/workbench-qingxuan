@@ -216,6 +216,21 @@ export async function engineCookie(auth, timeoutMs = 8000) {
 }
 
 /**
+ * RPC 的 HTTP 路径（**纯函数，唯一实现**，2026-11-10 抽出来防回归）
+ *
+ * ⚠ 踩过的坑：曾对整个 method 做 encodeURIComponent ⇒ `session/prompt` 变成
+ *   `/api/session%2Fprompt`，引擎路由不认，返回 404 "not found"。
+ *   表现极具欺骗性：台账入账成功、HTTP 202 返回 taskId，但目标会话永远不被唤醒；
+ *   CLI 的 `工具/派单.mjs` 走的是另一套实现（不过这条函数），所以**只有 REST/MCP 通道坏**。
+ *
+ * 规则：只逐段编码，保留 `/`。`apiPath('session/prompt') === '/api/session/prompt'`
+ */
+export function apiPath(method) {
+  const m = String(method == null ? '' : method).trim();
+  return '/api/' + m.split('/').map(encodeURIComponent).join('/');
+}
+
+/**
  * 调 DSH JSON-RPC：POST /api/<method>，body = {type:'client-request',rpcId,method,payload:{args}}
  * 返回 { ok, status, text, json, auth }
  */
@@ -227,7 +242,8 @@ export async function rpc(method, args, opts = {}) {
   if (!c.ok) return { ok: false, code: 'E_ENGINE', err: c.err, auth: c.auth };
   const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : 15000;
   try {
-    const r = await fetch(auth.baseUrl + '/api/' + encodeURIComponent(m), {
+    // ⚠ 路径必须走 apiPath()（逐段编码）；直接 encodeURIComponent(m) 会把 `/` 编成 %2F ⇒ 404
+    const r = await fetch(auth.baseUrl + apiPath(m), {
       method: 'POST',
       headers: { 'content-type': 'application/json; charset=utf-8', cookie: c.cookie },
       body: JSON.stringify({

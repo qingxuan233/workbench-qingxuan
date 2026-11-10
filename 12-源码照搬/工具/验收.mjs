@@ -113,14 +113,15 @@ const STEP_NAMES = [
   '代码红线（--check）',
 ]
 
-function runStep(index, cmd, args, extra) {
-  const r = safeSpawnSync(process.execPath, [path.join(HERE, cmd), ...args], { cwd: APP, encoding: 'utf8' })
+function runStep(index, cmd, args, extra, label) {
+  const target = path.isAbsolute(cmd) ? cmd : path.join(HERE, cmd)
+  const r = safeSpawnSync(process.execPath, [target, ...args], { cwd: APP, encoding: 'utf8' })
   const raw = String(r.stdout || '') + String(r.stderr || '')
   const lines = raw.split(/\r?\n/).filter((l) => l.trim())
-  const tag = `[${index + 1}/6] ${STEP_NAMES[index]}`
+  const tag = `[${index + 1}/6] ${label || STEP_NAMES[index]}`
   const problems = lines.filter((l) => l.trim().startsWith('✗') || /^\s*✗/.test(l))
   if (VERBOSE) {
-    console.log(`\n${tag} · node 工具\\${cmd} ${args.join(' ')}`)
+    console.log(`\n${tag} · node ${cmd} ${args.join(' ')}`)
     for (const l of lines) console.log('    ' + mask(l))
   }
   if (r.status === 0) {
@@ -149,7 +150,13 @@ function main() {
 
   const results = []
   results.push(runStep(0, '编码检查.mjs', []))
-  results.push(runStep(1, '体检.mjs', ['--self-test']))
+  // 第 2 步由两个子检查组成（对外仍报「6 步」）：体检自检 + 能力层纯函数契约
+  // 后者守的是 2026-11-10 那个坑：RPC 路径把 `/` 编成 %2F ⇒ REST/MCP 派单静默失效
+  const selfTest = runStep(1, '体检.mjs', ['--self-test'])
+  const coreCheck = runStep(1, path.join(APP, '外壳', 'core', 'core-contract.test.mjs'), [], null, '核心契约自检（能力层/路由编码）')
+  selfTest.ok = selfTest.ok && coreCheck.ok
+  selfTest.problems = selfTest.problems.concat(coreCheck.problems)
+  results.push(selfTest)
   results.push(runStep(2, '身份索引.mjs', ['--check']))
 
   // 第 4 步：发布前检查按清单跑模板态，再补一层本机绝对路径
