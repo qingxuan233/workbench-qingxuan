@@ -160,5 +160,37 @@ for (const f of scanFiles) {
 if (legacy.length) bad('仍有 UI 1.0 残留（' + legacy.length + ' 处）：\n    ' + legacy.slice(0, 12).join('\n    '));
 else ok('renderer/** 无 UI 1.0 残留（扫描 ' + scanFiles.length + ' 个源码文件）');
 
+// ---------- 8) 页面骨架（2026-11-10）----------
+// 事故：P3-2 把 ui.css 的令牌拆到 ui-theme.css 时，漏搬了 body.wb-v2 上的 5 条骨架声明
+//   （display:grid / grid-template-columns / grid-template-rows / background / transition）
+//   ⇒ body 退回 styles.css 的 flex-column、#wb-rail 的 grid-area 失效，左栏变成横跨整窗的宽带。
+//   骨架与 ui.css 的 grid-area 是一组，拆/合并文件时必须同进同退，所以这里钉死。
+head('8. 页面骨架（body.wb-v2 的 grid 声明）');
+{
+  const themeRel = 'renderer/ui/ui-theme.css';
+  const css = read(themeRel);
+  const grab = (t) => {
+    const i = t.search(/^body\.wb-v2\s*\{/m);
+    if (i < 0) return '';
+    const s = t.indexOf('{', i);
+    let d = 0, e = -1;
+    for (let k = s; k < t.length; k++) { if (t[k] === '{') d++; else if (t[k] === '}') { d--; if (d === 0) { e = k; break; } } }
+    return e > 0 ? t.slice(s, e + 1) : '';
+  };
+  const blk = grab(css);
+  if (!blk) bad(themeRel + ' 里找不到 body.wb-v2 { … } 块（页面骨架没地方落）');
+  else {
+    const need = [
+      [/display:\s*grid/, 'display: grid'],
+      [/grid-template-columns:\s*var\(--wb-rail-w\)/, 'grid-template-columns: var(--wb-rail-w)'],
+      [/grid-template-rows:\s*var\(--wb-top-h\)\s*var\(--wb-ctx-h\)/, 'grid-template-rows: var(--wb-top-h) var(--wb-ctx-h) …'],
+      [/transition:\s*grid-template-columns/, 'transition: grid-template-columns …']
+    ];
+    const miss = need.filter(([re]) => !re.test(blk)).map(([, label]) => label);
+    if (miss.length) bad('body.wb-v2 骨架缺 ' + miss.length + ' 条：' + miss.join(' / ') + '（左栏会退回横跨整窗）');
+    else ok('body.wb-v2 骨架齐全（grid 列/行/过渡在位）');
+  }
+}
+
 console.log('\n' + (fails ? '✗ UI 自检失败：' + fails + ' 项' : '✓ UI 自检全部通过'));
 process.exit(fails ? 1 : 0);

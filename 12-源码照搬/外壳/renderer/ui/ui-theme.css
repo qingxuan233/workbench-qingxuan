@@ -38,6 +38,17 @@ body.wb-v2 {
   /* 骨架屏（2026-11-08 P3-2）：颜色集中在 token 里，浅色主题只改 token、不动组件规则 */
   --wb-skel-bg: rgba(148, 176, 220, .10);
   --wb-skel-hi: rgba(148, 176, 220, .22);
+
+  /* ⚠ 页面骨架（2026-11-10 修复：P3-2 把令牌从 ui.css 拆出时**漏搬了这 5 条**，
+     导致 body 退回 styles.css 的 flex-column、#wb-rail 的 grid-area 失效 ⇒ 左栏变成横跨整窗的
+     一条宽带，用户实测截图即此症状。词条与 ui.css 的 grid-area 是一组，拆文件时必须一起走。 */
+  display: grid;
+  grid-template-columns: var(--wb-rail-w) minmax(0, 1fr);
+  grid-template-rows: var(--wb-top-h) var(--wb-ctx-h) minmax(0, 1fr);
+  background:
+    radial-gradient(1200px 680px at 52% -10%, rgba(79, 140, 255, .07), transparent 62%),
+    linear-gradient(180deg, #0b0e15 0%, #080a10 100%);
+  transition: grid-template-columns .16s ease;
 }
 
 body.wb-v2.wb-rail-collapsed { --wb-rail-w: 64px; }
