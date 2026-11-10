@@ -19,6 +19,7 @@ import * as core from './index.mjs';
 import { get as rawGet } from './registry.mjs';   // list() 为了可序列化会去掉 run，run 只能从注册表取
 import { validateArgs } from './middleware.mjs';
 import { safeArtifactPath } from './services/tasks.mjs';
+import * as store from './adapters/store.mjs';
 
 let failed = 0;
 const ok = (name, cond, detail) => {
@@ -109,6 +110,10 @@ const notFound = await core.call('task.complete', { taskId: 'task-不存在', ev
 ok('task.complete 未知任务 ⇒ 失败且不写台账', notFound.ok === false && notFound.code === 'E_VALIDATE', JSON.stringify(notFound.code));
 const noEvidence = await core.call('task.complete', { taskId: 'task-不存在' }, core.makeCtx('cli', { agent: 'contract', rateLimit: false }));
 ok('task.complete 缺 evidence/未知任务 ⇒ E_VALIDATE', noEvidence.ok === false && noEvidence.code === 'E_VALIDATE', JSON.stringify(noEvidence.code));
+
+// ── 8. 台账门面必须把"读时顺扫"依赖的函数导出（2026-11-10 真窗口自检抓到的坑）──
+ok('store 门面导出 sweep（task.list 读时顺扫依赖）', typeof store.sweep === 'function', typeof store.sweep);
+ok('store 门面导出 isOverdue / normalizeEnvelope', typeof store.isOverdue === 'function' && typeof store.normalizeEnvelope === 'function');
 
 if (failed) {
   console.log(`\n✗ 核心契约：${failed} 项失败`);

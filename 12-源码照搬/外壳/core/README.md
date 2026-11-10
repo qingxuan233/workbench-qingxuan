@@ -187,6 +187,9 @@ const r = await core.call('task.dispatch', args, core.makeCtx('rest', { agent, t
 node -e "import('./12-源码照搬/外壳/core/index.mjs').then(m=>{console.log(m.list().map(x=>x.name||x).join(' | '))})"
 # 契约回归（路由编码 / 能力表 / 信封字段 / 入参校验）
 node 12-源码照搬\外壳\core\core-contract.test.mjs
+# 面板运行时自检（默认关）：启动 12 秒后自动切到「命令」场景，核对任务台账面板是否真挂载/取数/展开证据
+#   （在 12-源码照搬 目录下执行）
+#   cmd /c "set WB_NO_ELEVATE=1& set WB_SELFCHECK=1& .\启动.bat"
 # 整套闸门
 node 12-源码照搬\工具\验收.mjs
 ```

@@ -7,6 +7,13 @@
 var APP = window.APP_RENDERERS || (window.APP_RENDERERS = {});
 
 APP['task-ledger'] = function (body) {
+  // 一次性自报（server.log 的 [diag] console 能收到）：排障时用来区分"没挂载 / 没调 IPC"
+  try {
+    if (!window.__taskLedgerMounted) {
+      window.__taskLedgerMounted = true;
+      console.warn('[task-ledger] mounted');
+    }
+  } catch (e) { /* ignore */ }
   var stop = pcPanel(body, 'task-ledger-body', 15000, render);
   return function () { stop(); };   // ★ cleanup（registerCenter 会拿它当 unmount）
 
@@ -67,6 +74,10 @@ APP['task-ledger'] = function (body) {
 
   function render(wrap) {
     var api = window.app && window.app.tasks;
+    if (!window.__taskLedgerFirstRender) {
+      window.__taskLedgerFirstRender = true;
+      try { console.warn('[task-ledger] first render, api=' + (!!api) + ', ledger=' + (!!(api && api.ledger))); } catch (e) { /* ignore */ }
+    }
     if (!api || typeof api.ledger !== 'function') {
       wrap.innerHTML = '';
       return pcEmpty(wrap, '宿主没有 tasks 接口 —— 面板可热更新，IPC 不行：重启一次工作台，再切回本场景。');

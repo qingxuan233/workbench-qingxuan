@@ -1373,9 +1373,43 @@ ipcMain.handle('tasks:ledger', async (e, opts) => {
     }
     return r;
   } catch (err) {
+    log('[tasks] ledger 读取失败：' + String((err && err.message) || err));
     return { ok: false, err: String((err && err.message) || err) };
   }
 });
+log('[tasks] IPC tasks:ledger 已注册');
+
+// ---- 面板自检（2026-11-10，默认关闭）：WB_SELFCHECK=1 时启动 12 秒后切到「命令」场景，
+//      用 executeJavaScript 核对「任务台账」面板是否真的挂载、是否拿到数据（只读，不改 UI）。
+//      为什么需要它：面板能不能挂载只有真窗口里才知道，静态检查（ui-check/check-gui）看不到运行时。
+if (process.env.WB_SELFCHECK === '1') {
+  setTimeout(() => {
+    const wc = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
+    if (!wc) { log('[selfcheck] 没有主窗口，跳过'); return; }
+    wc.executeJavaScript("window.__dshGotoScene && window.__dshGotoScene('command')")
+      .then(() => new Promise((r) => setTimeout(r, 2500)))
+      .then(() => wc.executeJavaScript('JSON.stringify({' +
+        'mounted: !!window.__taskLedgerMounted, ' +
+        'api: !!(window.app && window.app.tasks && window.app.tasks.ledger), ' +
+        'rows: (document.querySelectorAll(".task-ledger-body .pc-line") || []).length, ' +
+        'head: ((document.querySelector(".task-ledger-body .pc-hint") || {}).textContent || "")' +
+        '})'))
+      .then((s) => log('[selfcheck] task-ledger = ' + s))
+      .then(() => wc.executeJavaScript('(function(){' +
+        'var body=document.querySelector(".task-ledger-body"); if(!body) return "no-body";' +
+        'var rows=Array.prototype.slice.call(body.querySelectorAll(".pc-line"));' +
+        'var target=rows.filter(function(r){return /P4 状态机/.test(r.textContent||"");})[0]||rows[0];' +
+        'if(!target) return "no-row";' +
+        'target.click();' +
+        'var hints=Array.prototype.slice.call(body.querySelectorAll(".pc-hint"));' +
+        'var hit=hints.filter(function(h){return /任务号/.test(h.textContent||"");})[0];' +
+        'return hit ? (hit.textContent||"").slice(0,320) : "no-detail";' +
+        '})()'))
+      .then((d) => log('[selfcheck] task-ledger detail = ' + String(d || '').replace(/\s+/g, ' / ')))
+      .catch((e) => log('[selfcheck] task-ledger 失败：' + String((e && e.message) || e)));
+  }, 12000);
+}
+
 
 // 列目录：目录在前、中文按拼音排；text 标记可预览的文本类（md/txt/json…）
 ipcMain.handle('review:files', (e, rel) => {

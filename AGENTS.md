@@ -163,6 +163,7 @@ node 外壳\scripts\sessions.mjs --check
 | `node 外壳\scripts\ui-check.mjs` | `✓ UI 自检全部通过` | UI 模块语法 / 加载顺序 / DOM 挂载点 / 体量红线（新增文件 ≤800 行） |
 | `node 外壳\scripts\sessions.mjs --check` | `场景↔会话对照检查通过 ✓ 共 5 个 AI 面板` | §3、§5-5 |
 | `node 外壳\scripts\gateway-smoke.mjs` | `结果：VERIFIED（exit 0）`（**三态**：exit 3 = 工作台没跑 ⇒ 未验证，不是通过；exit 1 = 在线但断言不满足） | 鉴权/场景/任务/MCP/INJ-01 五面；已作为 `验收` 第 2 步的子检查（工作台没跑时自动标「跳过（未验证）」） |
+| `cmd /c "set WB_NO_ELEVATE=1& set WB_SELFCHECK=1& .\启动.bat"` | `[selfcheck] task-ledger = {"mounted":true,"api":true,"rows":N,"head":"共 N 条…"}` + `[selfcheck] task-ledger detail = 任务号 … 证据 … sha256 …` | **面板运行时自检**（默认关闭）：启动 12 秒后自动切到「命令」场景，核对任务台账面板是否真的挂载、拿到数据、点开一行能展开信封/证据 |
 | 界面 | 五个场景的 AI 面板标题行都显示 `✓ 已钉绑定` | §5-5 |
 | 工具面板（顶栏） | `48 个工具` | 清单缺失见 §5-7 |
 
