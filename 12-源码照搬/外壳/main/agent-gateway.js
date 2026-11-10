@@ -285,23 +285,29 @@ function handle(req, res) {
         finish(400, errBody('E_VALIDATE', '请求体不是合法 JSON'));
         return;
       }
-      const to = String(p.to || p.toScenario || '');
-      const content = String(p.text || p.content || '');
+      // ⚠ 不要把入参"洗"成 string：一旦 String(p.text) 就会把 `text:123` 变成合法字符串，
+      //   能力层的 JSON Schema 校验形同虚设。原始值直接交给 core，由它判类型（E_VALIDATE）。
+      const to = (p.to !== undefined ? p.to : p.toScenario);
+      const content = (p.content !== undefined ? p.content : p.text);
       const agent = String((req.headers && req.headers['x-workbench-agent']) || p.from || 'agent-api');
-      if (!to || !content) { finish(400, errBody('E_VALIDATE', '缺少 to/toScenario 与 text/content')); return; }
+      if (to === undefined || to === null || content === undefined || content === null) {
+        finish(400, errBody('E_VALIDATE', '缺少 to/toScenario 与 text/content'));
+        return;
+      }
+      const toForAcl = String(to);
 
       // ACL：配置了规则就按规则；未配置 = 全放行
       const rules = aclRules();
       if (rules.length) {
         const hit = rules.find((r) => r.agent === agent);
         if (!hit) { finish(403, errBody('E_ACL', 'agent 「' + agent + '」未被授权使用派单（见 工作台.json.gateway.acl）')); return; }
-        if (hit.allowScenes && hit.allowScenes.length && !hit.allowScenes.includes(to)) {
+        if (hit.allowScenes && hit.allowScenes.length && !hit.allowScenes.includes(toForAcl)) {
           // 允许用标题（命令）而不是 id（command）：用 scene.status 的清单做一次归一
           callCap('scene.status', {}).then((st) => {
             const list = (st && st.agents) || [];
-            const sc = list.find((s) => s.id === to || s.title === to);
+            const sc = list.find((s) => s.id === toForAcl || s.title === toForAcl);
             if (sc && hit.allowScenes.includes(sc.id)) { doDispatch(sc.id); return; }
-            finish(403, errBody('E_ACL', 'agent 「' + agent + '」无权派单给场景「' + to + '」'));
+            finish(403, errBody('E_ACL', 'agent 「' + agent + '」无权派单给场景「' + toForAcl + '」'));
           }).catch(() => finish(403, errBody('E_ACL', 'ACL 校验失败')));
           return;
         }
@@ -310,14 +316,15 @@ function handle(req, res) {
 
       function doDispatch(sceneId) {
         const idemKey = String((req.headers && req.headers['idempotency-key']) || p.idempotencyKey || '').trim() || null;
+        // 除 sceneId 归一外，其余一律**原样转发**：类型错了要由能力层报 E_VALIDATE，而不是这里悄悄修正
         callCap('task.dispatch', {
-          to: to, title: p.title || '外部 API 派单', content,
-          idempotencyKey: idemKey, awaitWake: p.awaitWake === true,
+          to: to, title: (p.title !== undefined ? p.title : '外部 API 派单'), content,
+          idempotencyKey: idemKey, awaitWake: p.awaitWake,
           // P4 信封（可选；不传即缺省 P2 / 无截止 / 允许写）
           priority: p.priority,
-          deadlineMs: Number(p.deadlineMs) > 0 ? Number(p.deadlineMs) : undefined,
-          evidenceExpected: Array.isArray(p.evidenceExpected) ? p.evidenceExpected : undefined,
-          mandate: (p.mandate && typeof p.mandate === 'object') ? p.mandate : undefined,
+          deadlineMs: p.deadlineMs,
+          evidenceExpected: p.evidenceExpected,
+          mandate: p.mandate,
         }).then((r) => {
           if (!r || r.ok !== true) {
             const code = (r && r.code) || 'E_INTERNAL';

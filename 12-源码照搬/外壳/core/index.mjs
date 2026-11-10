@@ -21,6 +21,7 @@ import * as memory from './services/memory.mjs';
 import * as review from './services/review.mjs';
 import * as webai from './services/webai.mjs';
 import * as pc from './services/pc.mjs';
+import * as bilibili from './services/bilibili.mjs';
 
 export const VERSION = '1.0.0';
 export { PIPELINE, CODES };
@@ -31,6 +32,7 @@ export const ALIASES = {
   workbench__review_search: 'review.search',
   workbench__webai_council: 'webai.council',
   workbench__dispatch_task: 'task.dispatch',
+  workbench__bilibili_extract: 'bilibili.extract',
 };
 
 /** 别名解析：不认识的返回原名（让 registry.get 自然报 E_NOTFOUND） */
@@ -136,6 +138,29 @@ define({
   effects: 'write',
   timeoutMs: 10000,
   run: (args, ctx) => tasks.claim(args, ctx),
+});
+
+define({
+  name: 'bilibili.extract',
+  version: '1.0.0',
+  title: 'B站当前视频（读产物）',
+  description: '读 B站面板同步的「当前视频」产物（bv/url/title）；没有就如实返回 never-synced，不造假、不联网抓取',
+  inputSchema: OBJ({
+    quick: BOOL('默认 true 只回视频信息；false 附带该场景记忆的最近更新时间'),
+  }),
+  outputSchema: OBJ({
+    status: STR('ok|not-a-video|unrecognized-bv|never-synced'),
+    source: STR('产物相对路径'),
+    bv: STR('BV 号（可能为 null）'),
+    url: STR('同步到的页面 URL'),
+    title: STR('同步到的页面标题'),
+    syncedAt: STR('渲染层最后一次写盘时间'),
+    isVideo: BOOL('是否确认是一条视频'),
+  }),
+  authz: { scopes: ['local:read'] },
+  effects: 'read',
+  timeoutMs: 10000,
+  run: (args) => bilibili.extract(args),
 });
 
 define({

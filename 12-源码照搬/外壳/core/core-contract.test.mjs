@@ -17,6 +17,7 @@
 import * as engine from './adapters/engine.mjs';
 import * as core from './index.mjs';
 import { get as rawGet } from './registry.mjs';   // list() 为了可序列化会去掉 run，run 只能从注册表取
+import { validateArgs } from './middleware.mjs';
 
 let failed = 0;
 const ok = (name, cond, detail) => {
@@ -36,13 +37,14 @@ ok('单段方法不受影响（ping）', engine.apiPath('ping') === '/api/ping',
 ok('段内特殊字符仍需编码（空格）', engine.apiPath('a b') === '/api/a%20b', engine.apiPath('a b'));
 ok('前后空白被裁掉', engine.apiPath('  session/prompt  ') === '/api/session/prompt', engine.apiPath('  session/prompt  '));
 
-// ── 2. 能力注册表：10 个能力，名字固定 ──────────────────────────────
+// ── 2. 能力注册表：11 个能力，名字固定 ──────────────────────────────
 const CAPS = [
+  'bilibili.extract',
   'memory.search', 'pc.inspect', 'review.search', 'scene.status',
   'task.cancel', 'task.claim', 'task.dispatch', 'task.get', 'task.list', 'webai.council',
 ];
 const names = core.names();
-ok('能力数量 = 10', names.length === CAPS.length, `实际 ${names.length}`);
+ok('能力数量 = 11', names.length === CAPS.length, `实际 ${names.length}`);
 const missing = CAPS.filter((n) => !names.includes(n));
 const extra = names.filter((n) => !CAPS.includes(n));
 ok('能力清单与契约一致', !missing.length && !extra.length, `缺 ${missing.join(',') || '无'} / 多 ${extra.join(',') || '无'}`);
@@ -57,7 +59,7 @@ for (const d of core.list()) {
   if (!(Number(d.timeoutMs) > 0)) bad.push(d.name + ': 缺 timeoutMs');
   if (typeof rawGet(d.name).run !== 'function') bad.push(d.name + ': 缺 run()');
 }
-ok('9 个描述符字段齐全（inputSchema/outputSchema/authz/timeoutMs/run）', !bad.length, bad.join('；'));
+ok('11 个描述符字段齐全（inputSchema/outputSchema/authz/timeoutMs/run）', !bad.length, bad.join('；'));
 
 // ── 4. 旧 MCP 工具名别名必须仍能解析到已注册能力 ─────────────────
 const dangling = Object.entries(core.ALIASES).filter(([, target]) => !names.includes(target));
@@ -74,6 +76,19 @@ const dispatchProps = (dispatchCap && dispatchCap.inputSchema && dispatchCap.inp
 ok('task.dispatch 带信封字段（priority/deadlineMs/mandate/evidenceExpected）',
   ['priority', 'deadlineMs', 'mandate', 'evidenceExpected'].every((k) => !!dispatchProps[k]),
   Object.keys(dispatchProps).join(','));
+
+// ── 6. 入参浅层校验（validateArgs，executor 入口）─────────────────
+const did = core.describe('task.dispatch');
+ok('缺必填参数被拒', validateArgs(did, { to: 'command' }).includes('content'), validateArgs(did, { to: 'command' }));
+ok('类型不符被拒（content=42）', validateArgs(did, { to: 'command', content: 42 }).includes('字符串'), validateArgs(did, { to: 'command', content: 42 }));
+ok('可选字段缺省不误伤（priority=undefined）', validateArgs(did, { to: 'command', content: 'x', priority: undefined }) === '');
+ok('合法入参通过', validateArgs(did, { to: 'command', content: 'x' }) === '');
+ok('非对象入参被拒', validateArgs(did, null).includes('对象'), validateArgs(did, null));
+const fakeEnum = { name: 'fake', inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['a', 'b'] } } } };
+ok('enum 越界被拒', validateArgs(fakeEnum, { mode: 'c' }).includes('只能是'), validateArgs(fakeEnum, { mode: 'c' }));
+ok('enum 命中通过', validateArgs(fakeEnum, { mode: 'b' }) === '');
+const badCall = await core.call('task.get', {}, core.makeCtx('cli', { agent: 'contract', rateLimit: false }));
+ok('core.call 缺必填 ⇒ E_VALIDATE', badCall.ok === false && badCall.code === 'E_VALIDATE', JSON.stringify(badCall));
 
 if (failed) {
   console.log(`\n✗ 核心契约：${failed} 项失败`);

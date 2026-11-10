@@ -11,14 +11,14 @@ face 层（协议组）        workbench-mcp.mjs / mcp-http.mjs / agent-gateway.
         │  core.call(name, args, ctx)
         ▼
 utils  core/index.mjs        能力注册 + ctx 工厂 + 别名解析
-        core/registry.mjs    描述符/schema 即真源（10 个能力）
+        core/registry.mjs    描述符/schema 即真源（11 个能力）
         core/middleware.mjs  authz → INJ-01 → rateLimit → executor → CMP-01 → audit（顺序固定）
         core/services/*      领域服务（tasks/memory/review/webai/pc）
         core/adapters/*      engine（token/端点/RPC）· store（JSONL 台账门面）
         core/lib/*           只读文本检索（memory/review 共用）
 ```
 
-## 能力表（10 项；`list()` 实测名：scene.status | task.dispatch | task.get | task.list | task.cancel | task.claim | webai.council | pc.inspect | memory.search | review.search）
+## 能力表（11 项；`list()` 实测名：scene.status | task.dispatch | task.get | task.list | task.cancel | task.claim | webai.council | pc.inspect | bilibili.extract | memory.search | review.search）
 
 | name | 入参 | 出参（要点） | 副作用 | timeout |
 |---|---|---|---|---|
@@ -28,6 +28,7 @@ utils  core/index.mjs        能力注册 + ctx 工厂 + 别名解析
 | `task.list` | `{limit?,status?}` | `{count,limit,status,tasks:[]}` | 无 | 5s |
 | `task.cancel` | `{taskId}` | `{ok,taskId,status:'cancelled',engine}` | 引擎 `session/cancel` | 25s |
 | `task.claim` | `{taskId,agent?}` | `{ok,taskId,status:'claimed',claimedBy}` | 写台账（claimed） | 10s |
+| `bilibili.extract` | `{quick?}` | `{status:'ok'|'not-a-video'|'unrecognized-bv'|'never-synced',bv,url,title,syncedAt,isVideo}` | 只读产物 | 10s |
 | `webai.council` | `{question,sites?,timeoutMs?}` | `{ok,question,sites,results:{site:{ok,text,err}},okCount,failedCount}` | 出站网络 | 190s |
 | `pc.inspect` | `{quick?}` | `{status:'cached'|'never-scanned',source,scannedAt,summary,data?}` | 读本机 | 15s |
 | `memory.search` | `{query,limit?}` | `{query,count,scanned,hits:[{file,matches}],root}` | 只读人写区 | 15s |
@@ -35,6 +36,15 @@ utils  core/index.mjs        能力注册 + ctx 工厂 + 别名解析
 
 > `review.search` 是**第 9 个能力**（P1 Lead 批准）：旧 MCP 工具 `workbench__review_search`
 > 在契约能力表里没有目标名，用它当别名目标，避免 `services/review.mjs` 成为死模块。
+> `bilibili.extract` 是**第 11 个能力**（2026-11-10，报告 §2.1 点名的最后一个场景工具面）：
+> 只读渲染层写的 `引擎数据/.dsh/场景记忆/B站/当前视频.json`（`embed-utils.js` 的 startBiliTrack 每 1.5s 同步），
+> **不联网、不点网页**；没有产物就如实 `never-synced`，与 `pc.inspect` 同一套"不造假"口径。
+
+**入参校验（2026-11-10 起）**：`middleware.validateArgs()` 在 executor 入口做**浅层** JSON Schema 校验
+（入参必须是对象 / `required` 必须给值 / 声明了类型的字段必须是那个类型 / `enum` 不得越界），
+失败统一 `E_VALIDATE`（HTTP 400、JSON-RPC `isError`）。形态上**不新增管线步骤**（`PIPELINE` 顺序不变）。
+⛔ face 层不得先做 `String(...)` 之类的"洗参数"—— 2026-11-10 实测：`agent-gateway` 曾把 `text:123`
+洗成 `"123"`，使严格校验形同虚设（已修，改为原样转发）。
 
 **两点必须知道的口径（别照契约名去猜）：**
 
@@ -163,9 +173,9 @@ const r = await core.call('task.dispatch', args, core.makeCtx('rest', { agent, t
 ## 自检
 
 ```powershell
-# 10 个能力名（P1 判据；2026-11-10 P4 增 task.claim）
+# 11 个能力名（P1 判据；2026-11-10 P4 增 task.claim，D 增 bilibili.extract）
 node -e "import('./12-源码照搬/外壳/core/index.mjs').then(m=>{console.log(m.list().map(x=>x.name||x).join(' | '))})"
-# 契约回归（路由编码 / 能力表 / 信封字段）
+# 契约回归（路由编码 / 能力表 / 信封字段 / 入参校验）
 node 12-源码照搬\外壳\core\core-contract.test.mjs
 # 整套闸门
 node 12-源码照搬\工具\验收.mjs

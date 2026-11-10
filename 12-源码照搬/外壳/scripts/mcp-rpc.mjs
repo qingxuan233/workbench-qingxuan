@@ -90,6 +90,7 @@ const TOOLS = [
       mandate: (a && a.mandate && typeof a.mandate === 'object') ? a.mandate : undefined,
     }),
   },
+  { name: 'workbench__bilibili_extract', capability: 'bilibili.extract', description: 'B站当前视频（读 B站面板同步的产物；没有就如实返回 never-synced）', inputSchema: { type: 'object', properties: { quick: { type: 'boolean' } } }, mapArgs: (a) => ({ quick: (a && a.quick) !== false }) },
   { name: 'workbench__scene_status', capability: 'scene.status', description: '5 个场景的绑定状态（只给 sessionHash，不泄露真实 id）', inputSchema: { type: 'object', properties: {} }, mapArgs: () => ({}) },
   { name: 'workbench__task_get', capability: 'task.get', description: '按 taskId 查任务状态与证据', inputSchema: { type: 'object', properties: { taskId: { type: 'string' } }, required: ['taskId'] }, mapArgs: (a) => ({ taskId: String((a && a.taskId) || '') }) },
   { name: 'workbench__task_list', capability: 'task.list', description: '最近任务列表（可按 status 过滤）', inputSchema: { type: 'object', properties: { limit: { type: 'number' }, status: { type: 'string' } } }, mapArgs: (a) => ({ limit: (a && a.limit) || 20, status: (a && a.status) || undefined }) },

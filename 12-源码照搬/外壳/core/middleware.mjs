@@ -190,8 +190,47 @@ function authz(cap, ctx) {
   return null;
 }
 
+// ── 入参校验（浅层 JSON Schema：required / 类型 / enum）──────────────
+/**
+ * validateArgs(cap, args) → '' 通过 / '人话原因' 失败
+ *
+ * 为什么是"浅层"：schema 即真源，但深校验（嵌套对象/数组项）会把调用方写死的
+ * `undefined` 可选参数变成硬错误，收益小、误伤大。这里只做三件**确定不该错**的事：
+ *   ① 入参必须是对象；② required 字段必须给值；③ 声明了类型的字段，给了值就得是那个类型。
+ * 校验点放在 executor 入口（不新增管线步骤，PIPELINE 顺序保持 authz→INJ-01→rateLimit→executor→CMP-01→audit）。
+ */
+export function validateArgs(cap, args) {
+  const schema = (cap && cap.inputSchema) || {};
+  const a = (args && typeof args === 'object' && !Array.isArray(args)) ? args : null;
+  if (!a) return '入参必须是对象';
+  const req = Array.isArray(schema.required) ? schema.required : [];
+  for (const k of req) {
+    if (a[k] === undefined || a[k] === null) return '缺少必填参数：' + k;
+  }
+  const props = (schema.properties && typeof schema.properties === 'object') ? schema.properties : {};
+  for (const k of Object.keys(props)) {
+    const v = a[k];
+    if (v === undefined || v === null) continue;
+    const spec = props[k] || {};
+    switch (spec.type) {
+      case 'string': if (typeof v !== 'string') return k + ' 必须是字符串'; break;
+      case 'number': if (!(typeof v === 'number' && Number.isFinite(v))) return k + ' 必须是有限数字'; break;
+      case 'boolean': if (typeof v !== 'boolean') return k + ' 必须是布尔'; break;
+      case 'array': if (!Array.isArray(v)) return k + ' 必须是数组'; break;
+      case 'object': if (!(typeof v === 'object' && !Array.isArray(v))) return k + ' 必须是对象'; break;
+      default: break;
+    }
+    if (Array.isArray(spec.enum) && spec.enum.length && !spec.enum.includes(v)) {
+      return k + ' 只能是 ' + spec.enum.join('/');
+    }
+  }
+  return '';
+}
+
 // ── executor（带超时）────────────────────────────────────────────────
 async function execute(cap, args, ctx) {
+  const bad = validateArgs(cap, args);
+  if (bad) return fail(CODES.E_VALIDATE, '入参校验失败：' + bad + '（' + cap.name + '）');
   const ms = Number(cap.timeoutMs) > 0 ? Number(cap.timeoutMs) : 30000;
   let timer = null;
   const timeout = new Promise((resolve) => {
