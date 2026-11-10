@@ -263,6 +263,32 @@ node 外壳\scripts\sessions.mjs --check
     改 main.js 半边要重启工作台。验证探针：`外壳\data\probe-chat-width\probe2.cjs`（隔离窗口跑同一份注入，
     1400/863/1800 三档量宽并截图）。
 
+14. **窗口起来了但 `engine NOT ready` / 派单报「换不到 cookie（HTTP 401）」——孤儿引擎占着 3083**
+    现象：`server.log` 里有 `window-visible`、**没有** `engine ready`；或界面能开但派单失败、`/v1/health` 的
+    `engine.reachable=false`（换 token 时 401）。**2026-11-10 实测踩了两次。**
+    判据：`Get-CimInstance Win32_Process` 里同时存在**两个** `… cli.js web --no-open --port 3083` 引擎，
+    且 3083 上在听的是**启动更早**的那个 ⇒ `harness-endpoint.json` 里的 token 是本次主进程写的，
+    与在听的旧引擎对不上，必然 401。
+    根因：强杀 Electron（任务管理器 / `Stop-Process`）**不会**连带杀掉它 spawn 的引擎子进程；
+    孤儿引擎继续占 3083，而启动器只查「3083 有没有在听」⇒ 要么直接判「已在运行」退出，要么起了个连不上引擎的新壳。
+    修：**只杀真引擎**，再确认端口释放后重启。⚠ 匹配命令行的 PowerShell **会把自己也匹配进去**
+    （DSH 的子进程 runner 的 CommandLine 携带整段脚本文本 ⇒ 曾把自己的 job 杀掉），必须排除：
+    ```powershell
+    Get-CimInstance Win32_Process -Filter "Name='DeepSeek Harness.exe'" |
+      Where-Object { $_.CommandLine -notlike '*dsh-subprocess-local*' -and $_.CommandLine -like '*cli.js*' } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    Test-NetConnection 127.0.0.1 -Port 3083   # 期望 False
+    ```
+    然后 `.\启动.bat`。判据：`server.log` 本次新增 `engine ready in …` + `/v1/health` 的 `reachable=true`。
+
+15. **启动器卡住 / 后台起不来（自提权弹 UAC）**
+    现象：调用 `启动.bat` 只打印「正在请求管理员权限（本机 explorer 以管理员运行…）」，然后没有任何窗口；
+    后台/计划任务里那一步永远等不到退出。
+    根因：启动器检测到当前不是管理员就 `Start-Process -Verb RunAs` 重新拉起自己 —— 交互式桌面会弹 UAC；
+    无人在场（服务 / 计划任务 / 远程非交互）时没人点。
+    修：`cmd /c "set WB_NO_ELEVATE=1&& .\启动.bat"`（跳过提权）。界面照常起；只有「DSH 让 shell 打开文件」
+    这类动作可能被 UIPI 拦（启动器顶部注释有原委），验证派单/网关不需要提权。
+
 ---
 
 ## §6 脚本做不了、必须人做的三件事
@@ -416,6 +442,8 @@ node 外壳\scripts\check-gui.mjs
 | [新手必读.md](文档/新手必读.md) | 人（动手前） | 知道自己要改哪几处、哪几步最容易劝退 |
 | [仓库分工与上游变更规矩.md](文档/仓库分工与上游变更规矩.md) | 维护者 | 同步上游、动引用之前 |
 | [12-源码照搬/说明/判据与工具.md](12-源码照搬/说明/判据与工具.md) | 维护者 | "这条规矩由谁执行、怎么证明" |
+| [12-源码照搬/外壳/core/README.md](12-源码照搬/外壳/core/README.md) | 接外部 Agent / 改能力层的人 | 能力表（10 项）、中间件顺序、face 接线、任务信封口径 |
+| [12-源码照搬/外壳/engine-adapter/README.md](12-源码照搬/外壳/engine-adapter/README.md) | 改注入脚本 / 应对引擎升级的人 | 动 `contract.js` 之前：差异登记、自检三态、等价性口径 |
 | [12-源码照搬/说明/记忆约定.md](12-源码照搬/说明/记忆约定.md) | 场景 AI + 维护者 | 写 §〇 交接、换会话之前 |
 | [12-源码照搬/说明/使用说明.md](12-源码照搬/说明/使用说明.md) | 人（日常使用） | 快捷键、常用命令、FAQ |
 | [12-源码照搬/说明/部署.md](12-源码照搬/说明/部署.md) | 换机器部署的人 | 带走什么、不带走什么、路径为什么不会错 |
