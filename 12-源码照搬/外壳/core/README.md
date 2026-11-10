@@ -41,9 +41,10 @@ utils  core/index.mjs        能力注册 + ctx 工厂 + 别名解析
 > 只读渲染层写的 `引擎数据/.dsh/场景记忆/B站/当前视频.json`（`embed-utils.js` 的 startBiliTrack 每 1.5s 同步），
 > **不联网、不点网页**；没有产物就如实 `never-synced`，与 `pc.inspect` 同一套"不造假"口径。
 
-**入参校验（2026-11-10 起）**：`middleware.validateArgs()` 在 executor 入口做**浅层** JSON Schema 校验
-（入参必须是对象 / `required` 必须给值 / 声明了类型的字段必须是那个类型 / `enum` 不得越界），
-失败统一 `E_VALIDATE`（HTTP 400、JSON-RPC `isError`）。形态上**不新增管线步骤**（`PIPELINE` 顺序不变）。
+**入参校验（2026-11-10 起）**：`middleware.validateArgs()` / `validateValue()` 在 executor 入口做**递归**
+JSON Schema 校验（深度上限 3）：`required`、类型、`enum`、**数组每一项**、**嵌套对象的声明字段**，
+声明了 `additionalProperties:false` 的对象还不接受多余字段；失败统一 `E_VALIDATE`
+（HTTP 400、JSON-RPC `isError`）。形态上**不新增管线步骤**（`PIPELINE` 顺序不变）。
 ⛔ face 层不得先做 `String(...)` 之类的"洗参数"—— 2026-11-10 实测：`agent-gateway` 曾把 `text:123`
 洗成 `"123"`，使严格校验形同虚设（已修，改为原样转发）。
 
@@ -187,6 +188,8 @@ const r = await core.call('task.dispatch', args, core.makeCtx('rest', { agent, t
 node -e "import('./12-源码照搬/外壳/core/index.mjs').then(m=>{console.log(m.list().map(x=>x.name||x).join(' | '))})"
 # 契约回归（路由编码 / 能力表 / 信封字段 / 入参校验）
 node 12-源码照搬\外壳\core\core-contract.test.mjs
+# WebAI 并发实测（mock 桥，不依赖登录态；验"不同站并行 / 单站失败隔离 / 无串话"）
+node 12-源码照搬\外壳\core\webai-concurrency.test.mjs
 # 面板运行时自检（默认关）：启动 12 秒后自动切到「命令」场景，核对任务台账面板是否真挂载/取数/展开证据
 #   （在 12-源码照搬 目录下执行）
 #   cmd /c "set WB_NO_ELEVATE=1& set WB_SELFCHECK=1& .\启动.bat"

@@ -190,41 +190,74 @@ function authz(cap, ctx) {
   return null;
 }
 
-// ── 入参校验（浅层 JSON Schema：required / 类型 / enum）──────────────
+// ── 入参校验（递归 JSON Schema：required / 类型 / enum / 数组项 / 嵌套对象）────
+/**
+ * validateValue(value, spec, path, depth) → '' 通过 / '人话原因' 失败
+ *
+ * P4-深校验（2026-11-10）：原来只查顶层类型，`artifacts` 里少个 `path`、`sites` 里塞个数字都能混进去。
+ * 现在递归到 **depth ≤ 3**（防止恶意深嵌套把校验变成 DoS），覆盖：
+ *   ① required 字段必须给值 ② type / enum ③ 数组每一"项" ④ 嵌套对象的声明字段
+ *   ⑤ 声明了 `additionalProperties:false` 的对象不接受多余字段（默认不设，向后兼容）
+ * 约定：`undefined` / `null` 的可选字段一律跳过（调用方 JS 里写死的 undefined 不算错）。
+ */
+const VALIDATE_MAX_DEPTH = 3;
+
+export function validateValue(value, spec, pathStr, depth) {
+  const spec2 = (spec && typeof spec === 'object') ? spec : {};
+  const at = pathStr || '入参';
+  if (Array.isArray(spec2.enum) && spec2.enum.length && !spec2.enum.includes(value)) {
+    return at + ' 只能是 ' + spec2.enum.join('/');
+  }
+  switch (spec2.type) {
+    case 'string': if (typeof value !== 'string') return at + ' 必须是字符串'; break;
+    case 'number': if (!(typeof value === 'number' && Number.isFinite(value))) return at + ' 必须是有限数字'; break;
+    case 'boolean': if (typeof value !== 'boolean') return at + ' 必须是布尔'; break;
+    case 'array': {
+      if (!Array.isArray(value)) return at + ' 必须是数组';
+      if (depth < VALIDATE_MAX_DEPTH && spec2.items) {
+        for (let i = 0; i < value.length; i++) {
+          const e = validateValue(value[i], spec2.items, at + '[' + i + ']', depth + 1);
+          if (e) return e;
+        }
+      }
+      break;
+    }
+    case 'object': {
+      if (!(typeof value === 'object' && value !== null && !Array.isArray(value))) return at + ' 必须是对象';
+      if (depth < VALIDATE_MAX_DEPTH) {
+        const props = (spec2.properties && typeof spec2.properties === 'object') ? spec2.properties : {};
+        const req = Array.isArray(spec2.required) ? spec2.required : [];
+        for (const k of req) {
+          if (value[k] === undefined || value[k] === null) return at + ' 缺少必填字段 ' + k;
+        }
+        for (const k of Object.keys(props)) {
+          const v = value[k];
+          if (v === undefined || v === null) continue;
+          const e = validateValue(v, props[k], at + '.' + k, depth + 1);
+          if (e) return e;
+        }
+        if (spec2.additionalProperties === false) {
+          const extra = Object.keys(value).filter((k) => !props[k]);
+          if (extra.length) return at + ' 不接受多余字段：' + extra.join(',');
+        }
+      }
+      break;
+    }
+    default: break;
+  }
+  return '';
+}
+
 /**
  * validateArgs(cap, args) → '' 通过 / '人话原因' 失败
  *
- * 为什么是"浅层"：schema 即真源，但深校验（嵌套对象/数组项）会把调用方写死的
- * `undefined` 可选参数变成硬错误，收益小、误伤大。这里只做三件**确定不该错**的事：
- *   ① 入参必须是对象；② required 字段必须给值；③ 声明了类型的字段，给了值就得是那个类型。
  * 校验点放在 executor 入口（不新增管线步骤，PIPELINE 顺序保持 authz→INJ-01→rateLimit→executor→CMP-01→audit）。
  */
 export function validateArgs(cap, args) {
   const schema = (cap && cap.inputSchema) || {};
-  const a = (args && typeof args === 'object' && !Array.isArray(args)) ? args : null;
-  if (!a) return '入参必须是对象';
-  const req = Array.isArray(schema.required) ? schema.required : [];
-  for (const k of req) {
-    if (a[k] === undefined || a[k] === null) return '缺少必填参数：' + k;
-  }
-  const props = (schema.properties && typeof schema.properties === 'object') ? schema.properties : {};
-  for (const k of Object.keys(props)) {
-    const v = a[k];
-    if (v === undefined || v === null) continue;
-    const spec = props[k] || {};
-    switch (spec.type) {
-      case 'string': if (typeof v !== 'string') return k + ' 必须是字符串'; break;
-      case 'number': if (!(typeof v === 'number' && Number.isFinite(v))) return k + ' 必须是有限数字'; break;
-      case 'boolean': if (typeof v !== 'boolean') return k + ' 必须是布尔'; break;
-      case 'array': if (!Array.isArray(v)) return k + ' 必须是数组'; break;
-      case 'object': if (!(typeof v === 'object' && !Array.isArray(v))) return k + ' 必须是对象'; break;
-      default: break;
-    }
-    if (Array.isArray(spec.enum) && spec.enum.length && !spec.enum.includes(v)) {
-      return k + ' 只能是 ' + spec.enum.join('/');
-    }
-  }
-  return '';
+  if (!(args && typeof args === 'object' && !Array.isArray(args))) return '入参必须是对象';
+  const root = Object.assign({}, schema, { type: schema.type || 'object' });
+  return validateValue(args, root, '', 0);
 }
 
 // ── executor（带超时）────────────────────────────────────────────────

@@ -89,6 +89,18 @@ ok('非对象入参被拒', validateArgs(did, null).includes('对象'), validate
 const fakeEnum = { name: 'fake', inputSchema: { type: 'object', properties: { mode: { type: 'string', enum: ['a', 'b'] } } } };
 ok('enum 越界被拒', validateArgs(fakeEnum, { mode: 'c' }).includes('只能是'), validateArgs(fakeEnum, { mode: 'c' }));
 ok('enum 命中通过', validateArgs(fakeEnum, { mode: 'b' }) === '');
+
+// ── 6b. 深校验：数组项与嵌套对象（2026-11-10 P4 深校验）──────────
+const didComplete = core.describe('task.complete');
+ok('artifacts 项缺 path 被拒', validateArgs(didComplete, { taskId: 't', evidence: 'e', artifacts: [{}] }).includes('path'), validateArgs(didComplete, { taskId: 't', evidence: 'e', artifacts: [{}] }));
+ok('artifacts 项 path 类型错被拒', validateArgs(didComplete, { taskId: 't', evidence: 'e', artifacts: [{ path: 42 }] }).includes('path'), validateArgs(didComplete, { taskId: 't', evidence: 'e', artifacts: [{ path: 42 }] }));
+ok('artifacts 合法项通过', validateArgs(didComplete, { taskId: 't', evidence: 'e', artifacts: [{ path: 'a/b.md', sha256: 'x' }] }) === '');
+const didWebai = core.describe('webai.council');
+ok('sites 数组项类型错被拒', validateArgs(didWebai, { question: 'q', sites: ['a', 2] }).includes('[1]'), validateArgs(didWebai, { question: 'q', sites: ['a', 2] }));
+ok('sites 合法数组通过', validateArgs(didWebai, { question: 'q', sites: ['a', 'b'] }) === '');
+const fakeStrict = { name: 'fake2', inputSchema: { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false } };
+ok('additionalProperties:false 拒绝多余字段', validateArgs(fakeStrict, { a: 'x', b: 1 }).includes('多余字段'), validateArgs(fakeStrict, { a: 'x', b: 1 }));
+ok('additionalProperties 默认不拒绝多余字段', validateArgs(fakeEnum, { mode: 'a', extra: 1 }) === '');
 const badCall = await core.call('task.get', {}, core.makeCtx('cli', { agent: 'contract', rateLimit: false }));
 ok('core.call 缺必填 ⇒ E_VALIDATE', badCall.ok === false && badCall.code === 'E_VALIDATE', JSON.stringify(badCall));
 

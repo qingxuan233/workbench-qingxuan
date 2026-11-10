@@ -161,10 +161,11 @@ function main() {
   const selfTest = runStep(1, '体检.mjs', ['--self-test'])
   const coreCheck = runStep(1, path.join(APP, '外壳', 'core', 'core-contract.test.mjs'), [], null, '核心契约自检（能力层/路由编码）')
   const envCheck = runStep(1, path.join(APP, '工具', '_派单核心.test.mjs'), [], null, '派单信封/超时判定（纯函数）')
+  const webaiCheck = runStep(1, path.join(APP, '外壳', 'core', 'webai-concurrency.test.mjs'), [], null, 'WebAI 并发（mock 桥）')
   // 运行时冒烟：工作台没在跑 ⇒ SKIPPED（exit 3，明确标"未验证"，不当通过）；在跑就必须全绿
   const gwSmoke = runStep(1, path.join(APP, '外壳', 'scripts', 'gateway-smoke.mjs'), [], null, '网关运行时冒烟（工作台没跑=未验证）', true)
-  selfTest.ok = selfTest.ok && coreCheck.ok && envCheck.ok && gwSmoke.ok
-  selfTest.problems = selfTest.problems.concat(coreCheck.problems, envCheck.problems, gwSmoke.problems)
+  selfTest.ok = selfTest.ok && coreCheck.ok && envCheck.ok && webaiCheck.ok && gwSmoke.ok
+  selfTest.problems = selfTest.problems.concat(coreCheck.problems, envCheck.problems, webaiCheck.problems, gwSmoke.problems)
   results.push(selfTest)
   results.push(runStep(2, '身份索引.mjs', ['--check']))
 
