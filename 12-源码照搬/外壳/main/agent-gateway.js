@@ -14,6 +14,7 @@
  *   GET  /v1/tasks?limit=n&status=x  任务列表（可按状态过滤）
  *   GET  /v1/tasks/:id         单任务
  *   POST /v1/tasks/:id/claim   领取任务（claimed）
+ *   POST /v1/tasks/:id/complete 销账（completed；evidence 必填，artifacts 校验 sha256）
  *   POST /v1/dispatch          派单（幂等；立即 202 + taskId；信封字段可选）
  */
 const crypto = require('node:crypto');
@@ -273,6 +274,22 @@ function handle(req, res) {
     return true;
   }
 
+  // 销账：POST /v1/tasks/:id/complete（P4-4；evidence 必填，artifacts 校验 sha256）
+  if (pathname.startsWith('/v1/tasks/') && pathname.endsWith('/complete') && req.method === 'POST') {
+    const id = pathname.slice('/v1/tasks/'.length, -'/complete'.length).trim();
+    readBody(req).then((body) => {
+      let p = {};
+      try { p = body ? JSON.parse(body) : {}; } catch (e) { p = {}; }
+      replyCap('task.complete', {
+        taskId: id,
+        evidence: p.evidence,
+        exitCode: p.exitCode,
+        artifacts: p.artifacts,
+      });
+    });
+    return true;
+  }
+
   if (pathname.startsWith('/v1/tasks/') && req.method === 'GET') {
     replyCap('task.get', { taskId: pathname.slice('/v1/tasks/'.length).trim() });
     return true;
@@ -343,7 +360,7 @@ function handle(req, res) {
   }
 
   finish(404, errBody('E_NOTFOUND', '没有这个端点', {
-    endpoints: ['GET /v1/health', 'GET /v1/agents', 'GET /v1/tasks', 'GET /v1/tasks/:id', 'POST /v1/tasks/:id/claim', 'POST /v1/dispatch'],
+    endpoints: ['GET /v1/health', 'GET /v1/agents', 'GET /v1/tasks', 'GET /v1/tasks/:id', 'POST /v1/tasks/:id/claim', 'POST /v1/tasks/:id/complete', 'POST /v1/dispatch'],
   }));
   return true;
 }

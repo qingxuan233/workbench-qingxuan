@@ -18,6 +18,7 @@ import * as engine from './adapters/engine.mjs';
 import * as core from './index.mjs';
 import { get as rawGet } from './registry.mjs';   // list() 为了可序列化会去掉 run，run 只能从注册表取
 import { validateArgs } from './middleware.mjs';
+import { safeArtifactPath } from './services/tasks.mjs';
 
 let failed = 0;
 const ok = (name, cond, detail) => {
@@ -37,14 +38,15 @@ ok('单段方法不受影响（ping）', engine.apiPath('ping') === '/api/ping',
 ok('段内特殊字符仍需编码（空格）', engine.apiPath('a b') === '/api/a%20b', engine.apiPath('a b'));
 ok('前后空白被裁掉', engine.apiPath('  session/prompt  ') === '/api/session/prompt', engine.apiPath('  session/prompt  '));
 
-// ── 2. 能力注册表：11 个能力，名字固定 ──────────────────────────────
+// ── 2. 能力注册表：12 个能力，名字固定 ──────────────────────────────
 const CAPS = [
   'bilibili.extract',
   'memory.search', 'pc.inspect', 'review.search', 'scene.status',
-  'task.cancel', 'task.claim', 'task.dispatch', 'task.get', 'task.list', 'webai.council',
+  'task.cancel', 'task.claim', 'task.complete', 'task.dispatch', 'task.get',
+  'task.list', 'webai.council',
 ];
 const names = core.names();
-ok('能力数量 = 11', names.length === CAPS.length, `实际 ${names.length}`);
+ok('能力数量 = 12', names.length === CAPS.length, `实际 ${names.length}`);
 const missing = CAPS.filter((n) => !names.includes(n));
 const extra = names.filter((n) => !CAPS.includes(n));
 ok('能力清单与契约一致', !missing.length && !extra.length, `缺 ${missing.join(',') || '无'} / 多 ${extra.join(',') || '无'}`);
@@ -59,8 +61,7 @@ for (const d of core.list()) {
   if (!(Number(d.timeoutMs) > 0)) bad.push(d.name + ': 缺 timeoutMs');
   if (typeof rawGet(d.name).run !== 'function') bad.push(d.name + ': 缺 run()');
 }
-ok('11 个描述符字段齐全（inputSchema/outputSchema/authz/timeoutMs/run）', !bad.length, bad.join('；'));
-
+ok('12 个描述符字段齐全（inputSchema/outputSchema/authz/timeoutMs/run）', !bad.length, bad.join('；'));
 // ── 4. 旧 MCP 工具名别名必须仍能解析到已注册能力 ─────────────────
 const dangling = Object.entries(core.ALIASES).filter(([, target]) => !names.includes(target));
 ok('别名表无悬空（旧 workbench__* 名不会打到空气）', !dangling.length, dangling.map(([k, v]) => `${k}→${v}`).join('；'));
@@ -89,6 +90,25 @@ ok('enum 越界被拒', validateArgs(fakeEnum, { mode: 'c' }).includes('只能�
 ok('enum 命中通过', validateArgs(fakeEnum, { mode: 'b' }) === '');
 const badCall = await core.call('task.get', {}, core.makeCtx('cli', { agent: 'contract', rateLimit: false }));
 ok('core.call 缺必填 ⇒ E_VALIDATE', badCall.ok === false && badCall.code === 'E_VALIDATE', JSON.stringify(badCall));
+
+// ── 7. P4 销账能力 task.complete + 证据路径安全 ─────────────────
+const done = core.describe('task.complete');
+ok('task.complete 已注册', !!done);
+ok('task.complete 必填 taskId + evidence',
+  !!(done && done.inputSchema && done.inputSchema.required
+    && done.inputSchema.required.includes('taskId') && done.inputSchema.required.includes('evidence')),
+  JSON.stringify(done && done.inputSchema && done.inputSchema.required));
+ok('safeArtifactPath 接受应用内相对路径', safeArtifactPath('外壳/core/README.md') === '外壳/core/README.md');
+ok('safeArtifactPath 反斜杠归一', safeArtifactPath('外壳\\core\\README.md') === '外壳/core/README.md', safeArtifactPath('外壳\\core\\README.md'));
+ok('safeArtifactPath 拒绝绝对路径（/）', safeArtifactPath('/etc/passwd') === null);
+// 盘符字面量运行时拼装：直接写死会被 代码红线 判"硬编码盘符"（2026-11-10 实测被拦）
+ok('safeArtifactPath 拒绝盘符路径', safeArtifactPath(['C', ':', '\\Windows\\notepad.exe'].join('')) === null);
+ok('safeArtifactPath 拒绝 .. 穿越', safeArtifactPath('外壳/../../secret.txt') === null);
+ok('safeArtifactPath 拒绝空值', safeArtifactPath('') === null);
+const notFound = await core.call('task.complete', { taskId: 'task-不存在', evidence: 'x' }, core.makeCtx('cli', { agent: 'contract', rateLimit: false }));
+ok('task.complete 未知任务 ⇒ 失败且不写台账', notFound.ok === false && notFound.code === 'E_VALIDATE', JSON.stringify(notFound.code));
+const noEvidence = await core.call('task.complete', { taskId: 'task-不存在' }, core.makeCtx('cli', { agent: 'contract', rateLimit: false }));
+ok('task.complete 缺 evidence/未知任务 ⇒ E_VALIDATE', noEvidence.ok === false && noEvidence.code === 'E_VALIDATE', JSON.stringify(noEvidence.code));
 
 if (failed) {
   console.log(`\n✗ 核心契约：${failed} 项失败`);

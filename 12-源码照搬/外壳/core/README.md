@@ -11,14 +11,14 @@ face 层（协议组）        workbench-mcp.mjs / mcp-http.mjs / agent-gateway.
         │  core.call(name, args, ctx)
         ▼
 utils  core/index.mjs        能力注册 + ctx 工厂 + 别名解析
-        core/registry.mjs    描述符/schema 即真源（11 个能力）
+        core/registry.mjs    描述符/schema 即真源（12 个能力）
         core/middleware.mjs  authz → INJ-01 → rateLimit → executor → CMP-01 → audit（顺序固定）
         core/services/*      领域服务（tasks/memory/review/webai/pc）
         core/adapters/*      engine（token/端点/RPC）· store（JSONL 台账门面）
         core/lib/*           只读文本检索（memory/review 共用）
 ```
 
-## 能力表（11 项；`list()` 实测名：scene.status | task.dispatch | task.get | task.list | task.cancel | task.claim | webai.council | pc.inspect | bilibili.extract | memory.search | review.search）
+## 能力表（12 项；`list()` 实测名：scene.status | task.dispatch | task.get | task.list | task.cancel | task.claim | task.complete | webai.council | pc.inspect | bilibili.extract | memory.search | review.search）
 
 | name | 入参 | 出参（要点） | 副作用 | timeout |
 |---|---|---|---|---|
@@ -28,6 +28,7 @@ utils  core/index.mjs        能力注册 + ctx 工厂 + 别名解析
 | `task.list` | `{limit?,status?}` | `{count,limit,status,tasks:[]}` | 无 | 5s |
 | `task.cancel` | `{taskId}` | `{ok,taskId,status:'cancelled',engine}` | 引擎 `session/cancel` | 25s |
 | `task.claim` | `{taskId,agent?}` | `{ok,taskId,status:'claimed',claimedBy}` | 写台账（claimed） | 10s |
+| `task.complete` | `{taskId,evidence,exitCode?,artifacts?:[{path,sha256?}]}` | `{ok,taskId,status:'completed',late,evidenceMeta}` | 写台账（completed + 证据） | 15s |
 | `bilibili.extract` | `{quick?}` | `{status:'ok'|'not-a-video'|'unrecognized-bv'|'never-synced',bv,url,title,syncedAt,isVideo}` | 只读产物 | 10s |
 | `webai.council` | `{question,sites?,timeoutMs?}` | `{ok,question,sites,results:{site:{ok,text,err}},okCount,failedCount}` | 出站网络 | 190s |
 | `pc.inspect` | `{quick?}` | `{status:'cached'|'never-scanned',source,scannedAt,summary,data?}` | 读本机 | 15s |
@@ -45,6 +46,11 @@ utils  core/index.mjs        能力注册 + ctx 工厂 + 别名解析
 失败统一 `E_VALIDATE`（HTTP 400、JSON-RPC `isError`）。形态上**不新增管线步骤**（`PIPELINE` 顺序不变）。
 ⛔ face 层不得先做 `String(...)` 之类的"洗参数"—— 2026-11-10 实测：`agent-gateway` 曾把 `text:123`
 洗成 `"123"`，使严格校验形同虚设（已修，改为原样转发）。
+
+**销账证据（`task.complete`，2026-11-10）**：`evidence` 必填（空话不收）；`artifacts` 只接受**应用根内**
+的相对路径（`safeArtifactPath` 拒绝绝对路径/盘符/`..` 穿越），服务端自己读文件算 sha256，
+与传入值不符 ⇒ `E_VALIDATE`。这是"入账成功 ≠ 真做完"的最后一道机械判据，也给外部 Agent 一条
+**领了能交差**的闭环（CLI 的 `--complete --evidence-file` 与它同一套语义）。
 
 **两点必须知道的口径（别照契约名去猜）：**
 

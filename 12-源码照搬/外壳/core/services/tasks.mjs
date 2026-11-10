@@ -9,8 +9,13 @@
  */
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as ledger from '../adapters/store.mjs';
 import * as engine from '../adapters/engine.mjs';
+
+const APP = process.env.DSH_WORKBENCH_ROOT || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 const isPlaceholder = (sid) => !sid || String(sid).startsWith('__');
 
@@ -128,6 +133,73 @@ export async function claim(args = {}, ctx = {}) {
   if (!id) return { ok: false, code: 'E_VALIDATE', err: '缺少 taskId' };
   const by = String(args.agent || ctx.agent || ctx.face || 'agent');
   return ledger.claim(id, by);
+}
+
+// ── 销账证据（P4-4，2026-11-10）：把"口头完成"变成"可核对的完成" ──────────
+/**
+ * safeArtifactPath(rel) → 规范化后的相对路径 / null（拒绝）
+ *
+ * 规则：只接受**应用根内**的相对路径；拒绝绝对路径、盘符、`..` 穿越。
+ * 为什么不接受绝对路径：这个能力是给外部 Agent 用的，放开就等于给它一个任意读文件的口子。
+ */
+export function safeArtifactPath(rel) {
+  const s = String(rel == null ? '' : rel).trim();
+  if (!s) return null;
+  if (path.isAbsolute(s)) return null;
+  if (/^[A-Za-z]:/.test(s)) return null;
+  const norm = s.replace(/\\/g, '/');
+  if (norm.split('/').includes('..')) return null;
+  return norm;
+}
+
+/**
+ * task.complete：{ taskId, evidence, exitCode?, artifacts?: [{path, sha256?}] }
+ *   → { ok, taskId, status:'completed', late, evidence, evidenceMeta }
+ *
+ * 证据口径：
+ *   - `evidence` 必填（一句话说清"凭什么算完成"，不许空）
+ *   - `exitCode` 原样记（整数）
+ *   - `artifacts`：每个 `path` 必须落在应用根内且**真实存在**；算出 sha256 后与传入值比对，
+ *     传了却对不上 ⇒ E_VALIDATE（这就是"机械证据"和"自由文本"的区别）
+ *   - 最多 10 个证据文件（防止把台账撑爆）
+ */
+export async function complete(args = {}, ctx = {}) {
+  const id = String(args.taskId || '').trim();
+  if (!id) return { ok: false, code: 'E_VALIDATE', err: '缺少 taskId' };
+  const t = ledger.getTask(id);
+  if (!t) return { ok: false, code: 'E_VALIDATE', err: '任务不存在：' + id };
+  if (t.status === 'completed') {
+    // 幂等：已销账的不重复写台账（外部 Agent 重试安全）
+    return { ok: true, taskId: id, status: 'completed', replayed: true, late: false, evidence: t.evidence || null, evidenceMeta: t.evidenceMeta || null };
+  }
+  const evidence = String(args.evidence == null ? '' : args.evidence).trim();
+  if (!evidence) return { ok: false, code: 'E_VALIDATE', err: '缺少 evidence：完成必须说明客观依据' };
+
+  const arts = Array.isArray(args.artifacts) ? args.artifacts.slice(0, 10) : [];
+  const files = [];
+  for (const a of arts) {
+    const rel = safeArtifactPath(a && a.path);
+    if (!rel) return { ok: false, code: 'E_VALIDATE', err: 'artifacts.path 必须是应用根内的相对路径：' + String((a && a.path) || '') };
+    const abs = path.join(APP, rel);
+    let buf = null;
+    try { buf = fs.readFileSync(abs); } catch (e) { return { ok: false, code: 'E_VALIDATE', err: '证据文件不存在或读不了：' + rel }; }
+    const sha = crypto.createHash('sha256').update(buf).digest('hex');
+    if (a && a.sha256 && String(a.sha256).toLowerCase() !== sha) {
+      return { ok: false, code: 'E_VALIDATE', err: '证据哈希不匹配：' + rel };
+    }
+    files.push({ path: rel, bytes: buf.length, sha256: sha });
+  }
+
+  const meta = {};
+  if (Number.isInteger(args.exitCode)) meta.exitCode = args.exitCode;
+  if (files.length) meta.files = files;
+
+  const r = ledger.complete(id, evidence, Object.keys(meta).length ? meta : null);
+  if (!r || r.ok === false) return r || { ok: false, code: 'E_INTERNAL', err: '销账核心返回空结果' };
+  return {
+    ok: true, taskId: id, status: 'completed', late: !!r.late,
+    evidence, evidenceMeta: Object.keys(meta).length ? meta : null,
+  };
 }
 
 /** scene.status → { agents:[{id,title,bound,sessionHash}] }（不返回真实 sessionId） */

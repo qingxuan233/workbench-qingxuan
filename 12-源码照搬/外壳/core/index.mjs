@@ -164,6 +164,28 @@ define({
 });
 
 define({
+  name: 'task.complete',
+  version: '1.0.0',
+  title: '任务销账（completed + 机械证据）',
+  description: '把任务置 completed；evidence 必填，artifacts 会按应用内相对路径读文件并校验 sha256（对不上就拒）',
+  inputSchema: OBJ({
+    taskId: STR('任务号'),
+    evidence: STR('客观依据（一句话说清凭什么算完成）'),
+    exitCode: NUM('命令退出码（可选，整数）'),
+    artifacts: {
+      type: 'array',
+      description: '证据文件（最多 10 个）：{ path: 应用根内相对路径, sha256?: 期望哈希 }',
+      items: { type: 'object', properties: { path: STR('应用根内相对路径'), sha256: STR('期望的 sha256（可选，传了就校验）') }, required: ['path'] },
+    },
+  }, ['taskId', 'evidence']),
+  outputSchema: OBJ({ ok: BOOL('是否成功'), taskId: STR('任务号'), status: STR('completed'), late: BOOL('是否曾超时（补记）'), evidenceMeta: { type: 'object' } }),
+  authz: { scopes: ['task:write'] },
+  effects: 'write',
+  timeoutMs: 15000,
+  run: (args, ctx) => tasks.complete(args, ctx),
+});
+
+define({
   name: 'webai.council',
   version: '1.0.0',
   title: '网页版 AI 顾问团',
