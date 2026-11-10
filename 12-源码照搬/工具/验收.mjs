@@ -113,7 +113,7 @@ const STEP_NAMES = [
   '代码红线（--check）',
 ]
 
-function runStep(index, cmd, args, extra, label) {
+function runStep(index, cmd, args, extra, label, allowSkip) {
   const target = path.isAbsolute(cmd) ? cmd : path.join(HERE, cmd)
   const r = safeSpawnSync(process.execPath, [target, ...args], { cwd: APP, encoding: 'utf8' })
   const raw = String(r.stdout || '') + String(r.stderr || '')
@@ -127,6 +127,12 @@ function runStep(index, cmd, args, extra, label) {
   if (r.status === 0) {
     console.log(`✓ ${tag} 通过${lines.length ? ' · ' + mask(lines[lines.length - 1]).trim() : ''}`)
     return { ok: true, problems: [] }
+  }
+  // 三态工具（exit 3 = SKIPPED 未验证）：只在显式声明 allowSkip 的步骤里放行，且**不打印成"通过"**
+  if (allowSkip && r.status === 3) {
+    const why = (lines.find((l) => l.trim().startsWith('SKIPPED')) || lines[lines.length - 1] || '').trim()
+    console.log(`· ${tag} 跳过（未验证）· ${mask(why)}`)
+    return { ok: true, problems: [], skipped: true }
   }
   console.log(`✗ ${tag} 失败（退出码 ${r.status}）`)
   const shown = (problems.length ? problems : lines.slice(-4))
@@ -154,8 +160,10 @@ function main() {
   // 后者守的是 2026-11-10 那个坑：RPC 路径把 `/` 编成 %2F ⇒ REST/MCP 派单静默失效
   const selfTest = runStep(1, '体检.mjs', ['--self-test'])
   const coreCheck = runStep(1, path.join(APP, '外壳', 'core', 'core-contract.test.mjs'), [], null, '核心契约自检（能力层/路由编码）')
-  selfTest.ok = selfTest.ok && coreCheck.ok
-  selfTest.problems = selfTest.problems.concat(coreCheck.problems)
+  // 运行时冒烟：工作台没在跑 ⇒ SKIPPED（exit 3，明确标"未验证"，不当通过）；在跑就必须全绿
+  const gwSmoke = runStep(1, path.join(APP, '外壳', 'scripts', 'gateway-smoke.mjs'), [], null, '网关运行时冒烟（工作台没跑=未验证）', true)
+  selfTest.ok = selfTest.ok && coreCheck.ok && gwSmoke.ok
+  selfTest.problems = selfTest.problems.concat(coreCheck.problems, gwSmoke.problems)
   results.push(selfTest)
   results.push(runStep(2, '身份索引.mjs', ['--check']))
 
