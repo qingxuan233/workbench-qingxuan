@@ -1174,6 +1174,10 @@ ipcMain.handle('harness:wv:inject', (e, webContentsId, pinTarget) => {
 });
 ipcMain.handle('scenarios:list', () => listScenarios());
 ipcMain.handle('scenario:get', (e, id) => getScenario(id));
+// oa:set-scenario：渲染层每次切场景都会调用（preload 已声明 app.oa.setScenario），
+// 但旧实现只写在 main/legacy-services.js 里、而该模块只被 require 没有被调用
+// ⇒ 主进程没有这个 handler，每次切场景都报 "No handler registered"。这里补空实现恢复契约。
+ipcMain.handle('oa:set-scenario', () => ({ ok: true }));
 // 场景标签顺序（拖拽换位）：渲染层拖完报上来，下次开机 / 其它窗口都读它
 ipcMain.handle('scenes:order:get', () => ({ saved: fs.existsSync(SCENE_ORDER_FILE), ids: readSceneTabOrder() }));
 ipcMain.handle('scenes:order:set', (e, ids) => saveSceneTabOrder(ids));

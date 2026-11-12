@@ -211,7 +211,7 @@
     paintStrip();
     refreshEngineState();
     refreshPending();   // 状态条要显示待办数 ⇒ 首屏就拉一次（复用本文件现有通道，不新开数据源）
-    setInterval(function () { if (!document.hidden) paintStrip(); }, 6000);   // 后台不刷，省资源
+    setInterval(function () { if (document.hidden) return; paintStrip(); if (ENGINE_STATE !== 'ok') refreshEngineState(); }, 6000);   // 后台不刷；引擎状态只在挂载时取过一次，这里补轮询（否则开得快会一直停在「启动中」）
     if (window.MutationObserver) {
       var grid = document.getElementById('grid');
       if (grid) new MutationObserver(function () { paintStrip(); }).observe(grid, { childList: true, subtree: true, characterData: true });
