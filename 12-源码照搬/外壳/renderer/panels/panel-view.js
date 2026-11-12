@@ -140,7 +140,7 @@ APP['view'] = (body, meta, head) => {
     b.classList.add('view-quick');
     b.addEventListener('click', () => {
       if (q.url) open({ url: q.url, title: q.label || '' });
-      else if (q.path) open({ path: q.path, title: q.label || q.kind || '' });
+      else if (q.path) open({ path: q.path, title: q.label || q.kind || '', kind: q.kind });
     });
     if (q.launchPath) {
       const d = mkBtn('qll' + i, '🖥', '桌面启动：' + q.launchPath);
